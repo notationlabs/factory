@@ -45,6 +45,12 @@ export class Trigger<E> extends ResourceGroup {
       );
     super("lightbox/Trigger", {
       key: id,
+      event: {
+        channel: event.channel.key,
+        event: event.event,
+        match: event.match,
+      },
+      worktree,
       base,
       dependencies: {
         channel: event.channel.id,

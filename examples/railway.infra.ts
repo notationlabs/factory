@@ -18,16 +18,16 @@ export default lightbox(() => {
     dependencies: { router },
   });
 
-  new github.CodeHost({
-    id: "github",
-    config: { allow: [{ owner: "acme" }] },
-    dependencies: { connection: gh },
-  });
-
   new github.Connection({
     id: "personal",
     config: { name: "alice-agents" },
     dependencies: { router },
+  });
+
+  new github.CodeHost({
+    id: "github",
+    config: { allow: [{ owner: "acme" }] },
+    dependencies: { connection: gh },
   });
 
   const claudeAccount = new claude.Account({

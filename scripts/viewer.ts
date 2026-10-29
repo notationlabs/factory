@@ -9,6 +9,7 @@ const template = readFileSync(
 /** A self-contained page for browsing compiled examples. The data is embedded, so it opens from disk. */
 export const renderHtml = (examples: CompiledExample[]) =>
   // `<` escaped so a value can't close the script tag.
-  template.replace("/*DATA*/[]", () =>
+  // A regex: the formatter puts a space after the comment.
+  template.replace(/\/\*DATA\*\/\s*\[\]/, () =>
     JSON.stringify(examples).replace(/</g, "\\u003c"),
   );

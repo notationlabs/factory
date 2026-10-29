@@ -190,8 +190,9 @@ export abstract class Resource<
     if (other === (this as BaseResource)) return;
     if (this.#collection?.closed)
       throw new LateContributionError(this.id, callSite());
-    (this.dependencies as Record<string, BaseResource>)[`dependOn:${other.id}`] =
-      other;
+    (this.dependencies as Record<string, BaseResource>)[
+      `dependOn:${other.id}`
+    ] = other;
   }
 
   constructor(opts: ResourceOpts<C, D>) {
@@ -250,12 +251,20 @@ export abstract class Resource<
     };
     const contributions = ordered(this.contributions);
     for (const [key, item] of Object.entries(this.schema)) {
-      const collect = (item as { collect?: (items: unknown[], from: unknown[]) => unknown }).collect;
+      const collect = (
+        item as { collect?: (items: unknown[], from: unknown[]) => unknown }
+      ).collect;
       if (!collect) continue;
       const given = contributions.filter((c) => key in c.values);
       if (params[key] === undefined && given.length === 0) continue;
-      const fromConfig = params[key] === undefined ? [] : [{ value: params[key], source: { by: "config", at: this.id } }];
-      const all = [...fromConfig, ...given.map((c) => ({ value: c.values[key], source: c.source }))];
+      const fromConfig =
+        params[key] === undefined
+          ? []
+          : [{ value: params[key], source: { by: "config", at: this.id } }];
+      const all = [
+        ...fromConfig,
+        ...given.map((c) => ({ value: c.values[key], source: c.source })),
+      ];
       params[key] = collect(
         all.map((a) => a.value),
         all.map((a) => a.source),

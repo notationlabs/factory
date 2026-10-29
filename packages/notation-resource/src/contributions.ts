@@ -146,7 +146,8 @@ export class LateContributionError extends Error {
   }
 }
 
-const describe = ({ by, at }: ContributionSource) => (by ? `${by} (${at})` : at);
+const describe = ({ by, at }: ContributionSource) =>
+  by ? `${by} (${at})` : at;
 
 /** Merges records key by key. A key contributed twice is a conflict, naming both contributors. */
 export const mergeRecords = <V>(
@@ -157,7 +158,8 @@ export const mergeRecords = <V>(
   const owner: Record<string, ContributionSource> = {};
   items.forEach((item, i) => {
     for (const [key, value] of Object.entries(item ?? {})) {
-      if (key in merged) throw new ContributionConflictError(key, owner[key]!, from[i]!);
+      if (key in merged)
+        throw new ContributionConflictError(key, owner[key]!, from[i]!);
       merged[key] = value;
       owner[key] = from[i]!;
     }

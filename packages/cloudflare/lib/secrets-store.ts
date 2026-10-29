@@ -27,7 +27,9 @@ export const getSecret = async (_key: {
   storeId: string;
   name: string;
 }): Promise<{ fingerprint: string }> => {
-  throw new Error("not implemented: read the secret's metadata and fingerprint");
+  throw new Error(
+    "not implemented: read the secret's metadata and fingerprint",
+  );
 };
 
 export const deleteSecret = async (_key: {

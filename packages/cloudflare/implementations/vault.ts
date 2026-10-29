@@ -1,4 +1,8 @@
-import { outputSources, ResourceGroup, type ResourceOpts } from "@notation/resource";
+import {
+  outputSources,
+  ResourceGroup,
+  type ResourceOpts,
+} from "@notation/resource";
 import type { Vault as VaultContract, VaultSecretOptions } from "factory";
 import * as v from "valibot";
 import {

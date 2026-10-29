@@ -1,11 +1,7 @@
 export type Permission = "read" | "write";
 export type Permissions = Partial<
   Record<
-    | "actions_variables"
-    | "contents"
-    | "issues"
-    | "metadata"
-    | "pull_requests",
+    "actions_variables" | "contents" | "issues" | "metadata" | "pull_requests",
     Permission
   >
 >;

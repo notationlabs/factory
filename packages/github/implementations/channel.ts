@@ -58,7 +58,11 @@ export class Channel extends ResourceGroup implements ChannelContract {
 
   /** Issue events. `actions` defaults to `["opened"]`. */
   issue(opts: IssueSelector): Selector<IssueEvent> {
-    return { channel: this, event: "issues", match: v.parse(issueSelector, opts) };
+    return {
+      channel: this,
+      event: "issues",
+      match: v.parse(issueSelector, opts),
+    };
   }
 
   /** Comments on issues and pull requests. `actions` defaults to `["created"]`; with `"edited"`, only edits that newly add `mention` match. */

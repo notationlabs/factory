@@ -37,6 +37,7 @@
     "packages/*/resources/**/*.ts",
     "packages/*/implementations/**/*.ts",
     "packages/*/lib/**/*.ts",
-    "examples/**/*.ts"
+    "examples/**/*.ts",
+    "scripts/**/*.ts"
   ]
 }

@@ -324,7 +324,7 @@
           sub: g.type,
           colourBy: g.type.split("/")[0],
           groupLabel: g.type.split("/")[0],
-          deps: Object.values(g.dependencies).map(String),
+          deps: g.dependsOn.map(String),
           body: g.config,
           bodyLabel: "config",
           resources: e.resources.filter((r) => r.groupId === g.id).length,

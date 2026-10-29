@@ -37,10 +37,7 @@ export class Channel
   }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
     const outpost = currentOutpost();
     const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
-    super("github/Channel", {
-      config,
-      dependencies: { connection: dependencies.connection.id },
-    });
+    super("github/Channel", { config });
     this.key = id;
     this.scope = scope;
     this.connection = dependencies.connection;

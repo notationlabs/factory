@@ -40,12 +40,7 @@ export class Container extends ResourceGroup<ContainerConfig> {
         throw new Error(`container ${id} lists runtime ${runtime.id} twice`);
       seen.add(runtime.id);
     }
-    super("lightbox/Container", {
-      config,
-      dependencies: Object.fromEntries(
-        policies.map((p) => [`policy:${p.key}`, p.id]),
-      ),
-    });
+    super("lightbox/Container", { config });
     this.key = id;
     this.runtimes = runtimes;
     this.policies = policies;

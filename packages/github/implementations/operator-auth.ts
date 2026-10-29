@@ -20,10 +20,7 @@ export class OperatorAuth
 
   constructor({ id, config, dependencies }: OperatorAuthOptions) {
     const { logins } = v.parse(operatorAuthConfig, config);
-    super("github/OperatorAuth", {
-      config,
-      dependencies: { connection: dependencies.connection.id },
-    });
+    super("github/OperatorAuth", { config });
     dependencies.connection.router.store.contribute(
       {
         operators: {

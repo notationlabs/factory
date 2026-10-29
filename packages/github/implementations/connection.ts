@@ -25,7 +25,7 @@ export type ConnectionOptions = ResourceOpts<
  * the router is the only thing that reads it.
  */
 export class Connection
-  extends ResourceGroup<ConnectionConfig>
+  extends ResourceGroup<ConnectionConfig, { router: Router }>
   implements ConnectionContract
 {
   readonly name: string;
@@ -34,7 +34,7 @@ export class Connection
 
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", { id, config });
+    super("github/Connection", { id, config, dependencies });
     this.name = name;
     this.router = dependencies.router;
     const by = `connection ${id}`;

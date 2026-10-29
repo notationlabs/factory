@@ -21,7 +21,7 @@ export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
  * generates the root key into it.
  */
 export class Router
-  extends ResourceGroup<RouterGroupConfig>
+  extends ResourceGroup<RouterGroupConfig, { vault: Vault }>
   implements RouterContract
 {
   readonly vault: Vault;
@@ -31,7 +31,7 @@ export class Router
 
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("railway/Router", { id, config });
+    super("railway/Router", { id, config, dependencies });
     this.vault = dependencies.vault;
     this.project = this.add(
       new Project({ id: `${id}-project`, config: { name: project } }),

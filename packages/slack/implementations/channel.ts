@@ -1,7 +1,7 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import type { ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
-  currentOutpost,
+  OutpostGroup,
   type Selector,
 } from "factory";
 import * as v from "valibot";
@@ -26,7 +26,7 @@ export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
  * conversation is a thread.
  */
 export class Channel
-  extends ResourceGroup<ChannelConfig>
+  extends OutpostGroup<ChannelConfig, { connection: ConnectionRef }>
   implements ChannelContract
 {
   readonly scope: string;
@@ -38,10 +38,10 @@ export class Channel
     dependencies,
   }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
     const { scope } = v.parse(channelConfig, config);
-    super("slack/Channel", { id, config });
+    super("slack/Channel", { id, config, dependencies });
     this.scope = scope;
     this.connection = dependencies.connection;
-    currentOutpost().store.contribute(
+    this.dependencies.outpost.store.contribute(
       {
         channels: {
           [id]: { provider: "slack", connection: this.connection.name, scope },

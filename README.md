@@ -204,17 +204,17 @@ The router's config is `store`, not `config`, because `ResourceGroup` already us
 
 ### Implementing one
 
-A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource, with `{ id, config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its config as given, then adds its resources and makes its contributions:
+A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource, with `{ id, config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its id, config and dependencies as given, then adds its resources and makes its contributions. A group's dependencies are kept as references, so the graph of groups is what they were declared with. A group in an outpost extends `OutpostGroup`, which adds the outpost to its dependencies, so it can contribute to the outpost's config without the user passing it:
 
 ```ts
-export class Connection extends ResourceGroup implements ConnectionContract {
+export class Connection extends ResourceGroup<ConnectionConfig, { router: Router }> implements ConnectionContract {
   readonly name: string;
   readonly router: Router;
   readonly app: AppInstance;
 
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", { config });
+    super("github/Connection", { id, config, dependencies });
     this.name = name;
     this.router = dependencies.router;
     this.app = this.add(new App({ id: `${id}-app`, config: { name, org }, dependencies: { router: dependencies.router.api } }));

@@ -17,7 +17,7 @@ export type OperatorAuthOptions = ResourceOpts<
 
 /** Operators sign in to Cloudflare Access, which decides who gets in. The router verifies Access's token before it returns an admin session. */
 export class OperatorAuth
-  extends ResourceGroup<OperatorAuthConfig>
+  extends ResourceGroup<OperatorAuthConfig, { router: Router }>
   implements OperatorAuthContract
 {
   readonly provider = "cloudflare";
@@ -26,7 +26,7 @@ export class OperatorAuth
   constructor({ id, config, dependencies }: OperatorAuthOptions) {
     const { emails } = v.parse(operatorAuthConfig, config);
     const { router } = dependencies;
-    super("cloudflare/OperatorAuth", { id, config });
+    super("cloudflare/OperatorAuth", { id, config, dependencies });
     this.application = this.add(
       new AccessApplication({
         id: `${id}-access`,

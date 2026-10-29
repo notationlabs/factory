@@ -319,22 +319,13 @@
           };
         });
 
-      /** A group depends on the groups its resources' dependencies are in. */
+      /** A group depends on the groups it was declared with. */
       const groupNodes = (e) => {
-        const groupOf = new Map(
-          e.resources.map((r) => [r.id, r.group && groupKey(r.group)]),
-        );
         const own = (g) =>
           e.resources.filter(
             (r) => r.group && groupKey(r.group) === groupKey(g),
           );
-        const deps = (g) => [
-          ...new Set(
-            own(g)
-              .flatMap((r) => r.dependsOn.map((d) => groupOf.get(d)))
-              .filter((d) => d && d !== groupKey(g)),
-          ),
-        ];
+        const deps = (g) => Object.values(g.dependencies).flat().map(groupKey);
         return e.groups.map((g) => ({
           key: groupKey(g),
           title: g.id,

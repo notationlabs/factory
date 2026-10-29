@@ -1,7 +1,7 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import type { ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { PolicyContract, Runtime } from "../contracts/outpost.ts";
-import { currentOutpost } from "./outpost.ts";
+import { OutpostGroup } from "./outpost.ts";
 
 const containerConfig = v.object({
   image: v.string(),
@@ -26,7 +26,10 @@ export type ContainerOptions = ResourceOpts<
 >;
 
 /** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
-export class Container extends ResourceGroup<ContainerConfig> {
+export class Container extends OutpostGroup<
+  ContainerConfig,
+  { policies?: PolicyContract[] }
+> {
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
 
@@ -39,10 +42,10 @@ export class Container extends ResourceGroup<ContainerConfig> {
         throw new Error(`container ${id} lists runtime ${runtime.id} twice`);
       seen.add(runtime.id);
     }
-    super("factory/Container", { id, config });
+    super("factory/Container", { id, config, dependencies });
     this.runtimes = runtimes;
     this.policies = policies;
-    currentOutpost().store.contribute(
+    this.dependencies.outpost.store.contribute(
       {
         containers: {
           [id]: {

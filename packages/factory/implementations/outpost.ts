@@ -1,6 +1,8 @@
 import {
   collectResourceGraph,
+  type GroupDependencies,
   ResourceGroup,
+  type ResourceGroupOptions,
   type ResourceOpts,
 } from "@notation/resource";
 import {
@@ -43,8 +45,26 @@ export const outpost = (declare: () => void) => (repo: string) =>
   });
 
 /** The outpost being declared. Outpost resources contribute to it, so they can only be made inside `outpost(() => …)`. */
-export const currentOutpost = (): Outpost => {
+const currentOutpost = (): Outpost => {
   if (!active)
     throw new Error("Declare outpost resources inside outpost(() => { … })");
   return active;
 };
+
+/**
+ * A group declared inside `outpost(() => …)`. It depends on that outpost,
+ * which it contributes to, without the user passing it.
+ */
+export abstract class OutpostGroup<
+  C extends Record<string, any> = Record<string, any>,
+  D extends GroupDependencies = {},
+> extends ResourceGroup<C, D & { outpost: Outpost }> {
+  constructor(type: string, opts: ResourceGroupOptions<C, D>) {
+    super(type, {
+      ...opts,
+      dependencies: { ...opts.dependencies, outpost: currentOutpost() } as D & {
+        outpost: Outpost;
+      },
+    });
+  }
+}

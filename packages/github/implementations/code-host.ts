@@ -26,7 +26,7 @@ export class CodeHost extends ResourceGroup implements CodeHostContract {
   constructor({ id, config, dependencies }: CodeHostOptions) {
     const { allow } = v.parse(codeHostConfig, config);
     super("github/CodeHost", {
-      allow,
+      config,
       dependencies: { connection: dependencies.connection.id },
     });
     this.connection = dependencies.connection;

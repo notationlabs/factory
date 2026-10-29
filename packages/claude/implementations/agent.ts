@@ -23,7 +23,7 @@ export class Agent extends ResourceGroup implements AgentContract {
 
   constructor({ id, config }: AgentOptions) {
     const settings = v.parse(agentConfig, config);
-    super("claude/Agent", { key: id, ...settings });
+    super("claude/Agent", { config });
     this.key = id;
     currentOutpost().store.contribute(
       { agents: { [id]: { runtime: runtime.id, ...settings } } },

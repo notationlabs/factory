@@ -299,7 +299,7 @@
 
       /** Nodes as { key, title, sub, colour, deps: keys, body }. */
       const groupTitle = (g) =>
-        g.config.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
+        g.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
 
       const resourceNodes = (e) =>
         e.resources.map((r) => {

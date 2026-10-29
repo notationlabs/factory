@@ -40,8 +40,7 @@ export class Container extends ResourceGroup {
       seen.add(runtime.id);
     }
     super("lightbox/Container", {
-      key: id,
-      image,
+      config,
       dependencies: Object.fromEntries(
         policies.map((p) => [`policy:${p.key}`, p.id]),
       ),

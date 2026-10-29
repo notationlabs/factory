@@ -31,7 +31,7 @@ export class Router extends ResourceGroup implements RouterContract {
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
     super("railway/Router", {
-      project,
+      config,
       dependencies: { vault: dependencies.vault.id },
     });
     this.vault = dependencies.vault;

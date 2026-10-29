@@ -17,7 +17,7 @@ export class Policy extends ResourceGroup implements PolicyContract {
 
   constructor({ id, config }: PolicyOptions) {
     const { provider, scopes } = v.parse(policyConfig, config);
-    super("lightbox/Policy", { key: id, provider, scopes });
+    super("lightbox/Policy", { config });
     this.key = id;
     this.provider = provider;
     currentOutpost().store.contribute(

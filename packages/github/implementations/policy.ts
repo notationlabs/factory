@@ -29,7 +29,7 @@ export class Policy extends ResourceGroup implements PolicyContract {
   constructor({ id, config }: PolicyOptions) {
     const outpost = currentOutpost();
     const { repo = outpost.repo, permissions } = v.parse(policyConfig, config);
-    super("github/Policy", { key: id, repo, permissions });
+    super("github/Policy", { config });
     this.key = id;
     outpost.store.contribute(
       { policies: { [id]: { provider: "github", repo, permissions } } },

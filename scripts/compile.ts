@@ -39,6 +39,8 @@ export type CompiledExample = {
   groups: {
     id: number;
     type: string;
+    /** The id the group was declared with, for groups that keep one. */
+    key?: string;
     config: unknown;
     dependencies: Record<string, number>;
   }[];
@@ -117,6 +119,7 @@ const compileGraph = async (graph: ResourceGraph) => {
   const groups = graph.resourceGroups.map((g) => ({
     id: g.id,
     type: g.type,
+    key: "key" in g ? String(g.key) : undefined,
     config: plain(g.config),
     dependencies: g.dependencies,
   }));

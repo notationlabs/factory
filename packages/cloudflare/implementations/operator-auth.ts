@@ -26,7 +26,7 @@ export class OperatorAuth
     const { emails } = v.parse(operatorAuthConfig, config);
     const { router } = dependencies;
     super("cloudflare/OperatorAuth", {
-      emails,
+      config,
       dependencies: { router: router.id },
     });
     this.application = this.add(

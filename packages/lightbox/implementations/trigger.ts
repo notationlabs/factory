@@ -44,8 +44,7 @@ export class Trigger<E> extends ResourceGroup {
         `trigger ${id}: container ${container.key} doesn't list runtime ${agent.runtime.id}, which agent ${agent.key} needs`,
       );
     super("lightbox/Trigger", {
-      key: id,
-      ...config,
+      config,
       dependencies: {
         channel: event.channel.id,
         agent: agent.id,

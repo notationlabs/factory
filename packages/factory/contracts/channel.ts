@@ -1,5 +1,4 @@
-import type { Group } from "@factory/notation-group";
-import type { ResourceOpts } from "@notation/resource";
+import type { ResourceGroup, ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 
@@ -21,6 +20,8 @@ export type ChannelConfig = v.InferInput<typeof channelConfig>;
 /** What every connection's `channel()` takes. The connection is its dependency, so it isn't passed. */
 export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
 
-/** Made by a connection, its dependency. Rules are declared on a provider's channel. */
-export interface Channel
-  extends Group<ChannelConfig, { connection: Connection }> {}
+/** Made by a connection. Rules are declared on a provider's channel. */
+export interface Channel extends ResourceGroup {
+  readonly name: string;
+  readonly connection: Connection;
+}

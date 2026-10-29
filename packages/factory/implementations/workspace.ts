@@ -13,7 +13,7 @@ export const Workspace = defineGroup({ type: "factory/Workspace" })
   .requireDependencies<{ channel: Channel }>()
   .defineImplementation(({ config: { name, branch, base }, deps }) => {
     const { channel } = deps;
-    channel.dependencies.connection.dependencies.router.parts.store.contribute(
+    channel.dependencies.connection.dependencies.router.store.contribute(
       { workspaces: { [name]: { channel: channel.config.name, branch, base } } },
       { by: `workspace ${name}` },
     );

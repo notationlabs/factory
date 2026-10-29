@@ -4,47 +4,60 @@ import type { StandardSchemaV1 } from "./standard-schema.ts";
 /*
  * A group is defined the way a concrete resource is, and used the way one
  * is: constructed with `{ id, config, dependencies }`, it has `id`, `config`
- * and `dependencies`. Where a resource has `output`, a group has `parts`: the
- * concrete resources its implementation built, there as soon as it's
- * constructed.
+ * and `dependencies`. The resources its implementation returns are its
+ * fields too, e.g. `router.api`.
  *
  * It holds its Notation ResourceGroup, as `group`, rather than being one:
  * ResourceGroup's own `id`, `config` and `dependencies` are a number, an
  * untyped record and a record of group ids.
  */
 
-export type GroupDependencies = Record<string, Group<any, any, any>>;
+export type GroupDependencies = Record<string, Group<any, any>>;
 
-/** A group's instance type. A contract is an interface that extends it, e.g. `Group<{}, {}, { api: RouterApi }>`. */
-export interface Group<C = {}, D extends GroupDependencies = {}, P = {}> {
+/** What every group has. A contract is an interface that extends it, and adds the resources and methods every implementation has. */
+export interface Group<C = {}, D extends GroupDependencies = {}> {
   readonly type: string;
   readonly id: string;
   readonly config: C;
   readonly dependencies: D;
-  readonly parts: P;
   readonly group: ResourceGroup;
 }
 
-/** The class `defineImplementation` returns. Extend it to add methods. */
-export interface GroupClass<C, D extends GroupDependencies, P> {
-  new (opts: ResourceOpts<C, D>): Group<C, D, P>;
+/** The class `defineImplementation` returns: a group, with the resources its implementation returned as fields. Extend it to add methods. */
+export interface GroupClass<C, D extends GroupDependencies, R> {
+  new (opts: ResourceOpts<C, D>): Group<C, D> & R;
   readonly type: string;
 }
 
-type Build<C, D, P> = (opts: {
+/** A contract's fields that an implementation returns: those that aren't Group's or methods. */
+type ContractResources<Contract> = {
+  [K in keyof Contract as K extends keyof Group
+    ? never
+    : Contract[K] extends (...args: any[]) => any
+      ? never
+      : K]: Contract[K];
+};
+
+type Build<C, D, R> = (opts: {
   id: string;
   config: C;
   deps: D;
   group: ResourceGroup;
-}) => P;
+}) => R;
 
-type ImplementationBuilder<Contract extends Group<any, any, any>, C, D extends GroupDependencies> = {
-  defineImplementation: <P extends Contract["parts"]>(
-    build: Build<C, D, P>,
-  ) => GroupClass<C, D, P>;
+type ImplementationBuilder<
+  Contract extends Group<any, any>,
+  C,
+  D extends GroupDependencies,
+> = {
+  defineImplementation: <
+    R extends ContractResources<Contract> & { [K in keyof Group]?: never },
+  >(
+    build: Build<C, D, R>,
+  ) => GroupClass<C, D, R>;
 };
 
-type DependenciesBuilder<Contract extends Group<any, any, any>, C> = ImplementationBuilder<
+type DependenciesBuilder<Contract extends Group<any, any>, C> = ImplementationBuilder<
   Contract,
   C,
   Contract["dependencies"]
@@ -60,32 +73,32 @@ type DependenciesBuilder<Contract extends Group<any, any, any>, C> = Implementat
  *   defineGroup<Contract>({ type })
  *     .defineSchema(schema)
  *     .requireDependencies<D>()
- *     .defineImplementation(({ id, config, deps, group }) => parts)
+ *     .defineImplementation(({ id, config, deps, group }) => resources)
  *
  * `Contract`, if given, is the interface the group implements: its config,
- * dependencies and parts must satisfy it. `defineSchema` takes any Standard
- * Schema, which validates the group's config. `defineImplementation` adds the
- * group's concrete resources to `group`, or contributes to ones that exist,
- * and returns its parts.
+ * dependencies and resources must satisfy it. `defineSchema` takes any
+ * Standard Schema, which validates the group's config. `defineImplementation`
+ * adds the group's concrete resources to `group`, or contributes to ones that
+ * exist, and returns the resources other groups need, which become the
+ * group's fields.
  */
 export const defineGroup = <
-  Contract extends Group<any, any, any> = Group,
+  Contract extends Group<any, any> = Group,
 >(meta: {
   type: `${string}/${string}`;
 }) => ({
   defineSchema: <C extends Contract["config"]>(
     schema: StandardSchemaV1<unknown, C>,
   ): DependenciesBuilder<Contract, C> => {
-    const defineImplementation = <D extends GroupDependencies, P>(
-      build: Build<C, D, P>,
-    ): GroupClass<C, D, P> =>
-      class implements Group<C, D, P> {
+    const defineImplementation = <D extends GroupDependencies, R>(
+      build: Build<C, D, R>,
+    ): GroupClass<C, D, R> =>
+      class implements Group<C, D> {
         static readonly type = meta.type;
         readonly type = meta.type;
         readonly id: string;
         readonly config: C;
         readonly dependencies: D;
-        readonly parts: P;
         readonly group: ResourceGroup;
 
         constructor(opts: ResourceOpts<C, D>) {
@@ -95,15 +108,15 @@ export const defineGroup = <
           this.id = id;
           this.config = config;
           this.dependencies = deps;
-          this.group = new Members(meta.type, {
+          this.group = new Resources(meta.type, {
             ...config,
             dependencies: Object.fromEntries(
               Object.entries(deps).map(([k, d]) => [k, d.group.id]),
             ),
           });
-          this.parts = build({ id, config, deps, group: this.group });
+          Object.assign(this, build({ id, config, deps, group: this.group }));
         }
-      };
+      } as GroupClass<C, D, R>;
     return {
       defineImplementation,
       requireDependencies: () => ({ defineImplementation }),
@@ -112,7 +125,7 @@ export const defineGroup = <
 });
 
 /** ResourceGroup is abstract. */
-class Members extends ResourceGroup {}
+class Resources extends ResourceGroup {}
 
 const validate = <C>(
   schema: StandardSchemaV1<unknown, C>,

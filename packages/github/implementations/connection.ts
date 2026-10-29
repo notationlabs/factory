@@ -18,7 +18,7 @@ export class Connection
         new App({
           id: `${id}-app`,
           config,
-          dependencies: { router: deps.router.parts.api },
+          dependencies: { router: deps.router.api },
         }),
       ),
     }))

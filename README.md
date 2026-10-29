@@ -7,7 +7,7 @@ Notation Factory's resource model, built on Notation's `@notation/resource`.
 There are two kinds of resource:
 
 - **Concrete resources** are Notation resources: a schema, operations that call an API, and typed dependencies that only read each other's outputs. Only real infrastructure is concrete: a GitHub App, a Cloudflare Worker, a KV namespace, the KV entry that holds the router's config.
-- **Groups** are what Notation Factory is described in: Router, Connection, Channel, Workspace. Each is defined with `defineGroup`, which mirrors `defineResource`, and is constructed and read like a concrete resource: `{ id, config, dependencies }` in, `id`, `config` and `dependencies` on the instance. Its implementation adds the concrete resources it owns, or contributes to ones that already exist, and returns the ones other groups need as its `parts`.
+- **Groups** are what Notation Factory is described in: Router, Connection, Channel, Workspace. Each is defined with `defineGroup`, which mirrors `defineResource`, and is constructed and read like a concrete resource: `{ id, config, dependencies }` in, `id`, `config` and `dependencies` on the instance. Its implementation adds the concrete resources it owns, or contributes to ones that already exist, and returns the ones other groups need, which become its fields: `router.api`, `connection.app`.
 
 So there's one graph. Each group holds a Notation `ResourceGroup`, as `group`, and the concrete resources are its members. Notation collects it and deploys the concrete resources.
 
@@ -83,18 +83,19 @@ export const Router = defineGroup<RouterContract>({ type: "cloudflare/Router" })
 - The generic is what the group must satisfy, as `defineResource`'s is the API it wraps. For a group it's a contract.
 - `defineSchema` takes any Standard Schema. It validates `config`.
 - `requireDependencies<D>()` is optional, and `D` must satisfy the contract's dependencies.
-- `defineImplementation` gets `{ id, config, deps, group }`, as `deriveParams` gets `{ id, config, deps }`. It returns the group's parts, which must satisfy the contract's.
-
-Where a resource has `output`, a group has `parts`. They exist as soon as it's constructed, whereas `output` only exists after deploy.
+- `defineImplementation` gets `{ id, config, deps, group }`, as `deriveParams` gets `{ id, config, deps }`. It returns the resources other groups need, which must satisfy the contract's fields and become the group's own.
 
 A group holds its `ResourceGroup` rather than extending it: `ResourceGroup` already has `id` (a number), `config` (an untyped record) and `dependencies` (group ids).
 
 ### Contracts
 
-A contract is an interface in `packages/factory/contracts/` that extends `Group<Config, Dependencies, Parts>`. It holds what every provider's group has, so other groups can rely on it whichever provider built it.
+A contract is an interface in `packages/factory/contracts/` that extends `Group<Config, Dependencies>`. It adds the resources and methods every provider's group has, so other groups can rely on them whichever provider built it.
 
 ```ts
-export interface Router extends Group<{}, {}, { api: RouterApi; store: RouterConfigStore }> {}
+export interface Router extends Group {
+  readonly api: RouterApi;           // where it's reached
+  readonly store: RouterConfigStore; // where its config is contributed to
+}
 
 export interface Connection extends Group<{}, { router: Router }> {
   channel(opts: ChannelOptions): Channel;
@@ -103,7 +104,7 @@ export interface Connection extends Group<{}, { router: Router }> {
 export interface Channel extends Group<ChannelConfig, { connection: Connection }> {}
 ```
 
-The router's config part is `store`, so `router.parts.store` isn't confused with `router.config`, the router's own options.
+The router's config is `store`, not `config`, which is the router's own options.
 
 ### Implementing one
 
@@ -115,7 +116,7 @@ export class Connection
     .defineSchema(v.object({ name: v.string(), org: v.optional(v.string()) }))
     .requireDependencies<{ router: Router }>()
     .defineImplementation(({ id, config, deps, group }) => ({
-      app: group.add(new App({ id: `${id}-app`, config, dependencies: { router: deps.router.parts.api } })),
+      app: group.add(new App({ id: `${id}-app`, config, dependencies: { router: deps.router.api } })),
     }))
   implements ConnectionContract
 {
@@ -125,7 +126,7 @@ export class Connection
 }
 ```
 
-A channel is made by its connection, so a channel on a GitHub connection is always GitHub's channel, typed as one: `issues.dependencies.connection.parts.app` is the App, and `issues.onIssueComment` exists. github's Channel types that dependency as the contract plus its `app` part, not as the `Connection` class: the class's `channel()` returns `Channel`, so naming it in `Channel`'s base would make the base refer to itself.
+A channel is made by its connection, so a channel on a GitHub connection is always GitHub's channel, typed as one: `issues.dependencies.connection.app` is the App, and `issues.onIssueComment` exists. github's Channel types that dependency as the contract plus its `app`, not as the `Connection` class: the class's `channel()` returns `Channel`, so naming it in `Channel`'s base would make the base refer to itself.
 
 Workspace is Notation Factory's own, in `packages/factory/implementations/`, and works with any provider's channel.
 

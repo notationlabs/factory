@@ -12,11 +12,15 @@ There are two kinds of resource:
 So there's one graph. The groups are its groups and the concrete resources are its members. Notation collects it and deploys the concrete resources.
 
 ```ts
-const router = new cloudflare.Router({ id: "router", name: "acme-router" });
+const router = new cloudflare.Router({ id: "router", config: { name: "acme-router" } });
 
-const gh = new github.Connection({ id: "gh", name: "acme-agents", org: "acme", router });
+const gh = new github.Connection({
+  id: "gh",
+  config: { name: "acme-agents", org: "acme" },
+  dependencies: { router },
+});
 
-const issues = gh.channel({ name: "issues", scope: "acme/app" });
+const issues = gh.channel({ id: "issues", config: { name: "issues", scope: "acme/app" } });
 
 issues.onIssueComment({
   actions: ["created", "edited"],
@@ -24,7 +28,11 @@ issues.onIssueComment({
   from: github.collaborators(),
 });
 
-new Workspace({ name: "issues", branch: "issue-{id}", base: "main", channel: issues });
+new Workspace({
+  id: "issues",
+  config: { name: "issues", branch: "issue-{id}", base: "main" },
+  dependencies: { channel: issues },
+});
 ```
 
 collects these concrete resources:
@@ -75,22 +83,22 @@ The router's config is `store`, not `config`, because `ResourceGroup` already us
 
 ### Implementing one
 
-A provider exports classes that `implements` the contracts. Each constructor validates its options with valibot, calls `super` with its dependencies' group ids, then adds its resources:
+A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource, with `{ id, config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its dependencies' group ids, then adds its resources:
 
 ```ts
 export class Connection extends ResourceGroup implements ConnectionContract {
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor(opts: ConnectionOptions) {
-    const { id, name, org } = v.parse(connectionOptions, opts);
-    super("github/Connection", { name, org, dependencies: { router: opts.router.id } });
-    this.router = opts.router;
-    this.app = this.add(new App({ id: `${id}-app`, config: { name, org }, dependencies: { router: opts.router.api } }));
+  constructor({ id, config, dependencies }: ConnectionOptions) {
+    const { name, org } = v.parse(connectionConfig, config);
+    super("github/Connection", { name, org, dependencies: { router: dependencies.router.id } });
+    this.router = dependencies.router;
+    this.app = this.add(new App({ id: `${id}-app`, config: { name, org }, dependencies: { router: dependencies.router.api } }));
   }
 
   channel(opts: ChannelOptions): Channel {
-    return new Channel({ ...opts, connection: this });
+    return new Channel({ ...opts, dependencies: { connection: this } });
   }
 }
 ```

@@ -1,4 +1,4 @@
-import { ResourceGroup } from "@notation/resource";
+import { ResourceGroup, type ResourceOpts } from "@notation/resource";
 import {
   type ChannelOptions,
   type Connection as ConnectionContract,
@@ -8,38 +8,38 @@ import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
 import { Channel } from "./channel.ts";
 
-const connectionOptions = v.object({
-  id: v.string(),
+const connectionConfig = v.object({
   name: v.string(),
   org: v.optional(v.string()),
 });
-export type ConnectionOptions = v.InferInput<typeof connectionOptions> & {
-  router: Router;
-};
+export type ConnectionOptions = ResourceOpts<
+  v.InferInput<typeof connectionConfig>,
+  { router: Router }
+>;
 
 /** `new github.Connection(...)`: lightbox on GitHub, as one App whose webhook is the router. */
 export class Connection extends ResourceGroup implements ConnectionContract {
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor(opts: ConnectionOptions) {
-    const { id, name, org } = v.parse(connectionOptions, opts);
+  constructor({ id, config, dependencies }: ConnectionOptions) {
+    const { name, org } = v.parse(connectionConfig, config);
     super("github/Connection", {
       name,
       org,
-      dependencies: { router: opts.router.id },
+      dependencies: { router: dependencies.router.id },
     });
-    this.router = opts.router;
+    this.router = dependencies.router;
     this.app = this.add(
       new App({
         id: `${id}-app`,
         config: { name, org },
-        dependencies: { router: opts.router.api },
+        dependencies: { router: dependencies.router.api },
       }),
     );
   }
 
   channel(opts: ChannelOptions): Channel {
-    return new Channel({ ...opts, connection: this });
+    return new Channel({ ...opts, dependencies: { connection: this } });
   }
 }

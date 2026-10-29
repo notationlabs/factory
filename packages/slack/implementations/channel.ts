@@ -42,8 +42,7 @@ export class Channel extends ResourceGroup implements ChannelContract {
   >) {
     const { scope } = v.parse(channelConfig, config);
     super("slack/Channel", {
-      key: id,
-      scope,
+      config,
       dependencies: { connection: dependencies.connection.id },
     });
     this.key = id;

@@ -33,7 +33,7 @@ export class Router extends ResourceGroup implements RouterContract {
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
     super("cloudflare/Router", {
-      project,
+      config,
       dependencies: { vault: dependencies.vault.id },
     });
     this.project = project;

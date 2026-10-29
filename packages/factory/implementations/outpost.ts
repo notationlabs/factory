@@ -14,7 +14,7 @@ export class Outpost extends ResourceGroup {
   readonly store: OutpostConfigInstance;
 
   constructor({ id, config }: ResourceOpts<{ repo: string }, {}>) {
-    super("factory/Outpost", { repo: config.repo });
+    super("factory/Outpost", { config });
     this.repo = config.repo;
     this.store = this.add(
       new OutpostConfig({ id: `${id}-config`, config: { repo: config.repo } }),

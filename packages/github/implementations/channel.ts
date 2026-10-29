@@ -35,8 +35,7 @@ export class Channel extends ResourceGroup implements ChannelContract {
     const outpost = currentOutpost();
     const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
     super("github/Channel", {
-      key: id,
-      scope,
+      config,
       dependencies: { connection: dependencies.connection.id },
     });
     this.key = id;

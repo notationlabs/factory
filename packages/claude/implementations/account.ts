@@ -24,7 +24,7 @@ export class Account extends ResourceGroup implements AccountContract {
 
   constructor({ id, config }: AccountOptions) {
     const { auth } = v.parse(accountConfig, config);
-    super("claude/Account", { key: id });
+    super("claude/Account", { config });
     this.key = id;
     this.secrets = { CLAUDE_CODE_OAUTH_TOKEN: auth };
   }

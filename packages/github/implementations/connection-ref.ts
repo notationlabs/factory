@@ -13,7 +13,7 @@ export class ConnectionRef
   readonly name: string;
 
   constructor({ config }: ResourceOpts<{ name: string }, {}>) {
-    super("github/ConnectionRef", { name: config.name });
+    super("github/ConnectionRef", { config });
     this.name = config.name;
   }
 

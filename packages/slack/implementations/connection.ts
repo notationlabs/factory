@@ -33,8 +33,7 @@ export class Connection extends ResourceGroup implements ConnectionContract {
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
     super("slack/Connection", {
-      name,
-      workspace,
+      config,
       dependencies: { router: dependencies.router.id },
     });
     this.name = name;

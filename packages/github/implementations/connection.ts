@@ -31,8 +31,7 @@ export class Connection extends ResourceGroup implements ConnectionContract {
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
     super("github/Connection", {
-      name,
-      org,
+      config,
       dependencies: { router: dependencies.router.id },
     });
     this.name = name;

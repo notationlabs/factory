@@ -32,7 +32,7 @@ export class Deployer extends ResourceGroup implements DeployerContract {
     const { knownHosts } = v.parse(deployerConfig, config ?? {});
     const { router, accounts = [] } = dependencies;
     super("cloudflare/Deployer", {
-      knownHosts,
+      config,
       dependencies: {
         router: router.id,
         ...Object.fromEntries(accounts.map((a) => [`account:${a.key}`, a.id])),

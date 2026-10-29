@@ -14,6 +14,7 @@ import {
   type BaseResource,
   isOutputValue,
   type ResourceGraph,
+  ResourceGroup,
 } from "@notation/resource";
 import { renderHtml } from "./viewer.ts";
 
@@ -51,11 +52,15 @@ const isResource = (value: unknown): value is BaseResource =>
   "schema" in value &&
   "contributions" in value;
 
-/** JSON-safe: resources become their ids, functions are marked, output values become placeholders. */
+const isGroup = (value: unknown): value is ResourceGroup =>
+  value instanceof ResourceGroup;
+
+/** JSON-safe: resources and groups become their ids, functions are marked, output values become placeholders. */
 const plain = (value: unknown): unknown => {
   if (isOutputValue(value))
     return `<${value.resource.id}.${value.path.join(".")}>`;
   if (isResource(value)) return `<resource ${value.id}>`;
+  if (isGroup(value)) return `<group ${value.type} #${value.id}>`;
   if (typeof value === "function")
     return `<function ${value.name || "anonymous"}>`;
   if (typeof value === "symbol" || typeof value === "bigint")

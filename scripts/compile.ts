@@ -32,6 +32,8 @@ export type CompiledResource = {
   params: unknown;
 };
 
+export type GroupRef = { type: string; id: string };
+
 export type CompiledExample = {
   name: string;
   kind: "hub" | "outpost";
@@ -40,6 +42,8 @@ export type CompiledExample = {
     type: string;
     id: string;
     config: unknown;
+    /** The groups it was declared with, by name. */
+    dependencies: Record<string, GroupRef | GroupRef[]>;
   }[];
   resources: CompiledResource[];
   error?: string;
@@ -71,6 +75,8 @@ const plain = (value: unknown): unknown => {
     );
   return value;
 };
+
+const groupRef = (g: ResourceGroup): GroupRef => ({ type: g.type, id: g.id });
 
 /** Nothing's deployed, so each resource's outputs read as placeholders naming the output. */
 const stubOutputs = (resources: BaseResource[]) => {
@@ -116,6 +122,14 @@ const compileGraph = async (graph: ResourceGraph) => {
     type: g.type,
     id: g.id,
     config: plain(g.config),
+    dependencies: Object.fromEntries(
+      Object.entries(g.dependencies)
+        .filter(([, d]) => d !== undefined)
+        .map(([name, d]) => [
+          name,
+          Array.isArray(d) ? d.map(groupRef) : groupRef(d!),
+        ]),
+    ),
   }));
   return { groups, resources };
 };

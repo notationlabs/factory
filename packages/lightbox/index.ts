@@ -7,7 +7,7 @@ export {
   Container,
   type ContainerOptions,
 } from "./implementations/container.ts";
-export { currentOutpost, Outpost, outpost } from "./implementations/outpost.ts";
+export { Outpost, OutpostGroup, outpost } from "./implementations/outpost.ts";
 export { Policy, type PolicyOptions } from "./implementations/policy.ts";
 export { Trigger, type TriggerOptions } from "./implementations/trigger.ts";
 

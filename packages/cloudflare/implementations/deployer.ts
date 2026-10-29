@@ -25,7 +25,10 @@ export type DeployerOptions = ResourceOpts<
  * and it and the accounts' secrets go into the router's vault.
  */
 export class Deployer
-  extends ResourceGroup<DeployerConfig>
+  extends ResourceGroup<
+    DeployerConfig,
+    { router: Router; accounts?: Account[] }
+  >
   implements DeployerContract
 {
   readonly router: Router;
@@ -35,7 +38,7 @@ export class Deployer
   constructor({ id, config, dependencies }: DeployerOptions) {
     const { knownHosts } = v.parse(deployerConfig, config ?? {});
     const { router, accounts = [] } = dependencies;
-    super("cloudflare/Deployer", { id, config });
+    super("cloudflare/Deployer", { id, config, dependencies });
     this.router = router;
     this.accounts = accounts;
     router.vault.secret({

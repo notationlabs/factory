@@ -21,7 +21,7 @@ export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
  * config is contributed to. Creating it generates the root key into the vault.
  */
 export class Router
-  extends ResourceGroup<RouterGroupConfig>
+  extends ResourceGroup<RouterGroupConfig, { vault: Vault }>
   implements RouterContract
 {
   readonly project: string;
@@ -33,7 +33,7 @@ export class Router
 
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("cloudflare/Router", { id, config });
+    super("cloudflare/Router", { id, config, dependencies });
     this.project = project;
     this.vault = dependencies.vault;
     this.kv = this.add(

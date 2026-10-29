@@ -1,9 +1,9 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import type { ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
   type ChannelConfig,
   channelConfig,
-  currentOutpost,
+  OutpostGroup,
   type Selector,
 } from "lightbox";
 import * as v from "valibot";
@@ -23,7 +23,7 @@ import {
  * router matches; a conversation is an issue.
  */
 export class Channel
-  extends ResourceGroup<ChannelConfig>
+  extends OutpostGroup<ChannelConfig, { connection: ConnectionRef }>
   implements ChannelContract
 {
   readonly scope: string;
@@ -34,9 +34,9 @@ export class Channel
     config,
     dependencies,
   }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
-    const outpost = currentOutpost();
+    super("github/Channel", { id, config, dependencies });
+    const { outpost } = this.dependencies;
     const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
-    super("github/Channel", { id, config });
     this.scope = scope;
     this.connection = dependencies.connection;
     outpost.store.contribute(

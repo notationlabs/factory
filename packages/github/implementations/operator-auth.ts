@@ -13,14 +13,14 @@ export type OperatorAuthOptions = ResourceOpts<
 
 /** Operators sign in with GitHub, through the connection's App, and the router checks their login against `logins`. */
 export class OperatorAuth
-  extends ResourceGroup<OperatorAuthConfig>
+  extends ResourceGroup<OperatorAuthConfig, { connection: Connection }>
   implements OperatorAuthContract
 {
   readonly provider = "github";
 
   constructor({ id, config, dependencies }: OperatorAuthOptions) {
     const { logins } = v.parse(operatorAuthConfig, config);
-    super("github/OperatorAuth", { id, config });
+    super("github/OperatorAuth", { id, config, dependencies });
     dependencies.connection.router.store.contribute(
       {
         operators: {

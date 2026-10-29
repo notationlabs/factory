@@ -1,9 +1,9 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import type { ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
-import type { Selector } from "../contracts/channel.ts";
+import type { Channel, Selector } from "../contracts/channel.ts";
 import type { Agent } from "../contracts/outpost.ts";
 import type { Container } from "./container.ts";
-import { currentOutpost } from "./outpost.ts";
+import { OutpostGroup } from "./outpost.ts";
 
 const triggerConfig = v.object({
   /** Where a worktree's branch is cut from if it doesn't exist yet. Default: the repo's default branch. */
@@ -32,8 +32,10 @@ export type TriggerOptions<E> = ResourceOpts<
  * real event, so it isn't in the outpost's config: the runner imports the
  * repo's config to call it.
  */
-export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
-
+export class Trigger<E> extends OutpostGroup<
+  TriggerConfig<E>,
+  { agent: Agent; container: Container; channel: Channel }
+> {
   constructor({ id, config, dependencies }: TriggerOptions<E>) {
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
@@ -44,8 +46,12 @@ export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
       throw new Error(
         `trigger ${id}: container ${container.id} doesn't list runtime ${agent.runtime.id}, which agent ${agent.id} needs`,
       );
-    super("lightbox/Trigger", { id, config });
-    currentOutpost().store.contribute(
+    super("lightbox/Trigger", {
+      id,
+      config,
+      dependencies: { ...dependencies, channel: event.channel },
+    });
+    this.dependencies.outpost.store.contribute(
       {
         triggers: {
           [id]: {

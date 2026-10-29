@@ -27,7 +27,7 @@ export type ConnectionOptions = ResourceOpts<
  * code still lives on the code host.
  */
 export class Connection
-  extends ResourceGroup<ConnectionConfig>
+  extends ResourceGroup<ConnectionConfig, { router: Router }>
   implements ConnectionContract
 {
   readonly name: string;
@@ -36,7 +36,7 @@ export class Connection
 
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
-    super("slack/Connection", { id, config });
+    super("slack/Connection", { id, config, dependencies });
     this.name = name;
     this.router = dependencies.router;
     this.app = this.add(

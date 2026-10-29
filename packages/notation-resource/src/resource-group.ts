@@ -4,8 +4,15 @@ import {
   type ResourceGraph,
 } from "./resource-collection";
 
+/** The groups a group uses, by name. Like a resource's dependencies, they're references, not ids. */
+export type GroupDependencies = Record<
+  string,
+  ResourceGroup | ResourceGroup[] | undefined
+>;
+
 export type ResourceGroupOptions<
   C extends Record<string, any> = Record<string, any>,
+  D extends GroupDependencies = GroupDependencies,
 > = {
   /**
    * Identifies the group across deployments. Must be unique among groups of
@@ -14,20 +21,23 @@ export type ResourceGroupOptions<
   id: string;
 
   config?: C;
+  dependencies?: D;
 };
 
 export abstract class ResourceGroup<
   C extends Record<string, any> = Record<string, any>,
+  D extends GroupDependencies = GroupDependencies,
 > {
   readonly type: string;
   readonly id: string;
   readonly config: C;
+  readonly dependencies: D;
   readonly resources: BaseResource[];
 
   #graph?: ResourceGraph;
 
-  constructor(type: string, opts: ResourceGroupOptions<C>) {
-    const { id, config } = opts;
+  constructor(type: string, opts: ResourceGroupOptions<C, D>) {
+    const { id, config, dependencies } = opts;
     const collection = getActiveResourceCollection();
     if (
       collection?.graph.resourceGroups.some(
@@ -42,6 +52,7 @@ export abstract class ResourceGroup<
     this.id = id;
     this.#graph = collection?.graph;
     this.config = config || ({} as C);
+    this.dependencies = dependencies || ({} as D);
     this.resources = [];
 
     collection?.graph.resourceGroups.push(this);

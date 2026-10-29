@@ -18,14 +18,17 @@ export type DeployerOptions = ResourceOpts<
  * `RAILWAY_API_TOKEN`, copied into the vault when it changes, as are the
  * accounts' secrets.
  */
-export class Deployer extends ResourceGroup implements DeployerContract {
+export class Deployer
+  extends ResourceGroup<{}, { router: Router; accounts?: Account[] }>
+  implements DeployerContract
+{
   readonly router: Router;
   readonly accounts: Account[];
   readonly service: ServiceInstance;
 
   constructor({ id, dependencies }: DeployerOptions) {
     const { router, accounts = [] } = dependencies;
-    super("railway/Deployer", { id });
+    super("railway/Deployer", { id, dependencies });
     this.router = router;
     this.accounts = accounts;
     router.vault.secret({

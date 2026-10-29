@@ -5,11 +5,12 @@ import {
 } from "./resource-collection";
 
 export type ResourceGroupOptions = {
-  /** The group's key, kept in its config. Its `id` is the graph's number for it. */
-  id?: string;
+  /**
+   * Optional pre-assigned ID. Used outside graph collection.
+   */
+  id?: number;
 
-  /** Groups, or their ids. */
-  dependencies?: Record<string, ResourceGroup | number>;
+  dependencies?: Record<string, number>;
   [key: string]: any;
 };
 
@@ -27,14 +28,9 @@ export abstract class ResourceGroup {
     const collection = getActiveResourceCollection();
     this.type = type;
     this.#graph = collection?.graph;
-    this.id = collection ? collection.nextResourceGroupId++ : -1;
-    this.dependencies = Object.fromEntries(
-      Object.entries(dependencies ?? {}).map(([name, dep]) => [
-        name,
-        typeof dep === "number" ? dep : dep.id,
-      ]),
-    );
-    this.config = id === undefined ? config : { key: id, ...config };
+    this.id = collection ? collection.nextResourceGroupId++ : (id ?? -1);
+    this.dependencies = dependencies || {};
+    this.config = config || {};
     this.resources = [];
 
     collection?.graph.resourceGroups.push(this);

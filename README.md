@@ -268,7 +268,7 @@ examples/outpost.config.ts   an outpost with GitHub and Slack triggers
 pnpm install
 pnpm typecheck
 pnpm compile   # writes dist/<example>.json: each example's groups and resources, with planned params
-pnpm view      # the same, plus dist/index.html, which it opens: each graph laid out in dependency order
+pnpm viewer    # the same, plus dist/index.html, which it opens: each graph laid out in dependency order
 ```
 
 Outputs that only exist after deploy show as `<resource-id.field>`. The outpost is compiled for `acme/webapp`.

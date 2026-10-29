@@ -31,18 +31,23 @@ export class Deployer
     super("railway/Deployer", { id, dependencies });
     this.router = router;
     this.accounts = accounts;
+
     router.vault.secret({
       id: `${id}-token`,
       name: "RAILWAY_API_TOKEN",
       value: secret.env("RAILWAY_API_TOKEN"),
     });
-    for (const account of accounts)
-      for (const [env, value] of Object.entries(account.secrets))
+
+    for (const account of accounts) {
+      for (const [env, value] of Object.entries(account.secrets)) {
         router.vault.secret({
           id: `${id}-${account.id}-${env}`,
           name: env,
           value,
         });
+      }
+    }
+
     this.service = this.add(
       new Service({
         id: `${id}-service`,

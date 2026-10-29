@@ -54,11 +54,12 @@ export const App = defineResource<AppApi>({ type: "github/apps/App" })
     create: async (params) => createApp(params),
     read: async (key) => readApp(key),
     update: async (key, patch, params) => {
-      if (patch.events !== undefined || patch.permissions !== undefined)
+      if (patch.events !== undefined || patch.permissions !== undefined) {
         await requestAppChange(key, {
           events: params.events,
           permissions: params.permissions,
         });
+      }
       await setWebhook(key, params.hookUrl);
     },
     delete: async () => {

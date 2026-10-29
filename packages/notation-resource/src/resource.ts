@@ -180,8 +180,9 @@ export abstract class Resource<
     const at = callSite();
     if (this.#collection?.closed) throw new LateContributionError(this.id, at);
     for (const key of Object.keys(values)) {
-      if (!(this.schema as Record<string, { collect?: unknown }>)[key]?.collect)
+      if (!(this.schema as Record<string, { collect?: unknown }>)[key]?.collect) {
         throw new Error(`${this.id}: "${key}" doesn't take contributions`);
+      }
     }
     for (const source of outputSources(values)) this.dependOn(source);
     this.contributions.push({
@@ -193,8 +194,9 @@ export abstract class Resource<
   /** Adds a dependency after construction, for ordering only. Same lifetime as `contribute`. */
   dependOn(other: BaseResource): void {
     if (other === (this as BaseResource)) return;
-    if (this.#collection?.closed)
+    if (this.#collection?.closed) {
       throw new LateContributionError(this.id, callSite());
+    }
     (this.dependencies as Record<string, BaseResource>)[
       `dependOn:${other.id}`
     ] = other;

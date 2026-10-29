@@ -41,18 +41,23 @@ export class Deployer
     super("cloudflare/Deployer", { id, config, dependencies });
     this.router = router;
     this.accounts = accounts;
+
     router.vault.secret({
       id: `${id}-token`,
       name: "DEPLOYER_API_TOKEN",
       value: secret.prompt("Cloudflare API token for Workers Builds"),
     });
-    for (const account of accounts)
-      for (const [env, value] of Object.entries(account.secrets))
+
+    for (const account of accounts) {
+      for (const [env, value] of Object.entries(account.secrets)) {
         router.vault.secret({
           id: `${id}-${account.id}-${env}`,
           name: env,
           value,
         });
+      }
+    }
+
     this.worker = this.add(
       new Worker({
         id: `${id}-worker`,

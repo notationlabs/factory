@@ -60,19 +60,23 @@ const isGroup = (value: unknown): value is ResourceGroup =>
 
 /** JSON-safe: resources and groups become their ids, functions are marked, output values become placeholders. */
 const plain = (value: unknown): unknown => {
-  if (isOutputValue(value))
+  if (isOutputValue(value)) {
     return `<${value.resource.id}.${value.path.join(".")}>`;
+  }
   if (isResource(value)) return `<resource ${value.id}>`;
   if (isGroup(value)) return `<group ${value.type} ${value.id}>`;
-  if (typeof value === "function")
+  if (typeof value === "function") {
     return `<function ${value.name || "anonymous"}>`;
-  if (typeof value === "symbol" || typeof value === "bigint")
+  }
+  if (typeof value === "symbol" || typeof value === "bigint") {
     return String(value);
+  }
   if (Array.isArray(value)) return value.map(plain);
-  if (typeof value === "object" && value !== null)
+  if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [k, plain(v)]),
     );
+  }
   return value;
 };
 
@@ -80,7 +84,7 @@ const groupRef = (g: ResourceGroup): GroupRef => ({ type: g.type, id: g.id });
 
 /** Nothing's deployed, so each resource's outputs read as placeholders naming the output. */
 const stubOutputs = (resources: BaseResource[]) => {
-  for (const resource of resources)
+  for (const resource of resources) {
     resource.setOutput(
       new Proxy(
         {},
@@ -90,6 +94,7 @@ const stubOutputs = (resources: BaseResource[]) => {
         },
       ),
     );
+  }
 };
 
 const compileGraph = async (graph: ResourceGraph) => {

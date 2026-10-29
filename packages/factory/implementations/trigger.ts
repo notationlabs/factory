@@ -40,12 +40,14 @@ export class Trigger<E> extends OutpostGroup<
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
     const { agent, container } = dependencies;
-    if (base !== undefined && !worktree)
+    if (base !== undefined && !worktree) {
       throw new Error(`trigger ${id}: base is only used with a worktree`);
-    if (!container.runtimes.some((r) => r.id === agent.runtime.id))
+    }
+    if (!container.runtimes.some((r) => r.id === agent.runtime.id)) {
       throw new Error(
         `trigger ${id}: container ${container.id} doesn't list runtime ${agent.runtime.id}, which agent ${agent.id} needs`,
       );
+    }
     super("factory/Trigger", {
       id,
       config,

@@ -2,14 +2,16 @@ import { ResourceGroup, type ResourceOpts } from "@notation/resource";
 import type { ConnectionRef as ConnectionRefContract } from "factory";
 import { Channel, type ChannelOptions } from "./channel.ts";
 
+type ConnectionRefConfig = { name: string };
+
 /** In an outpost: a Slack connection the infra declares, from `slack.Connection.get(name)`. */
 export class ConnectionRef
-  extends ResourceGroup
+  extends ResourceGroup<ConnectionRefConfig>
   implements ConnectionRefContract
 {
   readonly name: string;
 
-  constructor({ config }: ResourceOpts<{ name: string }, {}>) {
+  constructor({ config }: ResourceOpts<ConnectionRefConfig, {}>) {
     super("slack/ConnectionRef", { config });
     this.name = config.name;
   }

@@ -10,11 +10,9 @@ import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Vault } from "./vault.ts";
 
 const routerConfig = v.object({ project: v.string() });
+export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
-export type RouterOptions = ResourceOpts<
-  v.InferInput<typeof routerConfig>,
-  { vault: Vault }
->;
+export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
 
 /**
  * `new railway.Router(...)`: the hub's Railway project, a public router
@@ -22,7 +20,10 @@ export type RouterOptions = ResourceOpts<
  * file on that volume. Creating it binds the vault to the project and
  * generates the root key into it.
  */
-export class Router extends ResourceGroup implements RouterContract {
+export class Router
+  extends ResourceGroup<RouterGroupConfig>
+  implements RouterContract
+{
   readonly vault: Vault;
   readonly project: ProjectInstance;
   readonly api: ServiceInstance;

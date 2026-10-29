@@ -22,7 +22,10 @@ import {
  * Its grant is the App's installation on the repo. Its selectors are data the
  * router matches; a conversation is an issue.
  */
-export class Channel extends ResourceGroup implements ChannelContract {
+export class Channel
+  extends ResourceGroup<ChannelConfig>
+  implements ChannelContract
+{
   readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;

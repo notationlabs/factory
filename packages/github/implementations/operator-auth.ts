@@ -4,15 +4,16 @@ import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 
 const operatorAuthConfig = v.object({ logins: v.array(v.string()) });
+export type OperatorAuthConfig = v.InferInput<typeof operatorAuthConfig>;
 
 export type OperatorAuthOptions = ResourceOpts<
-  v.InferInput<typeof operatorAuthConfig>,
+  OperatorAuthConfig,
   { connection: Connection }
 >;
 
 /** Operators sign in with GitHub, through the connection's App, and the router checks their login against `logins`. */
 export class OperatorAuth
-  extends ResourceGroup
+  extends ResourceGroup<OperatorAuthConfig>
   implements OperatorAuthContract
 {
   readonly provider = "github";

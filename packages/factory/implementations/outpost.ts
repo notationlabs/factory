@@ -8,12 +8,14 @@ import {
   type OutpostConfigInstance,
 } from "../resources/outpost-config.ts";
 
+type OutpostGroupConfig = { repo: string };
+
 /** A repo's outpost. Its channels, containers, policies, agents and triggers contribute to `store`, the one entry the deployer applies. */
-export class Outpost extends ResourceGroup {
+export class Outpost extends ResourceGroup<OutpostGroupConfig> {
   readonly repo: string;
   readonly store: OutpostConfigInstance;
 
-  constructor({ id, config }: ResourceOpts<{ repo: string }, {}>) {
+  constructor({ id, config }: ResourceOpts<OutpostGroupConfig, {}>) {
     super("factory/Outpost", { config });
     this.repo = config.repo;
     this.store = this.add(

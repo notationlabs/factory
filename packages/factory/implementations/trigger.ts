@@ -10,16 +10,18 @@ const triggerConfig = v.object({
   base: v.optional(v.string()),
 });
 
+export type TriggerConfig<E> = v.InferInput<typeof triggerConfig> & {
+  event: Selector<E>;
+  /**
+   * Names the branch whose worktree the agent runs in, from the event.
+   * Returning `undefined`, or leaving it out, means no branch: a scratch
+   * worktree per conversation.
+   */
+  worktree?: (event: E) => string | undefined;
+};
+
 export type TriggerOptions<E> = ResourceOpts<
-  v.InferInput<typeof triggerConfig> & {
-    event: Selector<E>;
-    /**
-     * Names the branch whose worktree the agent runs in, from the event.
-     * Returning `undefined`, or leaving it out, means no branch: a scratch
-     * worktree per conversation.
-     */
-    worktree?: (event: E) => string | undefined;
-  },
+  TriggerConfig<E>,
   { agent: Agent; container: Container }
 >;
 
@@ -30,7 +32,7 @@ export type TriggerOptions<E> = ResourceOpts<
  * real event, so it isn't in the outpost's config: the runner imports the
  * repo's config to call it.
  */
-export class Trigger<E> extends ResourceGroup {
+export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
   readonly key: string;
 
   constructor({ id, config, dependencies }: TriggerOptions<E>) {

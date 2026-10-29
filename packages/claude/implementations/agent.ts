@@ -13,11 +13,12 @@ const agentConfig = v.object({
   /** `~/.claude/*` is written to `/data/agents/<id>/`, other `~/*` to `/data/home/`. */
   files: v.optional(v.record(v.string(), v.string())),
 });
+export type AgentConfig = v.InferInput<typeof agentConfig>;
 
-export type AgentOptions = ResourceOpts<v.InferInput<typeof agentConfig>, {}>;
+export type AgentOptions = ResourceOpts<AgentConfig, {}>;
 
 /** A Claude Code agent. A trigger that runs it must target a container that lists `claude.runtime`. */
-export class Agent extends ResourceGroup implements AgentContract {
+export class Agent extends ResourceGroup<AgentConfig> implements AgentContract {
   readonly key: string;
   readonly runtime = runtime;
 

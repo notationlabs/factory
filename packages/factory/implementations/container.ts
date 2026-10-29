@@ -18,14 +18,15 @@ const containerConfig = v.object({
     {},
   ),
 });
+export type ContainerConfig = v.InferInput<typeof containerConfig>;
 
 export type ContainerOptions = ResourceOpts<
-  v.InferInput<typeof containerConfig>,
+  ContainerConfig,
   { policies?: PolicyContract[] }
 >;
 
 /** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
-export class Container extends ResourceGroup {
+export class Container extends ResourceGroup<ContainerConfig> {
   readonly key: string;
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];

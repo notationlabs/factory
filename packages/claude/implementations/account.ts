@@ -10,14 +10,15 @@ const accountConfig = v.object({
   /** e.g. `secret.env("CLAUDE_CODE_OAUTH_TOKEN")`, from `claude setup-token`. */
   auth: v.custom<Secret>(isSecret, "auth must be a secret"),
 });
+export type AccountConfig = v.InferInput<typeof accountConfig>;
 
-export type AccountOptions = ResourceOpts<
-  v.InferInput<typeof accountConfig>,
-  {}
->;
+export type AccountOptions = ResourceOpts<AccountConfig, {}>;
 
 /** The credentials Claude Code runs on. The deployer writes them to the vault, and injects them into every container that lists `claude.runtime`, and no other. */
-export class Account extends ResourceGroup implements AccountContract {
+export class Account
+  extends ResourceGroup<AccountConfig>
+  implements AccountContract
+{
   readonly key: string;
   readonly runtime = "claude";
   readonly secrets: Record<string, Secret>;

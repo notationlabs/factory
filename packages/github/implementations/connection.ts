@@ -12,9 +12,10 @@ const connectionConfig = v.object({
   name: v.string(),
   org: v.optional(v.string()),
 });
+export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ResourceOpts<
-  v.InferInput<typeof connectionConfig>,
+  ConnectionConfig,
   { router: Router }
 >;
 
@@ -23,7 +24,10 @@ export type ConnectionOptions = ResourceOpts<
  * is the router. Its private key goes straight into the router's vault, and
  * the router is the only thing that reads it.
  */
-export class Connection extends ResourceGroup implements ConnectionContract {
+export class Connection
+  extends ResourceGroup<ConnectionConfig>
+  implements ConnectionContract
+{
   readonly name: string;
   readonly router: Router;
   readonly app: AppInstance;

@@ -11,6 +11,9 @@
       "@notation/resource": [
         "./packages/notation-resource/src/index.ts"
       ],
+      "@lightbox/notation-group": [
+        "./packages/notation-group/src/index.ts"
+      ],
       "lightbox": [
         "./packages/lightbox/index.ts"
       ],

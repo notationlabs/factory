@@ -1,8 +1,5 @@
-import type {
-  BaseResource,
-  Contributable,
-  ResourceGroup,
-} from "@notation/resource";
+import type { Group } from "@lightbox/notation-group";
+import type { BaseResource, Contributable } from "@notation/resource";
 import type { WorkspaceEntry } from "../implementations/workspace.ts";
 import type { ChannelEntry, RuleEntry } from "./channel.ts";
 
@@ -26,10 +23,9 @@ export type RouterConfigStore = Omit<BaseResource, "contribute"> &
 
 /**
  * Receives deliveries and routes them by its config. A provider decides
- * where each lives (a Worker and a KV entry, …). The config is `store`, not
- * `config`, which ResourceGroup already uses for the group's own options.
+ * where each part lives (a Worker and a KV entry, …). The config's part is
+ * `store`, so `router.parts.store` isn't confused with `router.config`, the
+ * router's own options.
  */
-export interface Router extends ResourceGroup {
-  readonly api: RouterApi;
-  readonly store: RouterConfigStore;
-}
+export interface Router
+  extends Group<{}, {}, { api: RouterApi; store: RouterConfigStore }> {}

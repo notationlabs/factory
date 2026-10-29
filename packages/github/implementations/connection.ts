@@ -12,6 +12,7 @@ const connectionConfig = v.object({
   name: v.string(),
   org: v.optional(v.string()),
 });
+
 export type ConnectionOptions = ResourceOpts<
   v.InferInput<typeof connectionConfig>,
   { router: Router }

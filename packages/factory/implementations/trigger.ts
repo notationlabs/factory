@@ -11,18 +11,16 @@ const triggerConfig = v.object({
 });
 
 export type TriggerOptions<E> = ResourceOpts<
-  v.InferInput<typeof triggerConfig>,
-  {
+  v.InferInput<typeof triggerConfig> & {
     event: Selector<E>;
-    agent: Agent;
-    container: Container;
     /**
      * Names the branch whose worktree the agent runs in, from the event.
      * Returning `undefined`, or leaving it out, means no branch: a scratch
      * worktree per conversation.
      */
     worktree?: (event: E) => string | undefined;
-  }
+  },
+  { agent: Agent; container: Container }
 >;
 
 /**
@@ -36,8 +34,9 @@ export class Trigger<E> extends ResourceGroup {
   readonly key: string;
 
   constructor({ id, config, dependencies }: TriggerOptions<E>) {
-    const { base } = v.parse(triggerConfig, config ?? {});
-    const { event, agent, container, worktree } = dependencies;
+    const { event, worktree } = config;
+    const { base } = v.parse(triggerConfig, config);
+    const { agent, container } = dependencies;
     if (base !== undefined && !worktree)
       throw new Error(`trigger ${id}: base is only used with a worktree`);
     if (!container.runtimes.some((r) => r.id === agent.runtime.id))

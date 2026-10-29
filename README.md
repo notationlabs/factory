@@ -109,15 +109,14 @@ export default outpost(() => {
 
   new Trigger({
     id: "mention",
-    dependencies: {
+    config: {
       event: gh.issueComment({
         mention: "@claude",
         from: github.collaborators(),
       }),
-      agent: coder,
-      container: dev,
       worktree: (event) => `issue-${event.issue.number}`, // <-- `event` is typed by the selector
     },
+    dependencies: { agent: coder, container: dev },
   });
 });
 ```
@@ -167,7 +166,7 @@ collects one concrete resource, `outpost-config`, keyed by the repo:
 }
 ```
 
-A selector such as `gh.issueComment(...)` is data the router matches, typed by the events it matches. The container is data too, so the router knows what to wake. A trigger's `worktree` function isn't: the runner imports the config to call it. It's a property of the trigger's own options, so TypeScript infers its event from `event`. A container that lists a runtime twice, or a trigger whose container lacks its agent's runtime, throws when it's declared.
+A selector such as `gh.issueComment(...)` is data the router matches, typed by the events it matches. The container is data too, so the router knows what to wake. A trigger's `worktree` function isn't: the runner imports the config to call it. It sits beside `event` in the trigger's config, so TypeScript infers its event from `event`. A container that lists a runtime twice, or a trigger whose container lacks its agent's runtime, throws when it's declared.
 
 ### Contracts
 

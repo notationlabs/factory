@@ -57,51 +57,47 @@ export default outpost(() => {
 
   new Trigger({
     id: "on-open",
-    dependencies: {
+    config: {
       event: gh.issue({ from: github.collaborators() }),
-      agent: triage,
-      container: dev,
       worktree: branch,
     },
+    dependencies: { agent: triage, container: dev },
   });
 
   new Trigger({
     id: "mention",
-    dependencies: {
+    config: {
       event: gh.issueComment({
         actions: ["created", "edited"],
         mention: "@claude",
         from: github.collaborators(),
       }),
-      agent: coder,
-      container: dev,
       worktree: branch,
     },
+    dependencies: { agent: coder, container: dev },
   });
 
   new Trigger({
     id: "docs",
-    config: { base: "docs" },
-    dependencies: {
+    config: {
       event: gh.issueComment({
         mention: "@claude",
         labels: ["docs"],
         from: github.team("acme/docs"),
       }),
-      agent: coder,
-      container: dev,
       worktree: (event) => `docs/${event.issue.number}`,
+      base: "docs",
     },
+    dependencies: { agent: coder, container: dev },
   });
 
   new Trigger({
     id: "slack",
-    dependencies: {
+    config: {
       event: ops.mention("@claude", {
         from: [slack.group("eng"), slack.user("dan@acme.dev")],
       }),
-      agent: coder,
-      container: dev,
     },
+    dependencies: { agent: coder, container: dev },
   });
 });

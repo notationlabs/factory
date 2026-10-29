@@ -33,7 +33,8 @@ export type TriggerOptions<E> = ResourceOpts<
 export class Trigger<E> extends ResourceGroup {
   readonly key: string;
 
-  constructor({ id, config, dependencies }: TriggerOptions<E>) {
+  constructor(opts: TriggerOptions<E>) {
+    const { id, config, dependencies } = opts;
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
     const { agent, container } = dependencies;
@@ -43,15 +44,8 @@ export class Trigger<E> extends ResourceGroup {
       throw new Error(
         `trigger ${id}: container ${container.key} doesn't list runtime ${agent.runtime.id}, which agent ${agent.key} needs`,
       );
-    super("factory/Trigger", {
-      key: id,
-      ...config,
-      dependencies: {
-        channel: event.channel.id,
-        agent: agent.id,
-        container: container.id,
-      },
-    });
+    super("factory/Trigger", opts);
+    this.dependencies.channel = event.channel.id;
     this.key = id;
     currentOutpost().store.contribute(
       {

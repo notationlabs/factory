@@ -1,19 +1,12 @@
-import { defineGroup } from "@lightbox/notation-group";
+import { ResourceGroup, type ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
+  type ChannelConfig,
   channelConfig,
-  type Connection as ConnectionContract,
 } from "lightbox";
 import * as v from "valibot";
-import type { AppInstance } from "../resources/app.ts";
+import type { Connection } from "./connection.ts";
 import { type IssueCommentRule, issueCommentRule, ruleKey } from "./rules.ts";
-
-/**
- * What a channel needs of its connection: github's, with its App. A type,
- * not the Connection class, whose `channel()` returns this class: naming it
- * in this class's base would make the base refer to itself.
- */
-type GithubConnection = ConnectionContract & { readonly app: AppInstance };
 
 /**
  * A channel on a GitHub connection, made by `connection.channel(...)`.
@@ -21,40 +14,46 @@ type GithubConnection = ConnectionContract & { readonly app: AppInstance };
  * contributes in two places: its matcher to the router's config, and the
  * events and permissions it needs to the connection's App.
  */
-export class Channel
-  extends defineGroup<ChannelContract>({ type: "github/Channel" })
-    .defineSchema(channelConfig)
-    .requireDependencies<{ connection: GithubConnection }>()
-    .defineImplementation(({ config, deps }) => {
-      const { connection } = deps;
-      // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
-      connection.dependencies.router.store.contribute(
-        {
-          channels: {
-            [config.name]: {
-              provider: "github",
-              scope: config.scope,
-              source: connection.app.out.id,
-            },
+export class Channel extends ResourceGroup implements ChannelContract {
+  readonly name: string;
+  readonly connection: Connection;
+
+  constructor({
+    config,
+    dependencies,
+  }: ResourceOpts<ChannelConfig, { connection: Connection }>) {
+    const { name, scope } = v.parse(channelConfig, config);
+    super("github/Channel", {
+      name,
+      scope,
+      dependencies: { connection: dependencies.connection.id },
+    });
+    this.name = name;
+    this.connection = dependencies.connection;
+    // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
+    this.connection.router.store.contribute(
+      {
+        channels: {
+          [name]: {
+            provider: "github",
+            scope,
+            source: this.connection.app.out.id,
           },
         },
-        { by: `channel ${config.name}` },
-      );
-      return {};
-    })
-  implements ChannelContract
-{
+      },
+      { by: `channel ${name}` },
+    );
+  }
+
   /** Deliveries of comments on this channel's issues and pull requests that `rule` accepts. */
   onIssueComment(rule: IssueCommentRule): void {
     const match = v.parse(issueCommentRule, rule);
-    const { name } = this.config;
-    const { connection } = this.dependencies;
-    const by = `channel ${name}`;
-    connection.dependencies.router.store.contribute(
+    const by = `channel ${this.name}`;
+    this.connection.router.store.contribute(
       {
         rules: {
-          [ruleKey(name, "issue_comment", match)]: {
-            channel: name,
+          [ruleKey(this.name, "issue_comment", match)]: {
+            channel: this.name,
             provider: "github",
             event: "issue_comment",
             match,
@@ -63,7 +62,7 @@ export class Channel
       },
       { by },
     );
-    connection.app.contribute(
+    this.connection.app.contribute(
       { events: ["issue_comment"], permissions: { issues: "read" } },
       { by },
     );

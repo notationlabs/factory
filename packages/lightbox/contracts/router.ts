@@ -23,9 +23,10 @@ export type RouterConfigStore = Omit<BaseResource, "contribute"> &
 
 /**
  * Receives deliveries and routes them by its config. A provider decides
- * where each part lives (a Worker and a KV entry, …). The config's part is
- * `store`, so `router.parts.store` isn't confused with `router.config`, the
- * router's own options.
+ * where each lives (a Worker and a KV entry, …). The config is `store`, not
+ * `config`, which is the router's own options.
  */
-export interface Router
-  extends Group<{}, {}, { api: RouterApi; store: RouterConfigStore }> {}
+export interface Router extends Group {
+  readonly api: RouterApi;
+  readonly store: RouterConfigStore;
+}

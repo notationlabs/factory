@@ -13,9 +13,7 @@ import { type IssueCommentRule, issueCommentRule, ruleKey } from "./rules.ts";
  * not the Connection class, whose `channel()` returns this class: naming it
  * in this class's base would make the base refer to itself.
  */
-type GithubConnection = ConnectionContract & {
-  readonly parts: { app: AppInstance };
-};
+type GithubConnection = ConnectionContract & { readonly app: AppInstance };
 
 /**
  * A channel on a GitHub connection, made by `connection.channel(...)`.
@@ -30,13 +28,13 @@ export class Channel
     .defineImplementation(({ config, deps }) => {
       const { connection } = deps;
       // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
-      connection.dependencies.router.parts.store.contribute(
+      connection.dependencies.router.store.contribute(
         {
           channels: {
             [config.name]: {
               provider: "github",
               scope: config.scope,
-              source: connection.parts.app.out.id,
+              source: connection.app.out.id,
             },
           },
         },
@@ -52,7 +50,7 @@ export class Channel
     const { name } = this.config;
     const { connection } = this.dependencies;
     const by = `channel ${name}`;
-    connection.dependencies.router.parts.store.contribute(
+    connection.dependencies.router.store.contribute(
       {
         rules: {
           [ruleKey(name, "issue_comment", match)]: {
@@ -65,7 +63,7 @@ export class Channel
       },
       { by },
     );
-    connection.parts.app.contribute(
+    connection.app.contribute(
       { events: ["issue_comment"], permissions: { issues: "read" } },
       { by },
     );

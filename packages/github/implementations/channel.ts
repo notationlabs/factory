@@ -15,45 +15,46 @@ import { type IssueCommentRule, issueCommentRule, ruleKey } from "./rules.ts";
  * events and permissions it needs to the connection's App.
  */
 export class Channel extends ResourceGroup implements ChannelContract {
-  readonly name: string;
+  readonly key: string;
   readonly connection: Connection;
 
   constructor({
+    id,
     config,
     dependencies,
   }: ResourceOpts<ChannelConfig, { connection: Connection }>) {
-    const { name, scope } = v.parse(channelConfig, config);
+    const { scope } = v.parse(channelConfig, config);
     super("github/Channel", {
-      name,
+      key: id,
       scope,
       dependencies: { connection: dependencies.connection.id },
     });
-    this.name = name;
+    this.key = id;
     this.connection = dependencies.connection;
     // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
     this.connection.router.store.contribute(
       {
         channels: {
-          [name]: {
+          [id]: {
             provider: "github",
             scope,
             source: this.connection.app.out.id,
           },
         },
       },
-      { by: `channel ${name}` },
+      { by: `channel ${id}` },
     );
   }
 
   /** Deliveries of comments on this channel's issues and pull requests that `rule` accepts. */
   onIssueComment(rule: IssueCommentRule): void {
     const match = v.parse(issueCommentRule, rule);
-    const by = `channel ${this.name}`;
+    const by = `channel ${this.key}`;
     this.connection.router.store.contribute(
       {
         rules: {
-          [ruleKey(this.name, "issue_comment", match)]: {
-            channel: this.name,
+          [ruleKey(this.key, "issue_comment", match)]: {
+            channel: this.key,
             provider: "github",
             event: "issue_comment",
             match,

@@ -5,11 +5,7 @@ import type { Channel } from "../contracts/channel.ts";
 /** A workspace: the channel whose threads it claims, and the branches it works them on. */
 export type WorkspaceEntry = { channel: string; branch: string; base: string };
 
-const workspaceConfig = v.object({
-  name: v.string(),
-  branch: v.string(),
-  base: v.string(),
-});
+const workspaceConfig = v.object({ branch: v.string(), base: v.string() });
 export type WorkspaceOptions = ResourceOpts<
   v.InferInput<typeof workspaceConfig>,
   { channel: Channel }
@@ -17,22 +13,23 @@ export type WorkspaceOptions = ResourceOpts<
 
 /** Lightbox builds every workspace itself, whichever provider made its channel: it contributes its entry to the channel's router's config. */
 export class Workspace extends ResourceGroup {
-  readonly name: string;
+  /** The id it was constructed with, which keys it in the router's config. */
+  readonly key: string;
   readonly channel: Channel;
 
-  constructor({ config, dependencies }: WorkspaceOptions) {
-    const { name, branch, base } = v.parse(workspaceConfig, config);
+  constructor({ id, config, dependencies }: WorkspaceOptions) {
+    const { branch, base } = v.parse(workspaceConfig, config);
     super("lightbox/Workspace", {
-      name,
+      key: id,
       branch,
       base,
       dependencies: { channel: dependencies.channel.id },
     });
-    this.name = name;
+    this.key = id;
     this.channel = dependencies.channel;
     this.channel.connection.router.store.contribute(
-      { workspaces: { [name]: { channel: this.channel.name, branch, base } } },
-      { by: `workspace ${name}` },
+      { workspaces: { [id]: { channel: this.channel.key, branch, base } } },
+      { by: `workspace ${id}` },
     );
   }
 }

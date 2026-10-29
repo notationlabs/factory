@@ -1,10 +1,18 @@
 export type Permission = "read" | "write";
 export type Permissions = Partial<
-  Record<"issues" | "pull_requests" | "contents" | "metadata", Permission>
+  Record<
+    | "actions_variables"
+    | "contents"
+    | "issues"
+    | "metadata"
+    | "pull_requests",
+    Permission
+  >
 >;
 export type GithubEvent =
   | "issues"
   | "issue_comment"
+  | "push"
   | "pull_request"
   | "pull_request_review_comment";
 

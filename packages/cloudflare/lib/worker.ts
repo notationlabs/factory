@@ -1,10 +1,17 @@
-/** The Workers API calls the router's Worker makes. Stubs. */
+/** The Workers API calls the hub's Workers make. Stubs. */
 
 export const uploadScript = async (_params: {
   ScriptName: string;
-  ConfigNamespaceId: string;
+  KvNamespaceId: string;
+  SecretsStoreId: string;
+  BucketName?: string;
+  ContainerInstanceType?: string;
+  IdleTimeout?: string;
+  Vars?: Record<string, unknown>;
 }): Promise<void> => {
-  throw new Error("not implemented: upload the router's script, bound to its config namespace");
+  throw new Error(
+    "not implemented: upload a hub script, bound to its namespace, store and bucket",
+  );
 };
 
 export const getScript = async (_key: {

@@ -1,0 +1,8 @@
+{
+  "name": "@factory/claude",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./implementations/index.ts"
+  }
+}

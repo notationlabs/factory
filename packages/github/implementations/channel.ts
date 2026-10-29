@@ -3,42 +3,52 @@ import {
   type Channel as ChannelContract,
   type ChannelConfig,
   channelConfig,
+  currentOutpost,
+  type Selector,
 } from "factory";
 import * as v from "valibot";
-import type { Connection } from "./connection.ts";
-import { type IssueCommentRule, issueCommentRule, ruleKey } from "./rules.ts";
+import type { ConnectionRef } from "./connection-ref.ts";
+import {
+  type IssueCommentEvent,
+  type IssueCommentSelector,
+  issueCommentSelector,
+  type IssueEvent,
+  type IssueSelector,
+  issueSelector,
+} from "./selectors.ts";
 
 /**
- * A channel on a GitHub connection, made by `connection.channel(...)`.
- * Building it registers the channel with the router. Each rule then
- * contributes in two places: its matcher to the router's config, and the
- * events and permissions it needs to the connection's App.
+ * A repo's issues on a GitHub connection, made by `connection.channel(...)`.
+ * Its grant is the App's installation on the repo. Its selectors are data the
+ * router matches; a conversation is an issue.
  */
 export class Channel extends ResourceGroup implements ChannelContract {
   readonly key: string;
-  readonly connection: Connection;
+  readonly scope: string;
+  readonly connection: ConnectionRef;
 
   constructor({
     id,
     config,
     dependencies,
-  }: ResourceOpts<ChannelConfig, { connection: Connection }>) {
-    const { scope } = v.parse(channelConfig, config);
+  }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
+    const outpost = currentOutpost();
+    const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
     super("github/Channel", {
       key: id,
       scope,
       dependencies: { connection: dependencies.connection.id },
     });
     this.key = id;
+    this.scope = scope;
     this.connection = dependencies.connection;
-    // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
-    this.connection.router.store.contribute(
+    outpost.store.contribute(
       {
         channels: {
           [id]: {
             provider: "github",
+            connection: this.connection.name,
             scope,
-            source: this.connection.app.out.id,
           },
         },
       },
@@ -46,26 +56,17 @@ export class Channel extends ResourceGroup implements ChannelContract {
     );
   }
 
-  /** Deliveries of comments on this channel's issues and pull requests that `rule` accepts. */
-  onIssueComment(rule: IssueCommentRule): void {
-    const match = v.parse(issueCommentRule, rule);
-    const by = `channel ${this.key}`;
-    this.connection.router.store.contribute(
-      {
-        rules: {
-          [ruleKey(this.key, "issue_comment", match)]: {
-            channel: this.key,
-            provider: "github",
-            event: "issue_comment",
-            match,
-          },
-        },
-      },
-      { by },
-    );
-    this.connection.app.contribute(
-      { events: ["issue_comment"], permissions: { issues: "read" } },
-      { by },
-    );
+  /** Issue events. `actions` defaults to `["opened"]`. */
+  issue(opts: IssueSelector): Selector<IssueEvent> {
+    return { channel: this, event: "issues", match: v.parse(issueSelector, opts) };
+  }
+
+  /** Comments on issues and pull requests. `actions` defaults to `["created"]`; with `"edited"`, only edits that newly add `mention` match. */
+  issueComment(opts: IssueCommentSelector): Selector<IssueCommentEvent> {
+    return {
+      channel: this,
+      event: "issue_comment",
+      match: v.parse(issueCommentSelector, opts),
+    };
   }
 }

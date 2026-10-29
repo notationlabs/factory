@@ -19,6 +19,15 @@
       ],
       "@factory/github": [
         "./packages/github/implementations/index.ts"
+      ],
+      "@factory/slack": [
+        "./packages/slack/implementations/index.ts"
+      ],
+      "@factory/claude": [
+        "./packages/claude/implementations/index.ts"
+      ],
+      "@factory/railway": [
+        "./packages/railway/implementations/index.ts"
       ]
     }
   },

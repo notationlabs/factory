@@ -1,4 +1,4 @@
-/** The KV API calls the router's resources make. Stubs. */
+/** The KV API calls the hub's resources make. Stubs. */
 
 export const createNamespace = async (_params: {
   title: string;

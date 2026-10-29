@@ -42,8 +42,6 @@ export type CompiledExample = {
     /** The id the group was declared with, for groups that keep one. */
     key?: string;
     config: unknown;
-    /** Groups this one's resources depend on. */
-    dependsOn: number[];
   }[];
   resources: CompiledResource[];
   error?: string;
@@ -117,20 +115,11 @@ const compileGraph = async (graph: ResourceGraph) => {
       params,
     });
   }
-  const groupOf = new Map(graph.resources.map((r) => [r.id, r.groupId]));
   const groups = graph.resourceGroups.map((g) => ({
     id: g.id,
     type: g.type,
     key: "key" in g ? String(g.key) : undefined,
     config: plain(g.config),
-    dependsOn: [
-      ...new Set(
-        resources
-          .filter((r) => r.groupId === g.id)
-          .flatMap((r) => r.dependsOn.map((d) => groupOf.get(d)!))
-          .filter((d) => d !== g.id),
-      ),
-    ],
   }));
   return { groups, resources };
 };

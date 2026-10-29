@@ -19,6 +19,15 @@
       ],
       "@lightbox/github": [
         "./packages/github/implementations/index.ts"
+      ],
+      "@lightbox/slack": [
+        "./packages/slack/implementations/index.ts"
+      ],
+      "@lightbox/claude": [
+        "./packages/claude/implementations/index.ts"
+      ],
+      "@lightbox/railway": [
+        "./packages/railway/implementations/index.ts"
       ]
     }
   },

@@ -1,12 +1,8 @@
 import { ResourceGroup, type ResourceOpts } from "@notation/resource";
-import {
-  type ChannelOptions,
-  type Connection as ConnectionContract,
-  type Router,
-} from "lightbox";
+import { type Connection as ConnectionContract, type Router, secret } from "lightbox";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
-import { Channel } from "./channel.ts";
+import { ConnectionRef } from "./connection-ref.ts";
 
 const connectionConfig = v.object({
   name: v.string(),
@@ -18,8 +14,13 @@ export type ConnectionOptions = ResourceOpts<
   { router: Router }
 >;
 
-/** `new github.Connection(...)`: lightbox on GitHub, as one App whose webhook is the router. */
+/**
+ * `new github.Connection(...)`: lightbox on GitHub, as one App whose webhook
+ * is the router. Its private key goes straight into the router's vault, and
+ * the router is the only thing that reads it.
+ */
 export class Connection extends ResourceGroup implements ConnectionContract {
+  readonly name: string;
   readonly router: Router;
   readonly app: AppInstance;
 
@@ -30,7 +31,9 @@ export class Connection extends ResourceGroup implements ConnectionContract {
       org,
       dependencies: { router: dependencies.router.id },
     });
+    this.name = name;
     this.router = dependencies.router;
+    const by = `connection ${id}`;
     this.app = this.add(
       new App({
         id: `${id}-app`,
@@ -38,9 +41,41 @@ export class Connection extends ResourceGroup implements ConnectionContract {
         dependencies: { router: dependencies.router.api },
       }),
     );
+    this.app.contribute(
+      {
+        events: ["issues", "issue_comment", "push"],
+        permissions: {
+          contents: "write",
+          issues: "write",
+          pull_requests: "write",
+          actions_variables: "write",
+          metadata: "read",
+        },
+      },
+      { by },
+    );
+    const privateKey = `github-${name}-private-key`;
+    this.router.vault.secret({
+      id: `${id}-private-key`,
+      name: privateKey,
+      value: secret.output(this.app.out.privateKey),
+    });
+    this.router.store.contribute(
+      {
+        connections: {
+          [`github/${name}`]: {
+            provider: "github",
+            source: this.app.out.id,
+            credentials: { privateKey },
+          },
+        },
+      },
+      { by },
+    );
   }
 
-  channel(opts: ChannelOptions): Channel {
-    return new Channel({ ...opts, dependencies: { connection: this } });
+  /** In an outpost: the connection the infra declares as `name`. */
+  static get(name: string): ConnectionRef {
+    return new ConnectionRef({ id: name, config: { name } });
   }
 }

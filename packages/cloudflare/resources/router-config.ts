@@ -1,11 +1,11 @@
 import { defineResource, mergeRecords } from "@notation/resource";
-import type { RouterConfig as Config } from "lightbox";
+import { type RouterConfig as Config, single } from "lightbox";
 import { deleteValue, getValue, putValue } from "../lib/kv.ts";
 import type { KvNamespaceInstance } from "./kv.ts";
 
 /**
  * The router's config, as one KV entry the Worker reads. Its own resource,
- * not a param of the Worker: an App needs the Worker's URL and its channel
+ * not a param of the Worker: an App needs the Worker's URL and its connection
  * contributes the App's id, so as a Worker param it would close a cycle
  * (RFC 0004: model the collection as its own resource).
  */
@@ -14,9 +14,9 @@ type RouterConfigApi = {
   CreateParams: {
     namespaceId: string;
     key: string;
-    channels?: Config["channels"];
-    rules?: Config["rules"];
-    workspaces?: Config["workspaces"];
+    connections?: Config["connections"];
+    codeHost?: Config["codeHost"];
+    operators?: Config["operators"];
   };
   UpdateParams: undefined;
   ReadResult: undefined;
@@ -32,20 +32,20 @@ export const RouterConfig = defineResource<RouterConfigApi>({
       secondaryKey: true,
     },
     key: { propertyType: "param", presence: "required", primaryKey: true },
-    channels: {
+    connections: {
       propertyType: "param",
       presence: "optional",
       collect: mergeRecords,
     },
-    rules: {
+    codeHost: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: single("codeHost"),
     },
-    workspaces: {
+    operators: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: single("operators"),
     },
   } as const)
   .defineOperations({

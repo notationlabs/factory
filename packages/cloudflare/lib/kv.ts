@@ -1,4 +1,4 @@
-/** The KV API calls the router's resources make. Stubs: achq's plugin-cloudflare has the real ones. */
+/** The KV API calls the hub's resources make. Stubs: achq's plugin-cloudflare has the real ones. */
 
 export const createNamespace = async (_params: {
   title: string;

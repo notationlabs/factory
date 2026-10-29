@@ -1,8 +1,16 @@
 export type { Channel } from "./channel.ts";
+export { CodeHost, type CodeHostOptions } from "./code-host.ts";
 export { Connection, type ConnectionOptions } from "./connection.ts";
+export type { ConnectionRef } from "./connection-ref.ts";
+export { OperatorAuth, type OperatorAuthOptions } from "./operator-auth.ts";
+export { Policy, type PolicyOptions } from "./policy.ts";
 export {
-  type ActorFilter,
+  type AuthorSet,
   collaborators,
-  type IssueCommentRule,
-  users,
-} from "./rules.ts";
+  type IssueCommentEvent,
+  type IssueCommentSelector,
+  type IssueEvent,
+  type IssueSelector,
+  team,
+  user,
+} from "./selectors.ts";

@@ -1,11 +1,16 @@
-import { lightbox, Workspace } from "lightbox";
+import { lightbox, secret } from "lightbox";
+import * as claude from "@lightbox/claude";
 import * as cloudflare from "@lightbox/cloudflare";
 import * as github from "@lightbox/github";
+import * as slack from "@lightbox/slack";
 
 export default lightbox(() => {
+  const vault = new cloudflare.Vault({ id: "vault" });
+
   const router = new cloudflare.Router({
     id: "router",
-    config: { name: "acme-router" },
+    config: { project: "acme-agents" },
+    dependencies: { vault },
   });
 
   const gh = new github.Connection({
@@ -14,20 +19,32 @@ export default lightbox(() => {
     dependencies: { router },
   });
 
-  const issues = gh.channel({
-    id: "issues",
-    config: { scope: "acme/app" },
+  new github.CodeHost({
+    id: "github",
+    config: { allow: [{ owner: "acme" }] },
+    dependencies: { connection: gh },
   });
 
-  issues.onIssueComment({
-    actions: ["created", "edited"],
-    mention: "@claude",
-    from: github.collaborators(),
+  new github.OperatorAuth({
+    id: "operators",
+    config: { logins: ["djgrant", "alice"] },
+    dependencies: { connection: gh },
   });
 
-  new Workspace({
-    id: "issues",
-    config: { branch: "issue-{id}", base: "main" },
-    dependencies: { channel: issues },
+  new slack.Connection({
+    id: "slack",
+    config: { name: "acme-agents", workspace: "acme" },
+    dependencies: { router },
+  });
+
+  const claudeAccount = new claude.Account({
+    id: "claude",
+    config: { auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN") },
+  });
+
+  new cloudflare.Deployer({
+    id: "deployer",
+    config: { knownHosts: ["ssh-ed25519 AAAA... me@laptop"] },
+    dependencies: { router, accounts: [claudeAccount] },
   });
 });

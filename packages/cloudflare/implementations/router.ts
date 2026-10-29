@@ -1,36 +1,73 @@
 import { ResourceGroup, type ResourceOpts } from "@notation/resource";
-import type { Router as RouterContract } from "lightbox";
+import { type Router as RouterContract, secret } from "lightbox";
 import * as v from "valibot";
-import { KvNamespace } from "../resources/kv.ts";
-import { RouterConfig, type RouterConfigInstance } from "../resources/router-config.ts";
+import { KvNamespace, type KvNamespaceInstance } from "../resources/kv.ts";
+import { R2Bucket, type R2BucketInstance } from "../resources/r2.ts";
+import {
+  RouterConfig,
+  type RouterConfigInstance,
+} from "../resources/router-config.ts";
 import { Worker, type WorkerInstance } from "../resources/worker.ts";
+import type { Vault } from "./vault.ts";
 
-const routerConfig = v.object({ name: v.string() });
-export type RouterOptions = ResourceOpts<v.InferInput<typeof routerConfig>, {}>;
+const routerConfig = v.object({ project: v.string() });
 
-/** `new cloudflare.Router(...)`: a Worker, and the KV entry its config is contributed to. */
+export type RouterOptions = ResourceOpts<
+  v.InferInput<typeof routerConfig>,
+  { vault: Vault }
+>;
+
+/**
+ * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
+ * container, the project's KV namespace and R2 bucket, and the KV entry its
+ * config is contributed to. Creating it generates the root key into the vault.
+ */
 export class Router extends ResourceGroup implements RouterContract {
+  readonly project: string;
+  readonly vault: Vault;
+  readonly kv: KvNamespaceInstance;
+  readonly bucket: R2BucketInstance;
   readonly api: WorkerInstance;
   readonly store: RouterConfigInstance;
 
-  constructor({ id, config }: RouterOptions) {
-    const { name } = v.parse(routerConfig, config);
-    super("cloudflare/Router", { name });
-    const kv = this.add(
-      new KvNamespace({ id: `${id}-kv`, config: { title: `${name}-config` } }),
+  constructor({ id, config, dependencies }: RouterOptions) {
+    const { project } = v.parse(routerConfig, config);
+    super("cloudflare/Router", {
+      project,
+      dependencies: { vault: dependencies.vault.id },
+    });
+    this.project = project;
+    this.vault = dependencies.vault;
+    this.kv = this.add(
+      new KvNamespace({ id: `${id}-kv`, config: { title: project } }),
     );
+    this.bucket = this.add(
+      new R2Bucket({ id: `${id}-bucket`, config: { name: project } }),
+    );
+    this.vault.secret({
+      id: `${id}-root-key`,
+      name: "LIGHTBOX_ROOT_KEY",
+      value: secret.generated(),
+    });
     this.api = this.add(
       new Worker({
         id: `${id}-worker`,
-        config: { ScriptName: name },
-        dependencies: { kv },
+        config: {
+          ScriptName: `${project}-router`,
+          ContainerInstanceType: "standard-1",
+        },
+        dependencies: {
+          kv: this.kv,
+          store: this.vault.store,
+          bucket: this.bucket,
+        },
       }),
     );
     this.store = this.add(
       new RouterConfig({
         id: `${id}-config`,
         config: { key: "config" },
-        dependencies: { kv },
+        dependencies: { kv: this.kv },
       }),
     );
   }

@@ -23,13 +23,12 @@ export class OperatorAuth
   readonly provider = "cloudflare";
   readonly application: AccessApplicationInstance;
 
-  constructor({ id, config, dependencies }: OperatorAuthOptions) {
+  constructor(id: string, { config, dependencies }: OperatorAuthOptions) {
     const { emails } = v.parse(operatorAuthConfig, config);
     const { router } = dependencies;
-    super("cloudflare/OperatorAuth", { id, config, dependencies });
+    super("cloudflare/OperatorAuth", id, config, dependencies);
     this.application = this.add(
-      new AccessApplication({
-        id: `${id}-access`,
+      new AccessApplication(`${id}-access`, {
         config: { name: `${router.project}-operators`, emails },
         dependencies: { router: router.api },
       }),

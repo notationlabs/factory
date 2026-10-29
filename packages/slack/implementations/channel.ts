@@ -18,7 +18,7 @@ const channelConfig = v.object({
 });
 export type ChannelConfig = v.InferInput<typeof channelConfig>;
 
-export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
+export type ChannelOptions = { id: string } & ResourceOpts<ChannelConfig, {}>;
 
 /**
  * One Slack channel on a Slack connection, made by `connection.channel(...)`.
@@ -32,13 +32,15 @@ export class Channel
   readonly scope: string;
   readonly connection: ConnectionRef;
 
-  constructor({
-    id,
-    config,
-    dependencies,
-  }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
+  constructor(
+    id: string,
+    {
+      config,
+      dependencies,
+    }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>,
+  ) {
     const { scope } = v.parse(channelConfig, config);
-    super("slack/Channel", { id, config, dependencies });
+    super("slack/Channel", id, config, dependencies);
     this.scope = scope;
     this.connection = dependencies.connection;
     this.dependencies.outpost.store.contribute(

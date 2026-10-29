@@ -13,8 +13,8 @@ export type ChannelEntry = {
 export const channelConfig = v.object({ scope: v.optional(v.string()) });
 export type ChannelConfig = v.InferInput<typeof channelConfig>;
 
-/** What every connection's `channel()` takes. The connection is its dependency, so it isn't passed. */
-export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
+/** What every connection's `channel()` takes: the channel's `id` and its options. The connection is its dependency, so it isn't passed. */
+export type ChannelOptions = { id: string } & ResourceOpts<ChannelConfig, {}>;
 
 /**
  * Made by a connection in an outpost. Selectors are made by a provider's

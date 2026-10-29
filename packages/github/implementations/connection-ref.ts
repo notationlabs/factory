@@ -14,13 +14,13 @@ export class ConnectionRef
 {
   readonly name: string;
 
-  constructor({ id, config }: ResourceOpts<ConnectionRefConfig, {}>) {
-    super("github/ConnectionRef", { id, config });
+  constructor(id: string, { config }: ResourceOpts<ConnectionRefConfig, {}>) {
+    super("github/ConnectionRef", id, config);
     this.name = config.name;
   }
 
   /** A repo's issues. `scope` defaults to the outpost's repo. */
-  channel(opts: ChannelOptions): Channel {
-    return new Channel({ ...opts, dependencies: { connection: this } });
+  channel({ id, config }: ChannelOptions): Channel {
+    return new Channel(id, { config, dependencies: { connection: this } });
   }
 }

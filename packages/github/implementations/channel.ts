@@ -29,12 +29,14 @@ export class Channel
   readonly scope: string;
   readonly connection: ConnectionRef;
 
-  constructor({
-    id,
-    config,
-    dependencies,
-  }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
-    super("github/Channel", { id, config, dependencies });
+  constructor(
+    id: string,
+    {
+      config,
+      dependencies,
+    }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>,
+  ) {
+    super("github/Channel", id, config, dependencies);
     const { outpost } = this.dependencies;
     const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
     this.scope = scope;

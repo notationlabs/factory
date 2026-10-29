@@ -35,10 +35,10 @@ export class Deployer
   readonly accounts: Account[];
   readonly worker: WorkerInstance;
 
-  constructor({ id, config, dependencies }: DeployerOptions) {
+  constructor(id: string, { config, dependencies }: DeployerOptions) {
     const { knownHosts } = v.parse(deployerConfig, config ?? {});
     const { router, accounts = [] } = dependencies;
-    super("cloudflare/Deployer", { id, config, dependencies });
+    super("cloudflare/Deployer", id, config, dependencies);
     this.router = router;
     this.accounts = accounts;
 
@@ -59,8 +59,7 @@ export class Deployer
     }
 
     this.worker = this.add(
-      new Worker({
-        id: `${id}-worker`,
+      new Worker(`${id}-worker`, {
         config: {
           ScriptName: `${router.project}-deployer`,
           IdleTimeout: "10m",

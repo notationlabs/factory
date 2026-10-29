@@ -26,9 +26,9 @@ export class Deployer
   readonly accounts: Account[];
   readonly service: ServiceInstance;
 
-  constructor({ id, dependencies }: DeployerOptions) {
+  constructor(id: string, { dependencies }: DeployerOptions) {
     const { router, accounts = [] } = dependencies;
-    super("railway/Deployer", { id, dependencies });
+    super("railway/Deployer", id, {}, dependencies);
     this.router = router;
     this.accounts = accounts;
 
@@ -49,8 +49,7 @@ export class Deployer
     }
 
     this.service = this.add(
-      new Service({
-        id: `${id}-service`,
+      new Service(`${id}-service`, {
         config: {
           name: "lightbox-deployer",
           sleep: true,

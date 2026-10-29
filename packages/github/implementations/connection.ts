@@ -32,15 +32,14 @@ export class Connection
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor({ id, config, dependencies }: ConnectionOptions) {
+  constructor(id: string, { config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", { id, config, dependencies });
+    super("github/Connection", id, config, dependencies);
     this.name = name;
     this.router = dependencies.router;
     const by = `connection ${id}`;
     this.app = this.add(
-      new App({
-        id: `${id}-app`,
+      new App(`${id}-app`, {
         config: { name, org },
         dependencies: { router: dependencies.router.api },
       }),
@@ -80,6 +79,6 @@ export class Connection
 
   /** In an outpost: the connection the infra declares as `name`. */
   static get(name: string): ConnectionRef {
-    return new ConnectionRef({ id: name, config: { name } });
+    return new ConnectionRef(name, { config: { name } });
   }
 }

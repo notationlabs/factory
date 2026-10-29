@@ -18,9 +18,9 @@ export class OperatorAuth
 {
   readonly provider = "github";
 
-  constructor({ id, config, dependencies }: OperatorAuthOptions) {
+  constructor(id: string, { config, dependencies }: OperatorAuthOptions) {
     const { logins } = v.parse(operatorAuthConfig, config);
-    super("github/OperatorAuth", { id, config, dependencies });
+    super("github/OperatorAuth", id, config, dependencies);
     dependencies.connection.router.store.contribute(
       {
         operators: {

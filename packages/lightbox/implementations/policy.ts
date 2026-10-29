@@ -18,9 +18,9 @@ export class Policy
 {
   readonly provider: string;
 
-  constructor({ id, config }: PolicyOptions) {
+  constructor(id: string, { config }: PolicyOptions) {
     const { provider, scopes } = v.parse(policyConfig, config);
-    super("lightbox/Policy", { id, config });
+    super("lightbox/Policy", id, config);
     this.provider = provider;
     this.dependencies.outpost.store.contribute(
       { policies: { [id]: { provider, scopes } } },

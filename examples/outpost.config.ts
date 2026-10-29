@@ -11,23 +11,19 @@ export default outpost(() => {
     config: { scope: "#ops" },
   });
 
-  const code = new github.Policy({
-    id: "code",
+  const code = new github.Policy("code", {
     config: { permissions: { contents: "write", pull_requests: "write" } },
   });
 
-  const shared = new github.Policy({
-    id: "shared",
+  const shared = new github.Policy("shared", {
     config: { repo: "acme/shared", permissions: { contents: "read" } },
   });
 
-  const custom = new Policy({
-    id: "custom",
+  const custom = new Policy("custom", {
     config: { provider: "acme-auth", scopes: ["read"] },
   });
 
-  const dev = new Container({
-    id: "dev",
+  const dev = new Container("dev", {
     config: {
       image: "./Dockerfile",
       runtimes: [claude.runtime],
@@ -36,13 +32,11 @@ export default outpost(() => {
     dependencies: { policies: [code, shared, custom] },
   });
 
-  const triage = new claude.Agent({
-    id: "triage",
+  const triage = new claude.Agent("triage", {
     config: { model: "claude-haiku-5-5", systemPrompt: "./prompts/triage.md" },
   });
 
-  const coder = new claude.Agent({
-    id: "coder",
+  const coder = new claude.Agent("coder", {
     config: {
       model: "claude-opus-5-5",
       effort: "high",
@@ -55,8 +49,7 @@ export default outpost(() => {
   const branch = (event: { issue: { number: number } }) =>
     `issue-${event.issue.number}`;
 
-  new Trigger({
-    id: "on-open",
+  new Trigger("on-open", {
     config: {
       event: gh.issue({ from: github.collaborators() }),
       worktree: branch,
@@ -64,8 +57,7 @@ export default outpost(() => {
     dependencies: { agent: triage, container: dev },
   });
 
-  new Trigger({
-    id: "mention",
+  new Trigger("mention", {
     config: {
       event: gh.issueComment({
         actions: ["created", "edited"],
@@ -77,8 +69,7 @@ export default outpost(() => {
     dependencies: { agent: coder, container: dev },
   });
 
-  new Trigger({
-    id: "docs",
+  new Trigger("docs", {
     config: {
       event: gh.issueComment({
         mention: "@claude",
@@ -91,8 +82,7 @@ export default outpost(() => {
     dependencies: { agent: coder, container: dev },
   });
 
-  new Trigger({
-    id: "slack",
+  new Trigger("slack", {
     config: {
       event: ops.mention("@claude", {
         from: [slack.group("eng"), slack.user("dan@acme.dev")],

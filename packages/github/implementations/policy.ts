@@ -29,8 +29,8 @@ export class Policy
 {
   readonly provider = "github";
 
-  constructor({ id, config }: PolicyOptions) {
-    super("github/Policy", { id, config });
+  constructor(id: string, { config }: PolicyOptions) {
+    super("github/Policy", id, config);
     const { outpost } = this.dependencies;
     const { repo = outpost.repo, permissions } = v.parse(policyConfig, config);
     outpost.store.contribute(

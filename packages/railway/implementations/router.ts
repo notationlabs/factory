@@ -29,12 +29,12 @@ export class Router
   readonly api: ServiceInstance;
   readonly store: RouterConfigInstance;
 
-  constructor({ id, config, dependencies }: RouterOptions) {
+  constructor(id: string, { config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("railway/Router", { id, config, dependencies });
+    super("railway/Router", id, config, dependencies);
     this.vault = dependencies.vault;
     this.project = this.add(
-      new Project({ id: `${id}-project`, config: { name: project } }),
+      new Project(`${id}-project`, { config: { name: project } }),
     );
     this.vault.bind(this.project);
     this.vault.secret({
@@ -43,15 +43,13 @@ export class Router
       value: secret.generated(),
     });
     this.api = this.add(
-      new Service({
-        id: `${id}-service`,
+      new Service(`${id}-service`, {
         config: { name: "lightbox-router", public: true, volume: "/data" },
         dependencies: { project: this.project },
       }),
     );
     this.store = this.add(
-      new RouterConfig({
-        id: `${id}-config`,
+      new RouterConfig(`${id}-config`, {
         config: { path: "/data/config.json" },
         dependencies: { service: this.api },
       }),

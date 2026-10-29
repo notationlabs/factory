@@ -22,9 +22,9 @@ export class Account
   readonly runtime = "claude";
   readonly secrets: Record<string, Secret>;
 
-  constructor({ id, config }: AccountOptions) {
+  constructor(id: string, { config }: AccountOptions) {
     const { auth } = v.parse(accountConfig, config);
-    super("claude/Account", { id, config });
+    super("claude/Account", id, config);
     this.secrets = { CLAUDE_CODE_OAUTH_TOKEN: auth };
   }
 }

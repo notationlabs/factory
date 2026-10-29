@@ -27,16 +27,18 @@ export class Vault extends ResourceGroup implements VaultContract {
 
   /** Called by the router that takes this vault. */
   bind(project: ProjectInstance): void {
-    if (this.#project)
+    if (this.#project) {
       throw new Error("railway.Vault is already bound to a router");
+    }
     this.#project = project;
   }
 
   secret({ id, name, value }: VaultSecretOptions): SealedVariableInstance {
-    if (!this.#project)
+    if (!this.#project) {
       throw new Error(
         `railway.Vault: pass it to a railway.Router before adding ${name}`,
       );
+    }
     const item = this.add(
       new SealedVariable({
         id,

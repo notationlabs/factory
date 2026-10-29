@@ -46,8 +46,9 @@ export const outpost = (declare: () => void) => (repo: string) =>
 
 /** The outpost being declared. Outpost resources contribute to it, so they can only be made inside `outpost(() => …)`. */
 const currentOutpost = (): Outpost => {
-  if (!active)
+  if (!active) {
     throw new Error("Declare outpost resources inside outpost(() => { … })");
+  }
   return active;
 };
 

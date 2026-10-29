@@ -38,8 +38,9 @@ export class Container extends OutpostGroup<
     const policies = dependencies?.policies ?? [];
     const seen = new Set<string>();
     for (const runtime of runtimes) {
-      if (seen.has(runtime.id))
+      if (seen.has(runtime.id)) {
         throw new Error(`container ${id} lists runtime ${runtime.id} twice`);
+      }
       seen.add(runtime.id);
     }
     super("lightbox/Container", { id, config, dependencies });

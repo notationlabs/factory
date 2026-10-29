@@ -7,7 +7,8 @@ import {
 export const single =
   (name: string) =>
   <V>(items: V[], from: ContributionSource[]): V => {
-    if (items.length > 1)
+    if (items.length > 1) {
       throw new ContributionConflictError(name, from[0]!, from[1]!);
+    }
     return items[0]!;
   };

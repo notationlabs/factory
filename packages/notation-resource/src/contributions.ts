@@ -61,13 +61,15 @@ const placeholderOf = (value: OutputValue) => {
 /** The resources whose outputs `value` holds, whole or in template strings. */
 export const outputSources = (value: unknown): BaseResource[] => {
   if (isOutputValue(value)) return [value.resource];
-  if (typeof value === "string")
+  if (typeof value === "string") {
     return [...value.matchAll(PLACEHOLDER)].map(
       ([p]) => placeholders.get(p)!.resource,
     );
+  }
   if (Array.isArray(value)) return value.flatMap(outputSources);
-  if (typeof value === "object" && value !== null)
+  if (typeof value === "object" && value !== null) {
     return Object.values(value).flatMap(outputSources);
+  }
   return [];
 };
 
@@ -89,10 +91,11 @@ export const resolveOutputValues = (value: unknown): unknown => {
     return unknown ? UNKNOWN_AFTER_APPLY : resolved;
   }
   if (Array.isArray(value)) return value.map(resolveOutputValues);
-  if (typeof value === "object" && value !== null)
+  if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [k, resolveOutputValues(v)]),
     );
+  }
   return value;
 };
 
@@ -158,8 +161,9 @@ export const mergeRecords = <V>(
   const owner: Record<string, ContributionSource> = {};
   items.forEach((item, i) => {
     for (const [key, value] of Object.entries(item ?? {})) {
-      if (key in merged)
+      if (key in merged) {
         throw new ContributionConflictError(key, owner[key]!, from[i]!);
+      }
       merged[key] = value;
       owner[key] = from[i]!;
     }

@@ -1,9 +1,8 @@
-import type { ResourceGroup } from "@notation/resource";
+import type { Group } from "@factory/notation-group";
 import type { Channel, ChannelOptions } from "./channel.ts";
 import type { Router } from "./router.ts";
 
-/** A link to a provider, which sends its deliveries to `router`. Each provider's connection makes its own kind of channel. */
-export interface Connection extends ResourceGroup {
-  readonly router: Router;
+/** A link to a provider, which sends its deliveries to its `router` dependency. Each provider's connection makes its own kind of channel. */
+export interface Connection extends Group<{}, { router: Router }> {
   channel(opts: ChannelOptions): Channel;
 }

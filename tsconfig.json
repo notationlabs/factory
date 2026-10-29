@@ -11,6 +11,9 @@
       "@notation/resource": [
         "./packages/notation-resource/src/index.ts"
       ],
+      "@factory/notation-group": [
+        "./packages/notation-group/src/index.ts"
+      ],
       "factory": [
         "./packages/factory/index.ts"
       ],

@@ -7,9 +7,9 @@ Notation Factory's resource model, built on Notation's `@notation/resource`.
 There are two kinds of resource:
 
 - **Concrete resources** are Notation resources: a schema, operations that call an API, and typed dependencies that only read each other's outputs. Only real infrastructure is concrete: a GitHub App, a Cloudflare Worker, a KV namespace, the KV entry that holds the router's config.
-- **Groups** are what Notation Factory is described in: Router, Connection, Channel, Workspace. Each is a plain class that extends Notation's `ResourceGroup`, as `ApiGroup` and `LambdaGroup` do in `@notation/aws`. Its constructor adds the concrete resources it owns, or contributes to ones that already exist, and exposes the ones other groups need as typed fields.
+- **Groups** are what Notation Factory is described in: Router, Connection, Channel, Workspace. Each is defined with `defineGroup`, which mirrors `defineResource`, and is constructed and read like a concrete resource: `{ id, config, dependencies }` in, `id`, `config` and `dependencies` on the instance. Its implementation adds the concrete resources it owns, or contributes to ones that already exist, and returns the ones other groups need as its `parts`.
 
-So there's one graph. The groups are its groups and the concrete resources are its members. Notation collects it and deploys the concrete resources.
+So there's one graph. Each group holds a Notation `ResourceGroup`, as `group`, and the concrete resources are its members. Notation collects it and deploys the concrete resources.
 
 ```ts
 const router = new cloudflare.Router({ id: "router", config: { name: "acme-router" } });
@@ -58,52 +58,76 @@ The channel, its rule and the workspace provision nothing of their own. Each con
 
 The rule also contributes to the connection's App, `events: ["issue_comment"]` and `permissions: { issues: "read" }`, so GitHub sends the deliveries the router matches.
 
-### Contracts
+### Defining a group
 
-A contract is an interface in `packages/factory/contracts/`: the fields and methods every provider's group has, so other groups can rely on them whichever provider built it.
+The two builders line up step for step:
 
 ```ts
-export interface Router extends ResourceGroup {
-  readonly api: RouterApi;           // where it's reached
-  readonly store: RouterConfigStore; // where its config is contributed to
-}
+export const Worker = defineResource<WorkerApi>({ type: "cloudflare/workers/Worker" })
+  .defineSchema({ ... } as const)
+  .defineOperations({ create, read, update, delete })
+  .requireDependencies<{ kv: KvNamespaceInstance }>()
+  .deriveParams(({ deps }) => ({ ConfigNamespaceId: deps.kv.output.id }));
 
-export interface Connection extends ResourceGroup {
-  readonly router: Router;
+export const Router = defineGroup<RouterContract>({ type: "cloudflare/Router" })
+  .defineSchema(v.object({ name: v.string() }))
+  .defineImplementation(({ id, config, group }) => {
+    const kv = group.add(new KvNamespace({ ... }));
+    return {
+      api: group.add(new Worker({ ..., dependencies: { kv } })),
+      store: group.add(new RouterConfig({ ..., dependencies: { kv } })),
+    };
+  });
+```
+
+- The generic is what the group must satisfy, as `defineResource`'s is the API it wraps. For a group it's a contract.
+- `defineSchema` takes any Standard Schema. It validates `config`.
+- `requireDependencies<D>()` is optional, and `D` must satisfy the contract's dependencies.
+- `defineImplementation` gets `{ id, config, deps, group }`, as `deriveParams` gets `{ id, config, deps }`. It returns the group's parts, which must satisfy the contract's.
+
+Where a resource has `output`, a group has `parts`. They exist as soon as it's constructed, whereas `output` only exists after deploy.
+
+A group holds its `ResourceGroup` rather than extending it: `ResourceGroup` already has `id` (a number), `config` (an untyped record) and `dependencies` (group ids).
+
+### Contracts
+
+A contract is an interface in `packages/factory/contracts/` that extends `Group<Config, Dependencies, Parts>`. It holds what every provider's group has, so other groups can rely on it whichever provider built it.
+
+```ts
+export interface Router extends Group<{}, {}, { api: RouterApi; store: RouterConfigStore }> {}
+
+export interface Connection extends Group<{}, { router: Router }> {
   channel(opts: ChannelOptions): Channel;
 }
 
-export interface Channel extends ResourceGroup {
-  readonly name: string;
-  readonly connection: Connection;
-}
+export interface Channel extends Group<ChannelConfig, { connection: Connection }> {}
 ```
 
-The router's config is `store`, not `config`, because `ResourceGroup` already uses `config` for the group's own options.
+The router's config part is `store`, so `router.parts.store` isn't confused with `router.config`, the router's own options.
 
 ### Implementing one
 
-A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource, with `{ id, config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its dependencies' group ids, then adds its resources:
+A provider exports groups defined against the contracts. A group with methods is a class that extends what `defineImplementation` returns:
 
 ```ts
-export class Connection extends ResourceGroup implements ConnectionContract {
-  readonly router: Router;
-  readonly app: AppInstance;
-
-  constructor({ id, config, dependencies }: ConnectionOptions) {
-    const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", { name, org, dependencies: { router: dependencies.router.id } });
-    this.router = dependencies.router;
-    this.app = this.add(new App({ id: `${id}-app`, config: { name, org }, dependencies: { router: dependencies.router.api } }));
-  }
-
+export class Connection
+  extends defineGroup<ConnectionContract>({ type: "github/Connection" })
+    .defineSchema(v.object({ name: v.string(), org: v.optional(v.string()) }))
+    .requireDependencies<{ router: Router }>()
+    .defineImplementation(({ id, config, deps, group }) => ({
+      app: group.add(new App({ id: `${id}-app`, config, dependencies: { router: deps.router.parts.api } })),
+    }))
+  implements ConnectionContract
+{
   channel(opts: ChannelOptions): Channel {
     return new Channel({ ...opts, dependencies: { connection: this } });
   }
 }
 ```
 
-A channel is made by its connection, so a channel on a GitHub connection is always GitHub's channel, typed as one: `issues.connection.app` is the App, and `issues.onIssueComment` exists. Workspace is Notation Factory's own, in `packages/factory/implementations/`, and works with any provider's channel.
+A channel is made by its connection, so a channel on a GitHub connection is always GitHub's channel, typed as one: `issues.dependencies.connection.parts.app` is the App, and `issues.onIssueComment` exists. github's Channel types that dependency as the contract plus its `app` part, not as the `Connection` class: the class's `channel()` returns `Channel`, so naming it in `Channel`'s base would make the base refer to itself.
+
+Workspace is Notation Factory's own, in `packages/factory/implementations/`, and works with any provider's channel.
 
 ## Contributions
 
@@ -122,6 +146,7 @@ On Cloudflare, the router's config is its own resource, a KV entry, rather than 
 
 ```
 packages/notation-resource/  @notation/resource, with contributions applied (src/contributions.ts)
+packages/notation-group/     defineGroup and Group
 packages/factory/           factory(), and its types
   contracts/                 Router, Connection, Channel: the interfaces providers implement
   implementations/           Workspace, which factory builds itself

@@ -27,8 +27,8 @@ export type TriggerOptions<E> = ResourceOpts<
  * The whole dispatch rule: this event, from these authors, to this agent, in
  * this container, on the branch `worktree` names. The container is data, so
  * the router knows what to wake. Only the runner calls `worktree`, with the
- * real event, so it isn't in the config: the runner imports the config to
- * call it.
+ * real event, so it isn't in the outpost's config: the runner imports the
+ * repo's config to call it.
  */
 export class Trigger<E> extends ResourceGroup {
   readonly key: string;
@@ -45,13 +45,7 @@ export class Trigger<E> extends ResourceGroup {
       );
     super("factory/Trigger", {
       key: id,
-      event: {
-        channel: event.channel.key,
-        event: event.event,
-        match: event.match,
-      },
-      worktree,
-      base,
+      ...config,
       dependencies: {
         channel: event.channel.id,
         agent: agent.id,

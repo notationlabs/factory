@@ -13,9 +13,10 @@ const connectionConfig = v.object({
   /** The Slack workspace the app is installed in. */
   workspace: v.string(),
 });
+export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ResourceOpts<
-  v.InferInput<typeof connectionConfig>,
+  ConnectionConfig,
   { router: Router }
 >;
 
@@ -25,7 +26,10 @@ export type ConnectionOptions = ResourceOpts<
  * deploy and go straight into the router's vault. Slack is a channel only:
  * code still lives on the code host.
  */
-export class Connection extends ResourceGroup implements ConnectionContract {
+export class Connection
+  extends ResourceGroup<ConnectionConfig>
+  implements ConnectionContract
+{
   readonly name: string;
   readonly router: Router;
   readonly app: AppInstance;

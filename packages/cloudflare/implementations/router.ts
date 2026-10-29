@@ -11,18 +11,19 @@ import { Worker, type WorkerInstance } from "../resources/worker.ts";
 import type { Vault } from "./vault.ts";
 
 const routerConfig = v.object({ project: v.string() });
+export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
-export type RouterOptions = ResourceOpts<
-  v.InferInput<typeof routerConfig>,
-  { vault: Vault }
->;
+export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
 
 /**
  * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
  * container, the project's KV namespace and R2 bucket, and the KV entry its
  * config is contributed to. Creating it generates the root key into the vault.
  */
-export class Router extends ResourceGroup implements RouterContract {
+export class Router
+  extends ResourceGroup<RouterGroupConfig>
+  implements RouterContract
+{
   readonly project: string;
   readonly vault: Vault;
   readonly kv: KvNamespaceInstance;

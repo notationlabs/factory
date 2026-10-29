@@ -6,9 +6,10 @@ import type { Connection } from "./connection.ts";
 const codeHostConfig = v.object({
   allow: v.array(v.object({ owner: v.string(), repo: v.optional(v.string()) })),
 });
+export type CodeHostConfig = v.InferInput<typeof codeHostConfig>;
 
 export type CodeHostOptions = ResourceOpts<
-  v.InferInput<typeof codeHostConfig>,
+  CodeHostConfig,
   { connection: Connection }
 >;
 
@@ -19,7 +20,10 @@ export type CodeHostOptions = ResourceOpts<
  * be limited to one repo and a set of permissions, so every `github.Policy`
  * passes.
  */
-export class CodeHost extends ResourceGroup implements CodeHostContract {
+export class CodeHost
+  extends ResourceGroup<CodeHostConfig>
+  implements CodeHostContract
+{
   readonly connection: Connection;
   readonly allow: RepoPattern[];
 

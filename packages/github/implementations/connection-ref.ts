@@ -5,14 +5,16 @@ import type {
 } from "lightbox";
 import { Channel } from "./channel.ts";
 
+type ConnectionRefConfig = { name: string };
+
 /** In an outpost: a GitHub connection the infra declares, from `github.Connection.get(name)`. */
 export class ConnectionRef
-  extends ResourceGroup
+  extends ResourceGroup<ConnectionRefConfig>
   implements ConnectionRefContract
 {
   readonly name: string;
 
-  constructor({ config }: ResourceOpts<{ name: string }, {}>) {
+  constructor({ config }: ResourceOpts<ConnectionRefConfig, {}>) {
     super("github/ConnectionRef", { config });
     this.name = config.name;
   }

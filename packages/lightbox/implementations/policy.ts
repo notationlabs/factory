@@ -7,11 +7,15 @@ const policyConfig = v.object({
   provider: v.string(),
   scopes: v.optional(v.array(v.string()), []),
 });
+export type PolicyConfig = v.InferInput<typeof policyConfig>;
 
-export type PolicyOptions = ResourceOpts<v.InferInput<typeof policyConfig>, {}>;
+export type PolicyOptions = ResourceOpts<PolicyConfig, {}>;
 
 /** A policy for credentials a plugin's `provider` mints. A code host's own policy (e.g. `github.Policy`) is typed by its provider. */
-export class Policy extends ResourceGroup implements PolicyContract {
+export class Policy
+  extends ResourceGroup<PolicyConfig>
+  implements PolicyContract
+{
   readonly key: string;
   readonly provider: string;
 

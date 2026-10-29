@@ -21,8 +21,8 @@ export class Vault extends ResourceGroup implements VaultContract {
   readonly provider = "railway";
   #project?: ProjectInstance;
 
-  constructor({ config }: VaultOptions) {
-    super("railway/Vault", { config });
+  constructor(_opts: VaultOptions) {
+    super("railway/Vault", {});
   }
 
   /** Called by the router that takes this vault. */

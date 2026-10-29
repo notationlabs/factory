@@ -13,11 +13,12 @@ import {
 } from "../resources/secrets-store.ts";
 
 const vaultConfig = v.object({ name: v.optional(v.string()) });
+export type VaultConfig = v.InferInput<typeof vaultConfig>;
 
-export type VaultOptions = ResourceOpts<v.InferInput<typeof vaultConfig>, {}>;
+export type VaultOptions = ResourceOpts<VaultConfig, {}>;
 
 /** `new cloudflare.Vault(...)`: a Secrets Store store, bound to the router and deployer Workers. Values can't be read back through the API. */
-export class Vault extends ResourceGroup implements VaultContract {
+export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
   readonly provider = "cloudflare";
   readonly store: SecretsStoreInstance;
 

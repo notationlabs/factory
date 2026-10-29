@@ -16,18 +16,19 @@ import {
 const channelConfig = v.object({
   scope: v.pipe(v.string(), v.startsWith("#")),
 });
+export type ChannelConfig = v.InferInput<typeof channelConfig>;
 
-export type ChannelOptions = ResourceOpts<
-  v.InferInput<typeof channelConfig>,
-  {}
->;
+export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
 
 /**
  * One Slack channel on a Slack connection, made by `connection.channel(...)`.
  * Its grant is the bot's membership: `/invite @<app>` in the channel. A
  * conversation is a thread.
  */
-export class Channel extends ResourceGroup implements ChannelContract {
+export class Channel
+  extends ResourceGroup<ChannelConfig>
+  implements ChannelContract
+{
   readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;
@@ -36,10 +37,7 @@ export class Channel extends ResourceGroup implements ChannelContract {
     id,
     config,
     dependencies,
-  }: ResourceOpts<
-    v.InferInput<typeof channelConfig>,
-    { connection: ConnectionRef }
-  >) {
+  }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
     const { scope } = v.parse(channelConfig, config);
     super("slack/Channel", {
       config,

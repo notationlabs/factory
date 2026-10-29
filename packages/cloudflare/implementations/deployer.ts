@@ -12,9 +12,10 @@ const deployerConfig = v.object({
   /** Written to outposts' authorized_keys, for `container ssh` and `resume`. */
   knownHosts: v.optional(v.array(v.string()), []),
 });
+export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
 export type DeployerOptions = ResourceOpts<
-  v.InferInput<typeof deployerConfig>,
+  DeployerConfig,
   { router: Router; accounts?: Account[] }
 >;
 
@@ -23,7 +24,10 @@ export type DeployerOptions = ResourceOpts<
  * containers with Workers Builds. Its API token is pasted on the first deploy,
  * and it and the accounts' secrets go into the router's vault.
  */
-export class Deployer extends ResourceGroup implements DeployerContract {
+export class Deployer
+  extends ResourceGroup<DeployerConfig>
+  implements DeployerContract
+{
   readonly router: Router;
   readonly accounts: Account[];
   readonly worker: WorkerInstance;

@@ -29,7 +29,7 @@ export class CodeHost
 
   constructor({ id, config, dependencies }: CodeHostOptions) {
     const { allow } = v.parse(codeHostConfig, config);
-    super("github/CodeHost", { config });
+    super("github/CodeHost", { id, config });
     this.connection = dependencies.connection;
     this.allow = allow;
     this.connection.router.store.contribute(

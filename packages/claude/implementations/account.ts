@@ -25,7 +25,7 @@ export class Account
 
   constructor({ id, config }: AccountOptions) {
     const { auth } = v.parse(accountConfig, config);
-    super("claude/Account", { config });
+    super("claude/Account", { id, config });
     this.key = id;
     this.secrets = { CLAUDE_CODE_OAUTH_TOKEN: auth };
   }

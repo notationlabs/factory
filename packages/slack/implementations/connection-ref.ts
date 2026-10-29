@@ -11,8 +11,8 @@ export class ConnectionRef
 {
   readonly name: string;
 
-  constructor({ config }: ResourceOpts<ConnectionRefConfig, {}>) {
-    super("slack/ConnectionRef", { config });
+  constructor({ id, config }: ResourceOpts<ConnectionRefConfig, {}>) {
+    super("slack/ConnectionRef", { id, config });
     this.name = config.name;
   }
 

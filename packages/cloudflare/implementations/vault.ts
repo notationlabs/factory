@@ -24,7 +24,7 @@ export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
 
   constructor({ id, config }: VaultOptions) {
     const { name = id } = v.parse(vaultConfig, config ?? {});
-    super("cloudflare/Vault", { config });
+    super("cloudflare/Vault", { id, config });
     this.store = this.add(
       new SecretsStore({ id: `${id}-store`, config: { name } }),
     );

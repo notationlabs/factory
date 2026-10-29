@@ -36,7 +36,7 @@ export class Connection
 
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
-    super("slack/Connection", { config });
+    super("slack/Connection", { id, config });
     this.name = name;
     this.router = dependencies.router;
     this.app = this.add(

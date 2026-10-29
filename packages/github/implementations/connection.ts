@@ -34,10 +34,7 @@ export class Connection
 
   constructor({ id, config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", {
-      config,
-      dependencies: { router: dependencies.router.id },
-    });
+    super("github/Connection", { config });
     this.name = name;
     this.router = dependencies.router;
     const by = `connection ${id}`;

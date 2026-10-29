@@ -31,10 +31,7 @@ export class Router
 
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("railway/Router", {
-      config,
-      dependencies: { vault: dependencies.vault.id },
-    });
+    super("railway/Router", { config });
     this.vault = dependencies.vault;
     this.project = this.add(
       new Project({ id: `${id}-project`, config: { name: project } }),

@@ -33,10 +33,7 @@ export class Router
 
   constructor({ id, config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("cloudflare/Router", {
-      config,
-      dependencies: { vault: dependencies.vault.id },
-    });
+    super("cloudflare/Router", { config });
     this.project = project;
     this.vault = dependencies.vault;
     this.kv = this.add(

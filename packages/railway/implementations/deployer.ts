@@ -25,12 +25,7 @@ export class Deployer extends ResourceGroup implements DeployerContract {
 
   constructor({ id, dependencies }: DeployerOptions) {
     const { router, accounts = [] } = dependencies;
-    super("railway/Deployer", {
-      dependencies: {
-        router: router.id,
-        ...Object.fromEntries(accounts.map((a) => [`account:${a.key}`, a.id])),
-      },
-    });
+    super("railway/Deployer", {});
     this.router = router;
     this.accounts = accounts;
     router.vault.secret({

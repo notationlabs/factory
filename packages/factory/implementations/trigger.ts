@@ -45,14 +45,7 @@ export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
       throw new Error(
         `trigger ${id}: container ${container.key} doesn't list runtime ${agent.runtime.id}, which agent ${agent.key} needs`,
       );
-    super("factory/Trigger", {
-      config,
-      dependencies: {
-        channel: event.channel.id,
-        agent: agent.id,
-        container: container.id,
-      },
-    });
+    super("factory/Trigger", { config });
     this.key = id;
     currentOutpost().store.contribute(
       {

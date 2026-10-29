@@ -26,6 +26,7 @@ export type CompiledResource = {
   id: string;
   type: string;
   group: string;
+  groupId: number;
   dependsOn: string[];
   params: unknown;
 };
@@ -97,6 +98,7 @@ const compileGraph = async (graph: ResourceGraph) => {
       id: resource.id,
       type: resource.type,
       group: resource.groupType,
+      groupId: resource.groupId,
       dependsOn: [
         ...new Set(
           Object.values(resource.dependencies)

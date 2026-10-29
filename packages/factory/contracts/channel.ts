@@ -1,4 +1,4 @@
-import type { ResourceGroup } from "@notation/resource";
+import type { ResourceGroup, ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 
@@ -13,9 +13,12 @@ export type RuleEntry = {
   match: unknown;
 };
 
-/** What every connection's `channel()` takes: `name` keys it in the router's config, `scope` is what it covers. */
-export const channelOptions = v.object({ name: v.string(), scope: v.string() });
-export type ChannelOptions = v.InferInput<typeof channelOptions>;
+/** A channel's config: `name` keys it in the router's config, `scope` is what it covers. */
+export const channelConfig = v.object({ name: v.string(), scope: v.string() });
+export type ChannelConfig = v.InferInput<typeof channelConfig>;
+
+/** What every connection's `channel()` takes. The connection is its dependency, so it isn't passed. */
+export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
 
 /** Made by a connection. Rules are declared on a provider's channel. */
 export interface Channel extends ResourceGroup {

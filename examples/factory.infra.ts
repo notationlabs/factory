@@ -3,16 +3,21 @@ import * as cloudflare from "@factory/cloudflare";
 import * as github from "@factory/github";
 
 export default factory(() => {
-  const router = new cloudflare.Router({ id: "router", name: "acme-router" });
+  const router = new cloudflare.Router({
+    id: "router",
+    config: { name: "acme-router" },
+  });
 
   const gh = new github.Connection({
     id: "gh",
-    name: "acme-agents",
-    org: "acme",
-    router,
+    config: { name: "acme-agents", org: "acme" },
+    dependencies: { router },
   });
 
-  const issues = gh.channel({ name: "issues", scope: "acme/app" });
+  const issues = gh.channel({
+    id: "issues",
+    config: { name: "issues", scope: "acme/app" },
+  });
 
   issues.onIssueComment({
     actions: ["created", "edited"],
@@ -21,9 +26,8 @@ export default factory(() => {
   });
 
   new Workspace({
-    name: "issues",
-    branch: "issue-{id}",
-    base: "main",
-    channel: issues,
+    id: "issues",
+    config: { name: "issues", branch: "issue-{id}", base: "main" },
+    dependencies: { channel: issues },
   });
 });

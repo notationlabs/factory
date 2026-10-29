@@ -1,8 +1,8 @@
-import { ResourceGroup } from "@notation/resource";
+import { ResourceGroup, type ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
-  type ChannelOptions,
-  channelOptions,
+  type ChannelConfig,
+  channelConfig,
 } from "factory";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
@@ -18,15 +18,18 @@ export class Channel extends ResourceGroup implements ChannelContract {
   readonly name: string;
   readonly connection: Connection;
 
-  constructor(opts: ChannelOptions & { connection: Connection }) {
-    const { name, scope } = v.parse(channelOptions, opts);
+  constructor({
+    config,
+    dependencies,
+  }: ResourceOpts<ChannelConfig, { connection: Connection }>) {
+    const { name, scope } = v.parse(channelConfig, config);
     super("github/Channel", {
       name,
       scope,
-      dependencies: { connection: opts.connection.id },
+      dependencies: { connection: dependencies.connection.id },
     });
     this.name = name;
-    this.connection = opts.connection;
+    this.connection = dependencies.connection;
     // The App's id is an output value, so the router's config depends on the App and gets its id at deploy.
     this.connection.router.store.contribute(
       {

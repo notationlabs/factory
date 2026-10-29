@@ -1,8 +1,9 @@
 export {
   type Channel,
+  type ChannelConfig,
+  channelConfig,
   type ChannelEntry,
   type ChannelOptions,
-  channelOptions,
   type RuleEntry,
 } from "./channel.ts";
 export type { Connection } from "./connection.ts";

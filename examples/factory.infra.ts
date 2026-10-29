@@ -16,7 +16,7 @@ export default factory(() => {
 
   const issues = gh.channel({
     id: "issues",
-    config: { name: "issues", scope: "acme/app" },
+    config: { scope: "acme/app" },
   });
 
   issues.onIssueComment({
@@ -27,7 +27,7 @@ export default factory(() => {
 
   new Workspace({
     id: "issues",
-    config: { name: "issues", branch: "issue-{id}", base: "main" },
+    config: { branch: "issue-{id}", base: "main" },
     dependencies: { channel: issues },
   });
 });

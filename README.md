@@ -20,7 +20,7 @@ const gh = new github.Connection({
   dependencies: { router },
 });
 
-const issues = gh.channel({ id: "issues", config: { name: "issues", scope: "acme/app" } });
+const issues = gh.channel({ id: "issues", config: { scope: "acme/app" } });
 
 issues.onIssueComment({
   actions: ["created", "edited"],
@@ -30,7 +30,7 @@ issues.onIssueComment({
 
 new Workspace({
   id: "issues",
-  config: { name: "issues", branch: "issue-{id}", base: "main" },
+  config: { branch: "issue-{id}", base: "main" },
   dependencies: { channel: issues },
 });
 ```
@@ -74,12 +74,12 @@ export interface Connection extends ResourceGroup {
 }
 
 export interface Channel extends ResourceGroup {
-  readonly name: string;
+  readonly key: string;
   readonly connection: Connection;
 }
 ```
 
-The router's config is `store`, not `config`, because `ResourceGroup` already uses `config` for the group's own options.
+The router's config is `store`, not `config`, because `ResourceGroup` already uses `config` for the group's own options. Likewise a channel's `key` is the id it was constructed with, which keys it in the router's config: `ResourceGroup`'s own `id` is Notation's number for the group.
 
 ### Implementing one
 
@@ -110,7 +110,7 @@ A channel is made by its connection, so a channel on a GitHub connection is alwa
 `packages/notation-resource` is `@notation/resource` at notation@26fcf88, with contributions applied. `tsconfig.json` maps `@notation/resource` to it.
 
 - **Collected params.** A schema item can have `collect`, a rule for combining contributions. The router's config uses `mergeRecords`, so each contributor owns its keys.
-- **`resource.contribute(values, { by })`** only accepts the resource's collected params. Library code passes `by` so a conflict names what the user declared: `"issues" is contributed twice: by workspace w1 and by workspace w2`.
+- **`resource.contribute(values, { by })`** only accepts the resource's collected params. Library code passes `by` so a conflict names what the user declared: `"issues" is contributed twice: by workspace issues (…) and by workspace issues (…)`.
 - **Output values.** `resource.out.<field>` is an output usable before it exists, whole or inside a template string. A contribution that holds one makes its target depend on that resource. At plan it's `UNKNOWN_AFTER_APPLY` at its own path, and at deploy it's the real value.
 - **Order doesn't matter.** Contributions are combined in a stable order, so moving code never changes the result.
 - **Contributions close after evaluation.** A late `contribute` throws.

@@ -16,13 +16,11 @@ export class Policy
   extends ResourceGroup<PolicyConfig>
   implements PolicyContract
 {
-  readonly key: string;
   readonly provider: string;
 
   constructor({ id, config }: PolicyOptions) {
     const { provider, scopes } = v.parse(policyConfig, config);
     super("lightbox/Policy", { id, config });
-    this.key = id;
     this.provider = provider;
     currentOutpost().store.contribute(
       { policies: { [id]: { provider, scopes } } },

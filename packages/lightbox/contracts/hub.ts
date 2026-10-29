@@ -17,7 +17,6 @@ export interface OperatorAuth extends ResourceGroup {
 
 /** Credentials an agent runtime runs on. The deployer writes `secrets` to the vault and injects them, by env var, into containers that list `runtime`. */
 export interface Account extends ResourceGroup {
-  readonly key: string;
   readonly runtime: Runtime["id"];
   readonly secrets: Record<string, Secret>;
 }

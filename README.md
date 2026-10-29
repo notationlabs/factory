@@ -193,7 +193,6 @@ export interface ConnectionRef extends ResourceGroup {
   channel(opts: ChannelOptions): Channel;
 } // in an outpost
 export interface Channel extends ResourceGroup {
-  readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;
 }
@@ -201,7 +200,7 @@ export interface Channel extends ResourceGroup {
 
 `hub.ts` has `CodeHost`, `OperatorAuth`, `Account` and `Deployer`. `outpost.ts` has `Runtime`, `Agent`, `PolicyContract` and the outpost config's entries.
 
-The router's config is `store`, not `config`, because `ResourceGroup` already uses `config` for the group's own options. Likewise a channel's `key` is the id it was constructed with, which keys it in the outpost's config: `ResourceGroup`'s own `id` is Notation's number for the group.
+The router's config is `store`, not `config`, because `ResourceGroup` already uses `config` for the group's own options.
 
 ### Implementing one
 

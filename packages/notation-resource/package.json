@@ -1,0 +1,12 @@
+{
+  "name": "@notation/resource",
+  "private": true,
+  "type": "module",
+  "description": "@notation/resource at notation@26fcf88, with contributions applied.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "deep-object-diff": "^1.1.9"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@factory/cloudflare",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./implementations/index.ts"
+  }
+}

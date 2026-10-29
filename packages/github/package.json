@@ -1,0 +1,8 @@
+{
+  "name": "@factory/github",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./implementations/index.ts"
+  }
+}

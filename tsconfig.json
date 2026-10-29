@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@notation/resource": [
+        "./packages/notation-resource/src/index.ts"
+      ],
+      "factory": [
+        "./packages/factory/index.ts"
+      ],
+      "@factory/cloudflare": [
+        "./packages/cloudflare/implementations/index.ts"
+      ],
+      "@factory/github": [
+        "./packages/github/implementations/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/index.ts",
+    "packages/*/src/**/*.ts",
+    "packages/*/resources/**/*.ts",
+    "packages/*/implementations/**/*.ts",
+    "packages/*/lib/**/*.ts",
+    "examples/**/*.ts"
+  ]
+}

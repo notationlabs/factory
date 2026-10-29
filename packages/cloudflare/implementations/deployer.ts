@@ -46,7 +46,7 @@ export class Deployer
     for (const account of accounts)
       for (const [env, value] of Object.entries(account.secrets))
         router.vault.secret({
-          id: `${id}-${account.key}-${env}`,
+          id: `${id}-${account.id}-${env}`,
           name: env,
           value,
         });

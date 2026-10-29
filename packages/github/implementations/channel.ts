@@ -26,7 +26,6 @@ export class Channel
   extends ResourceGroup<ChannelConfig>
   implements ChannelContract
 {
-  readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;
 
@@ -38,7 +37,6 @@ export class Channel
     const outpost = currentOutpost();
     const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
     super("github/Channel", { id, config });
-    this.key = id;
     this.scope = scope;
     this.connection = dependencies.connection;
     outpost.store.contribute(

@@ -27,14 +27,12 @@ export class Policy
   extends ResourceGroup<PolicyConfig>
   implements PolicyContract
 {
-  readonly key: string;
   readonly provider = "github";
 
   constructor({ id, config }: PolicyOptions) {
     const outpost = currentOutpost();
     const { repo = outpost.repo, permissions } = v.parse(policyConfig, config);
     super("github/Policy", { id, config });
-    this.key = id;
     outpost.store.contribute(
       { policies: { [id]: { provider: "github", repo, permissions } } },
       { by: `policy ${id}` },

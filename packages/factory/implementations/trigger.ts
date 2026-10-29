@@ -33,7 +33,6 @@ export type TriggerOptions<E> = ResourceOpts<
  * repo's config to call it.
  */
 export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
-  readonly key: string;
 
   constructor({ id, config, dependencies }: TriggerOptions<E>) {
     const { event, worktree } = config;
@@ -43,19 +42,18 @@ export class Trigger<E> extends ResourceGroup<TriggerConfig<E>> {
       throw new Error(`trigger ${id}: base is only used with a worktree`);
     if (!container.runtimes.some((r) => r.id === agent.runtime.id))
       throw new Error(
-        `trigger ${id}: container ${container.key} doesn't list runtime ${agent.runtime.id}, which agent ${agent.key} needs`,
+        `trigger ${id}: container ${container.id} doesn't list runtime ${agent.runtime.id}, which agent ${agent.id} needs`,
       );
     super("factory/Trigger", { id, config });
-    this.key = id;
     currentOutpost().store.contribute(
       {
         triggers: {
           [id]: {
-            channel: event.channel.key,
+            channel: event.channel.id,
             event: event.event,
             match: event.match,
-            agent: agent.key,
-            container: container.key,
+            agent: agent.id,
+            container: container.id,
             ...(worktree && { worktree: { base } }),
           },
         },

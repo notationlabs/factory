@@ -19,13 +19,11 @@ export type AgentOptions = ResourceOpts<AgentConfig, {}>;
 
 /** A Claude Code agent. A trigger that runs it must target a container that lists `claude.runtime`. */
 export class Agent extends ResourceGroup<AgentConfig> implements AgentContract {
-  readonly key: string;
   readonly runtime = runtime;
 
   constructor({ id, config }: AgentOptions) {
     const settings = v.parse(agentConfig, config);
     super("claude/Agent", { id, config });
-    this.key = id;
     currentOutpost().store.contribute(
       { agents: { [id]: { runtime: runtime.id, ...settings } } },
       { by: `agent ${id}` },

@@ -27,7 +27,6 @@ export type ContainerOptions = ResourceOpts<
 
 /** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
 export class Container extends ResourceGroup<ContainerConfig> {
-  readonly key: string;
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
 
@@ -41,7 +40,6 @@ export class Container extends ResourceGroup<ContainerConfig> {
       seen.add(runtime.id);
     }
     super("factory/Container", { id, config });
-    this.key = id;
     this.runtimes = runtimes;
     this.policies = policies;
     currentOutpost().store.contribute(
@@ -50,7 +48,7 @@ export class Container extends ResourceGroup<ContainerConfig> {
           [id]: {
             image,
             runtimes: runtimes.map((r) => r.id),
-            policies: policies.map((p) => p.key),
+            policies: policies.map((p) => p.id),
             files,
           },
         },

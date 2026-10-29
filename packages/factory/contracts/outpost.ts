@@ -6,13 +6,11 @@ export type Runtime = { id: string; setup: string };
 
 /** An agent persona for a runtime. Its provider decides its settings. */
 export interface Agent extends ResourceGroup {
-  readonly key: string;
   readonly runtime: Runtime;
 }
 
 /** Credentials a container may ask the router for. `provider` names what mints them (e.g. "github": the code host). */
 export interface PolicyContract extends ResourceGroup {
-  readonly key: string;
   readonly provider: string;
 }
 

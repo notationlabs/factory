@@ -18,11 +18,9 @@ export type ChannelOptions = ResourceOpts<ChannelConfig, {}>;
 
 /**
  * Made by a connection in an outpost. Selectors are made by a provider's
- * channel. `key` is the id it was constructed with: ResourceGroup's own `id`
- * is Notation's number for the group.
+ * channel. Its `id` keys it in the outpost's config.
  */
 export interface Channel extends ResourceGroup {
-  readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;
 }

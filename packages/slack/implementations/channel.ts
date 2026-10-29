@@ -29,7 +29,6 @@ export class Channel
   extends ResourceGroup<ChannelConfig>
   implements ChannelContract
 {
-  readonly key: string;
   readonly scope: string;
   readonly connection: ConnectionRef;
 
@@ -40,7 +39,6 @@ export class Channel
   }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>) {
     const { scope } = v.parse(channelConfig, config);
     super("slack/Channel", { id, config });
-    this.key = id;
     this.scope = scope;
     this.connection = dependencies.connection;
     currentOutpost().store.contribute(

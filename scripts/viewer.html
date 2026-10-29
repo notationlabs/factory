@@ -298,18 +298,20 @@
       const colour = (s) => "hsl(" + hue(s) + " 65% 55%)";
 
       /** Nodes as { key, title, sub, colour, deps: keys, body }. */
-      const groupTitle = (g) =>
-        g.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
+      /** A group's id is unique among groups of its type. */
+      const groupKey = (g) => g.type + " " + g.id;
+      const findGroup = (e, ref) =>
+        ref && e.groups.find((g) => groupKey(g) === groupKey(ref));
 
       const resourceNodes = (e) =>
         e.resources.map((r) => {
-          const g = e.groups.find((g) => g.id === r.groupId);
+          const g = findGroup(e, r.group);
           return {
             key: r.id,
             title: r.id,
             sub: r.type,
-            colourBy: r.group,
-            groupLabel: g ? r.group + " " + groupTitle(g) : r.group,
+            colourBy: r.group ? r.group.type : "",
+            groupLabel: g ? groupKey(g) : "no group",
             deps: r.dependsOn,
             body: r.params,
             bodyLabel: "params",
@@ -319,25 +321,30 @@
 
       /** A group depends on the groups its resources' dependencies are in. */
       const groupNodes = (e) => {
-        const groupOf = new Map(e.resources.map((r) => [r.id, r.groupId]));
+        const groupOf = new Map(
+          e.resources.map((r) => [r.id, r.group && groupKey(r.group)]),
+        );
+        const own = (g) =>
+          e.resources.filter(
+            (r) => r.group && groupKey(r.group) === groupKey(g),
+          );
         const deps = (g) => [
           ...new Set(
-            e.resources
-              .filter((r) => r.groupId === g.id)
+            own(g)
               .flatMap((r) => r.dependsOn.map((d) => groupOf.get(d)))
-              .filter((d) => d !== g.id),
+              .filter((d) => d && d !== groupKey(g)),
           ),
         ];
         return e.groups.map((g) => ({
-          key: String(g.id),
-          title: groupTitle(g),
+          key: groupKey(g),
+          title: g.id,
           sub: g.type,
           colourBy: g.type.split("/")[0],
           groupLabel: g.type.split("/")[0],
-          deps: deps(g).map(String),
+          deps: deps(g),
           body: g.config,
           bodyLabel: "config",
-          resources: e.resources.filter((r) => r.groupId === g.id).length,
+          resources: own(g).length,
         }));
       };
 
@@ -710,9 +717,9 @@
           "</pre>" +
           (n.group
             ? '<div class="label">group config · <a data-group="' +
-              n.group.id +
+              esc(groupKey(n.group)) +
               '">' +
-              esc(n.group.type + " " + groupTitle(n.group)) +
+              esc(groupKey(n.group)) +
               "</a></div>" +
               "<pre>" +
               highlight(n.group.config) +

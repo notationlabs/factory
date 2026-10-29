@@ -26,7 +26,7 @@ export class OperatorAuth
   constructor({ id, config, dependencies }: OperatorAuthOptions) {
     const { emails } = v.parse(operatorAuthConfig, config);
     const { router } = dependencies;
-    super("cloudflare/OperatorAuth", { config });
+    super("cloudflare/OperatorAuth", { id, config });
     this.application = this.add(
       new AccessApplication({
         id: `${id}-access`,

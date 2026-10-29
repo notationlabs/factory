@@ -14,8 +14,8 @@ export class ConnectionRef
 {
   readonly name: string;
 
-  constructor({ config }: ResourceOpts<ConnectionRefConfig, {}>) {
-    super("github/ConnectionRef", { config });
+  constructor({ id, config }: ResourceOpts<ConnectionRefConfig, {}>) {
+    super("github/ConnectionRef", { id, config });
     this.name = config.name;
   }
 

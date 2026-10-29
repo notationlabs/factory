@@ -21,7 +21,7 @@ export class Policy
 
   constructor({ id, config }: PolicyOptions) {
     const { provider, scopes } = v.parse(policyConfig, config);
-    super("factory/Policy", { config });
+    super("factory/Policy", { id, config });
     this.key = id;
     this.provider = provider;
     currentOutpost().store.contribute(

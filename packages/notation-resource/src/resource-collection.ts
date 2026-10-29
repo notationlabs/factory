@@ -8,7 +8,6 @@ export type ResourceGraph = {
 
 type ResourceCollection = {
   graph: ResourceGraph;
-  nextResourceGroupId: number;
   /** Set once evaluation finishes: contributions close then. */
   closed: boolean;
 };
@@ -24,7 +23,6 @@ export async function collectResourceGraph(
 
   const collection: ResourceCollection = {
     graph: { resourceGroups: [], resources: [] },
-    nextResourceGroupId: 0,
     closed: false,
   };
 

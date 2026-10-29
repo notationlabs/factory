@@ -26,8 +26,8 @@ const OUTPOST_REPO = "acme/webapp";
 export type CompiledResource = {
   id: string;
   type: string;
-  group: string;
-  groupId: number;
+  /** The group the resource was added to, if any. */
+  group: { type: string; id: string } | null;
   dependsOn: string[];
   params: unknown;
 };
@@ -37,10 +37,8 @@ export type CompiledExample = {
   kind: "hub" | "outpost";
   repo?: string;
   groups: {
-    id: number;
     type: string;
-    /** The id the group was declared with, for groups that keep one. */
-    key?: string;
+    id: string;
     config: unknown;
   }[];
   resources: CompiledResource[];
@@ -61,7 +59,7 @@ const plain = (value: unknown): unknown => {
   if (isOutputValue(value))
     return `<${value.resource.id}.${value.path.join(".")}>`;
   if (isResource(value)) return `<resource ${value.id}>`;
-  if (isGroup(value)) return `<group ${value.type} #${value.id}>`;
+  if (isGroup(value)) return `<group ${value.type} ${value.id}>`;
   if (typeof value === "function")
     return `<function ${value.name || "anonymous"}>`;
   if (typeof value === "symbol" || typeof value === "bigint")
@@ -103,8 +101,7 @@ const compileGraph = async (graph: ResourceGraph) => {
     resources.push({
       id: resource.id,
       type: resource.type,
-      group: resource.groupType,
-      groupId: resource.groupId,
+      group: resource.group,
       dependsOn: [
         ...new Set(
           Object.values(resource.dependencies)
@@ -116,9 +113,8 @@ const compileGraph = async (graph: ResourceGraph) => {
     });
   }
   const groups = graph.resourceGroups.map((g) => ({
-    id: g.id,
     type: g.type,
-    key: "key" in g ? String(g.key) : undefined,
+    id: g.id,
     config: plain(g.config),
   }));
   return { groups, resources };

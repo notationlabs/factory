@@ -35,7 +35,7 @@ export class Deployer
   constructor({ id, config, dependencies }: DeployerOptions) {
     const { knownHosts } = v.parse(deployerConfig, config ?? {});
     const { router, accounts = [] } = dependencies;
-    super("cloudflare/Deployer", { config });
+    super("cloudflare/Deployer", { id, config });
     this.router = router;
     this.accounts = accounts;
     router.vault.secret({

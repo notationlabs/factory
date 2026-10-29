@@ -317,18 +317,29 @@
           };
         });
 
-      const groupNodes = (e) =>
-        e.groups.map((g) => ({
+      /** A group depends on the groups its resources' dependencies are in. */
+      const groupNodes = (e) => {
+        const groupOf = new Map(e.resources.map((r) => [r.id, r.groupId]));
+        const deps = (g) => [
+          ...new Set(
+            e.resources
+              .filter((r) => r.groupId === g.id)
+              .flatMap((r) => r.dependsOn.map((d) => groupOf.get(d)))
+              .filter((d) => d !== g.id),
+          ),
+        ];
+        return e.groups.map((g) => ({
           key: String(g.id),
           title: groupTitle(g),
           sub: g.type,
           colourBy: g.type.split("/")[0],
           groupLabel: g.type.split("/")[0],
-          deps: g.dependsOn.map(String),
+          deps: deps(g).map(String),
           body: g.config,
           bodyLabel: "config",
           resources: e.resources.filter((r) => r.groupId === g.id).length,
         }));
+      };
 
       /**
        * Layers by longest path from the roots, so every dependency sits in an

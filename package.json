@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compile": "tsx scripts/compile.ts",
+    "view": "tsx scripts/compile.ts --view"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "deep-object-diff": "^1.1.9",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "valibot": "^1.1.0"
   }

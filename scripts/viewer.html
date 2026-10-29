@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>lightbox examples</title>
+<style>
+  :root { color-scheme: light dark; --muted: #888; --line: #8884; --accent: #4a7dff; --bg: Canvas; --fg: CanvasText; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+  nav { border-right: 1px solid var(--line); padding: 16px; overflow: auto; }
+  nav h1 { font-size: 15px; margin: 0 0 12px; }
+  nav button { display: block; width: 100%; text-align: left; padding: 6px 8px; margin-bottom: 2px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  nav button:hover { background: var(--line); }
+  nav button.active { background: var(--accent); color: white; }
+  nav small { display: block; color: var(--muted); font-size: 12px; }
+  nav button.active small { color: #fffc; }
+  main { overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  header { padding: 16px 24px 12px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  header h2 { margin: 0; font-size: 18px; }
+  .meta { color: var(--muted); }
+  .tabs { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tabs button { border: 0; background: none; color: inherit; font: inherit; padding: 4px 12px; cursor: pointer; }
+  .tabs button.active { background: var(--accent); color: white; }
+  input[type=search] { width: 240px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: none; color: inherit; font: inherit; }
+  .error { white-space: pre-wrap; background: #e5484d22; border: 1px solid #e5484d66; padding: 12px; margin: 16px 24px; border-radius: 6px; font: 12px ui-monospace, monospace; }
+  #graph { overflow: auto; padding: 24px; min-height: 0; }
+  svg { display: block; }
+  .layer-label { fill: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .edge { fill: none; stroke: var(--muted); stroke-opacity: .45; stroke-width: 1.3; }
+  .edge.hl { stroke: var(--accent); stroke-opacity: 1; stroke-width: 2; }
+  .edge.dim { stroke-opacity: .08; }
+  .node { cursor: pointer; }
+  .node rect.box { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
+  .node rect.stripe { stroke: none; }
+  .node .title { font: 600 12px ui-monospace, monospace; fill: var(--fg); }
+  .node .sub { font-size: 11px; fill: var(--muted); }
+  .node.sel rect.box { stroke: var(--accent); stroke-width: 2; }
+  .node.hl rect.box { stroke: var(--accent); }
+  .node.dim { opacity: .2; }
+  #details { border-top: 1px solid var(--line); padding: 12px 24px 16px; max-height: 42vh; overflow: auto; }
+  #details:empty { display: none; }
+  #details h3 { margin: 0; font: 600 14px ui-monospace, monospace; }
+  #details .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .links { font-size: 12px; margin: 4px 0; color: var(--muted); }
+  .links a { margin-left: 6px; color: var(--accent); text-decoration: none; font-family: ui-monospace, monospace; cursor: pointer; }
+  pre { margin: 8px 0 0; padding: 10px; background: #8881; border-radius: 6px; overflow: auto; font: 12px/1.5 ui-monospace, monospace; }
+  .k { color: #c678dd; } .s { color: #50a14f; } .n { color: #d19a66; } .ph { color: #e5a50a; font-style: italic; }
+</style>
+</head>
+<body>
+<nav><h1>lightbox examples</h1><div id="list"></div></nav>
+<main>
+  <header id="header"></header>
+  <div id="graph"></div>
+  <div id="details"></div>
+</main>
+<script>
+const examples = /*DATA*/[];
+
+const NODE_W = 250, NODE_H = 44, COL_GAP = 90, ROW_GAP = 14, PAD_TOP = 24;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+const highlight = (value) =>
+  esc(JSON.stringify(value, null, 2)).replace(
+    /(&quot;(?:[^&]|&(?!quot;))*&quot;)(\s*:)?|\b(true|false|null|-?\d+(?:\.\d+)?)\b/g,
+    (m, str, colon, lit) => {
+      if (str && colon) return '<span class="k">' + str + "</span>" + colon;
+      if (str) return '<span class="' + (/^&quot;&lt;.*&gt;&quot;$/.test(str) ? "ph" : "s") + '">' + str + "</span>";
+      return '<span class="n">' + lit + "</span>";
+    },
+  );
+
+const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+const colour = (s) => "hsl(" + hue(s) + " 65% 55%)";
+
+/** Nodes as { key, title, sub, colour, deps: keys, body }. */
+const resourceNodes = (e) =>
+  e.resources.map((r) => ({
+    key: r.id, title: r.id, sub: r.type, colourBy: r.group, groupLabel: r.group,
+    deps: r.dependsOn, body: r.params, bodyLabel: "params",
+  }));
+
+const groupNodes = (e) => {
+  const label = (g) => g.config.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
+  return e.groups.map((g) => ({
+    key: String(g.id), title: label(g), sub: g.type, colourBy: g.type.split("/")[0], groupLabel: g.type.split("/")[0],
+    deps: Object.values(g.dependencies).map(String), body: g.config, bodyLabel: "config",
+    resources: e.resources.filter((r) => r.group === g.type).length,
+  }));
+};
+
+/**
+ * Layers by longest path from the roots, so every dependency sits in an
+ * earlier layer than what depends on it. Nodes caught in a cycle go in a
+ * final layer. Within a layer, a few barycentre sweeps reduce crossings.
+ */
+const layout = (nodes) => {
+  const byKey = new Map(nodes.map((n) => [n.key, n]));
+  for (const n of nodes) n.deps = [...new Set(n.deps)].filter((d) => byKey.has(d) && d !== n.key);
+  const depth = new Map();
+  const visiting = new Set();
+  const visit = (n) => {
+    if (depth.has(n.key)) return depth.get(n.key);
+    if (visiting.has(n.key)) return Infinity;
+    visiting.add(n.key);
+    const d = n.deps.length ? 1 + Math.max(...n.deps.map((k) => visit(byKey.get(k)))) : 0;
+    visiting.delete(n.key);
+    depth.set(n.key, d);
+    return d;
+  };
+  nodes.forEach(visit);
+  const finite = [...depth.values()].filter(Number.isFinite);
+  const cycleLayer = (finite.length ? Math.max(...finite) : -1) + 1;
+  const layers = [];
+  for (const n of nodes) {
+    n.layer = Number.isFinite(depth.get(n.key)) ? depth.get(n.key) : cycleLayer;
+    (layers[n.layer] ??= []).push(n);
+  }
+  for (let i = 0; i < layers.length; i++) layers[i] ??= [];
+
+  const dependents = new Map(nodes.map((n) => [n.key, []]));
+  for (const n of nodes) for (const d of n.deps) dependents.get(d).push(n.key);
+  const pos = new Map();
+  const index = () => layers.forEach((l) => l.forEach((n, i) => pos.set(n.key, i)));
+  const sweep = (layer, neighbours) => {
+    const bary = (n) => {
+      const ks = neighbours(n);
+      return ks.length ? ks.reduce((s, k) => s + pos.get(k), 0) / ks.length : pos.get(n.key);
+    };
+    const scored = layer.map((n) => [bary(n), n]);
+    scored.sort((a, b) => a[0] - b[0]);
+    layer.splice(0, layer.length, ...scored.map(([, n]) => n));
+  };
+  index();
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 1; i < layers.length; i++) { sweep(layers[i], (n) => n.deps); index(); }
+    for (let i = layers.length - 2; i >= 0; i--) { sweep(layers[i], (n) => dependents.get(n.key)); index(); }
+  }
+
+  const tallest = Math.max(1, ...layers.map((l) => l.length));
+  const height = tallest * (NODE_H + ROW_GAP) - ROW_GAP;
+  layers.forEach((layer, li) => {
+    const offset = (height - (layer.length * (NODE_H + ROW_GAP) - ROW_GAP)) / 2;
+    layer.forEach((n, i) => {
+      n.x = li * (NODE_W + COL_GAP);
+      n.y = PAD_TOP + offset + i * (NODE_H + ROW_GAP);
+    });
+  });
+  return { layers, dependents, byKey, cycleLayer, width: layers.length * (NODE_W + COL_GAP) - COL_GAP, height: PAD_TOP + height };
+};
+
+const el = (tag, attrs = {}, text) => {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+const truncate = (s, max) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+
+const state = { example: 0, view: null, selected: null, filter: "" };
+let graph;
+
+const renderList = () => {
+  document.getElementById("list").innerHTML = examples
+    .map((e, i) =>
+      '<button class="' + (i === state.example ? "active" : "") + '" data-i="' + i + '">' + esc(e.name) +
+      "<small>" + e.kind + " · " + (e.error ? "failed" : e.resources.length + " resources, " + e.groups.length + " groups") + "</small></button>")
+    .join("");
+};
+
+const renderHeader = () => {
+  const e = examples[state.example];
+  const tab = (v, label) => '<button data-view="' + v + '" class="' + (state.view === v ? "active" : "") + '">' + label + "</button>";
+  document.getElementById("header").innerHTML =
+    "<h2>" + esc(e.name) + "</h2>" +
+    '<span class="meta">' + (e.kind === "hub" ? "hub" : "outpost for " + esc(e.repo)) + "</span>" +
+    '<div class="tabs">' + tab("resources", "Resources") + tab("groups", "Groups") + "</div>" +
+    '<input type="search" id="q" placeholder="Filter" value="' + esc(state.filter) + '">';
+  const input = document.getElementById("q");
+  input.oninput = () => { state.filter = input.value; paint(); };
+};
+
+const renderGraph = () => {
+  const e = examples[state.example];
+  const container = document.getElementById("graph");
+  container.innerHTML = e.error ? '<div class="error">' + esc(e.error) + "</div>" : "";
+  const nodes = state.view === "groups" ? groupNodes(e) : resourceNodes(e);
+  if (!nodes.length) { graph = null; return; }
+  graph = layout(nodes);
+
+  const svg = el("svg", { width: graph.width + 2, height: graph.height + 2 });
+  const defs = el("defs");
+  const marker = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+  marker.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: "currentColor" }));
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  graph.layers.forEach((layer, i) => {
+    const label = i === graph.cycleLayer && layer.some((n) => !Number.isFinite(n.layer)) ? "cycle" : "layer " + i;
+    svg.appendChild(el("text", { class: "layer-label", x: i * (NODE_W + COL_GAP), y: 12 }, label));
+  });
+
+  graph.edges = [];
+  const edgeLayer = el("g", { style: "color: var(--muted)" });
+  for (const n of nodes) {
+    for (const d of n.deps) {
+      const from = graph.byKey.get(d);
+      const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2, x2 = n.x - 2, y2 = n.y + NODE_H / 2;
+      const mid = (x1 + x2) / 2;
+      const path = el("path", { class: "edge", d: "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 + " " + x2 + "," + y2, "marker-end": "url(#arrow)" });
+      edgeLayer.appendChild(path);
+      graph.edges.push({ from: d, to: n.key, path });
+    }
+  }
+  svg.appendChild(edgeLayer);
+
+  for (const n of nodes) {
+    const g = el("g", { class: "node", transform: "translate(" + n.x + "," + n.y + ")" });
+    g.appendChild(el("rect", { class: "box", width: NODE_W, height: NODE_H, rx: 6 }));
+    g.appendChild(el("rect", { class: "stripe", width: 4, height: NODE_H, rx: 2, fill: colour(n.colourBy) }));
+    g.appendChild(el("text", { class: "title", x: 14, y: 18 }, truncate(n.title, 30)));
+    g.appendChild(el("text", { class: "sub", x: 14, y: 34 }, truncate(n.sub, 40)));
+    g.appendChild(el("title", {}, n.title + "\n" + n.sub + "\n" + n.groupLabel));
+    g.onclick = () => select(n.key);
+    g.onmouseenter = () => paint(n.key);
+    g.onmouseleave = () => paint();
+    n.el = g;
+    svg.appendChild(g);
+  }
+  container.appendChild(svg);
+};
+
+/** Highlights the hovered (or selected) node with its direct dependencies and dependents, and dims what the filter excludes. */
+const paint = (hover) => {
+  if (!graph) return;
+  const focus = hover ?? state.selected;
+  const near = new Set();
+  if (focus && graph.byKey.has(focus)) {
+    near.add(focus);
+    graph.byKey.get(focus).deps.forEach((k) => near.add(k));
+    graph.dependents.get(focus).forEach((k) => near.add(k));
+  }
+  const q = state.filter.toLowerCase();
+  const matches = (n) => !q || (n.title + " " + n.sub + " " + n.groupLabel + " " + JSON.stringify(n.body)).toLowerCase().includes(q);
+  for (const n of graph.byKey.values()) {
+    n.el.classList.toggle("sel", n.key === state.selected);
+    n.el.classList.toggle("hl", near.has(n.key) && n.key !== focus);
+    n.el.classList.toggle("dim", !matches(n) || (focus !== undefined && focus !== null && near.size > 0 && !near.has(n.key) && !!hover));
+  }
+  for (const e of graph.edges) {
+    const on = focus && (e.from === focus || e.to === focus);
+    e.path.classList.toggle("hl", !!on);
+    e.path.classList.toggle("dim", !!focus && !on && !!hover);
+  }
+};
+
+const select = (key) => {
+  state.selected = state.selected === key ? null : key;
+  renderDetails();
+  paint();
+};
+
+const renderDetails = () => {
+  const box = document.getElementById("details");
+  const n = graph && state.selected && graph.byKey.get(state.selected);
+  if (!n) { box.innerHTML = ""; return; }
+  const links = (label, keys) =>
+    keys.length ? '<div class="links">' + label + keys.map((k) => '<a data-key="' + esc(k) + '">' + esc(graph.byKey.get(k).title) + "</a>").join("") + "</div>" : "";
+  box.innerHTML =
+    "<h3>" + esc(n.title) + "</h3>" +
+    '<div class="sub">' + esc(n.sub) + " · in " + esc(n.groupLabel) + " · layer " + n.layer +
+    (n.resources !== undefined ? " · " + n.resources + " resources of this type" : "") + "</div>" +
+    links("depends on", n.deps) +
+    links("depended on by", graph.dependents.get(n.key)) +
+    "<pre>" + highlight(n.body) + "</pre>";
+};
+
+document.getElementById("details").addEventListener("click", (ev) => {
+  const a = ev.target.closest("a[data-key]");
+  if (a) select(a.dataset.key);
+});
+
+document.getElementById("header").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-view]");
+  if (!b || b.dataset.view === state.view) return;
+  state.view = b.dataset.view;
+  state.selected = null;
+  render();
+});
+
+document.getElementById("list").onclick = (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  state.example = Number(b.dataset.i);
+  state.view = null;
+  state.selected = null;
+  state.filter = "";
+  render();
+};
+
+const render = () => {
+  const e = examples[state.example];
+  // An outpost has one resource, so its shape is in its groups.
+  state.view ??= e.resources.length > 1 ? "resources" : "groups";
+  renderList();
+  renderHeader();
+  renderGraph();
+  renderDetails();
+  paint();
+};
+
+render();
+</script>
+</body>
+</html>

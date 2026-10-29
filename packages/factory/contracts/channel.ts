@@ -1,4 +1,4 @@
-import type { ResourceGroup, ResourceOpts } from "@notation/resource";
+import type { ResourceGroup } from "@notation/resource";
 import * as v from "valibot";
 import type { ConnectionRef } from "./connection.ts";
 
@@ -13,8 +13,8 @@ export type ChannelEntry = {
 export const channelConfig = v.object({ scope: v.optional(v.string()) });
 export type ChannelConfig = v.InferInput<typeof channelConfig>;
 
-/** What every connection's `channel()` takes: the channel's `id` and its options. The connection is its dependency, so it isn't passed. */
-export type ChannelOptions = { id: string } & ResourceOpts<ChannelConfig, {}>;
+/** What every connection's `channel()` takes: the channel's `id` and its config. The connection is its dependency, so it isn't passed. */
+export type ChannelOptions = { id: string } & ChannelConfig;
 
 /**
  * Made by a connection in an outpost. Selectors are made by a provider's

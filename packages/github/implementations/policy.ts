@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import { OutpostGroup, type PolicyContract } from "factory";
 import * as v from "valibot";
 
@@ -20,7 +19,7 @@ const policyConfig = v.object({
 });
 export type PolicyConfig = v.InferInput<typeof policyConfig>;
 
-export type PolicyOptions = ResourceOpts<PolicyConfig, {}>;
+export type PolicyOptions = PolicyConfig;
 
 /** A 1-hour installation token for `repo` (default: the outpost's repo), with `permissions`, minted by the code host before each run. */
 export class Policy
@@ -29,7 +28,7 @@ export class Policy
 {
   readonly provider = "github";
 
-  constructor(id: string, { config }: PolicyOptions) {
+  constructor(id: string, config: PolicyOptions) {
     super("github/Policy", id, config);
     const { outpost } = this.dependencies;
     const { repo = outpost.repo, permissions } = v.parse(policyConfig, config);

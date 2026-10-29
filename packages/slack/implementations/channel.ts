@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
   OutpostGroup,
@@ -18,7 +17,7 @@ const channelConfig = v.object({
 });
 export type ChannelConfig = v.InferInput<typeof channelConfig>;
 
-export type ChannelOptions = { id: string } & ResourceOpts<ChannelConfig, {}>;
+export type ChannelOptions = { id: string } & ChannelConfig;
 
 /**
  * One Slack channel on a Slack connection, made by `connection.channel(...)`.
@@ -34,15 +33,12 @@ export class Channel
 
   constructor(
     id: string,
-    {
-      config,
-      dependencies,
-    }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>,
+    { connection, ...config }: ChannelConfig & { connection: ConnectionRef },
   ) {
     const { scope } = v.parse(channelConfig, config);
-    super("slack/Channel", id, config, dependencies);
+    super("slack/Channel", id, config, { connection });
     this.scope = scope;
-    this.connection = dependencies.connection;
+    this.connection = connection;
     this.dependencies.outpost.store.contribute(
       {
         channels: {

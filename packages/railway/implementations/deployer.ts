@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
   type Account,
   type Deployer as DeployerContract,
@@ -7,10 +7,7 @@ import {
 import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Router } from "./router.ts";
 
-export type DeployerOptions = ResourceOpts<
-  {},
-  { router: Router; accounts?: Account[] }
->;
+export type DeployerOptions = { router: Router; accounts?: Account[] };
 
 /**
  * `new railway.Deployer(...)`: a private, scale-to-zero service that builds
@@ -26,9 +23,8 @@ export class Deployer
   readonly accounts: Account[];
   readonly service: ServiceInstance;
 
-  constructor(id: string, { dependencies }: DeployerOptions) {
-    const { router, accounts = [] } = dependencies;
-    super("railway/Deployer", id, {}, dependencies);
+  constructor(id: string, { router, accounts = [] }: DeployerOptions) {
+    super("railway/Deployer", id, {}, { router, accounts });
     this.router = router;
     this.accounts = accounts;
 

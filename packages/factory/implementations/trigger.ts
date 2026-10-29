@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { Channel, Selector } from "../contracts/channel.ts";
 import type { Agent } from "../contracts/outpost.ts";
@@ -20,10 +19,10 @@ export type TriggerConfig<E> = v.InferInput<typeof triggerConfig> & {
   worktree?: (event: E) => string | undefined;
 };
 
-export type TriggerOptions<E> = ResourceOpts<
-  TriggerConfig<E>,
-  { agent: Agent; container: Container }
->;
+export type TriggerOptions<E> = TriggerConfig<E> & {
+  agent: Agent;
+  container: Container;
+};
 
 /**
  * The whole dispatch rule: this event, from these authors, to this agent, in
@@ -36,10 +35,9 @@ export class Trigger<E> extends OutpostGroup<
   TriggerConfig<E>,
   { agent: Agent; container: Container; channel: Channel }
 > {
-  constructor(id: string, { config, dependencies }: TriggerOptions<E>) {
+  constructor(id: string, { agent, container, ...config }: TriggerOptions<E>) {
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
-    const { agent, container } = dependencies;
     if (base !== undefined && !worktree) {
       throw new Error(`trigger ${id}: base is only used with a worktree`);
     }
@@ -49,7 +47,8 @@ export class Trigger<E> extends OutpostGroup<
       );
     }
     super("factory/Trigger", id, config, {
-      ...dependencies,
+      agent,
+      container,
       channel: event.channel,
     });
     this.dependencies.outpost.store.contribute(

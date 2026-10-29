@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import { type Router as RouterContract, secret } from "factory";
 import * as v from "valibot";
 import { KvNamespace, type KvNamespaceInstance } from "../resources/kv.ts";
@@ -13,7 +13,7 @@ import type { Vault } from "./vault.ts";
 const routerConfig = v.object({ project: v.string() });
 export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
-export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
+export type RouterOptions = RouterGroupConfig & { vault: Vault };
 
 /**
  * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
@@ -31,11 +31,11 @@ export class Router
   readonly api: WorkerInstance;
   readonly store: RouterConfigInstance;
 
-  constructor(id: string, { config, dependencies }: RouterOptions) {
+  constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("cloudflare/Router", id, config, dependencies);
+    super("cloudflare/Router", id, config, { vault });
     this.project = project;
-    this.vault = dependencies.vault;
+    this.vault = vault;
     this.kv = this.add(
       new KvNamespace(`${id}-kv`, { config: { title: project } }),
     );

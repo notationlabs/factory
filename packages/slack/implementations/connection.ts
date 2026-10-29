@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
@@ -15,10 +15,7 @@ const connectionConfig = v.object({
 });
 export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
-export type ConnectionOptions = ResourceOpts<
-  ConnectionConfig,
-  { router: Router }
->;
+export type ConnectionOptions = ConnectionConfig & { router: Router };
 
 /**
  * `new slack.Connection(...)`: Notation Factory on Slack, as one app whose events go
@@ -34,15 +31,15 @@ export class Connection
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor(id: string, { config, dependencies }: ConnectionOptions) {
+  constructor(id: string, { router, ...config }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
-    super("slack/Connection", id, config, dependencies);
+    super("slack/Connection", id, config, { router });
     this.name = name;
-    this.router = dependencies.router;
+    this.router = router;
     this.app = this.add(
       new App(`${id}-app`, {
         config: { name, workspace },
-        dependencies: { router: dependencies.router.api },
+        dependencies: { router: router.api },
       }),
     );
     const botToken = `slack-${name}-bot-token`;
@@ -73,6 +70,6 @@ export class Connection
 
   /** In an outpost: the connection the infra declares as `name`. */
   static get(name: string): ConnectionRef {
-    return new ConnectionRef(name, { config: { name } });
+    return new ConnectionRef(name, { name });
   }
 }

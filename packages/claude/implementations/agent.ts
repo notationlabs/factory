@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import { type Agent as AgentContract, OutpostGroup } from "factory";
 import * as v from "valibot";
 import { runtime } from "./runtime.ts";
@@ -15,13 +14,13 @@ const agentConfig = v.object({
 });
 export type AgentConfig = v.InferInput<typeof agentConfig>;
 
-export type AgentOptions = ResourceOpts<AgentConfig, {}>;
+export type AgentOptions = AgentConfig;
 
 /** A Claude Code agent. A trigger that runs it must target a container that lists `claude.runtime`. */
 export class Agent extends OutpostGroup<AgentConfig> implements AgentContract {
   readonly runtime = runtime;
 
-  constructor(id: string, { config }: AgentOptions) {
+  constructor(id: string, config: AgentOptions) {
     const settings = v.parse(agentConfig, config);
     super("claude/Agent", id, config);
     this.dependencies.outpost.store.contribute(

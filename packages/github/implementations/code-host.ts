@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type { CodeHost as CodeHostContract, RepoPattern } from "factory";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
@@ -8,10 +8,7 @@ const codeHostConfig = v.object({
 });
 export type CodeHostConfig = v.InferInput<typeof codeHostConfig>;
 
-export type CodeHostOptions = ResourceOpts<
-  CodeHostConfig,
-  { connection: Connection }
->;
+export type CodeHostOptions = CodeHostConfig & { connection: Connection };
 
 /**
  * `new github.CodeHost(...)`: the infra's repos are on GitHub. Installed repos
@@ -27,10 +24,10 @@ export class CodeHost
   readonly connection: Connection;
   readonly allow: RepoPattern[];
 
-  constructor(id: string, { config, dependencies }: CodeHostOptions) {
+  constructor(id: string, { connection, ...config }: CodeHostOptions) {
     const { allow } = v.parse(codeHostConfig, config);
-    super("github/CodeHost", id, config, dependencies);
-    this.connection = dependencies.connection;
+    super("github/CodeHost", id, config, { connection });
+    this.connection = connection;
     this.allow = allow;
     this.connection.router.store.contribute(
       {

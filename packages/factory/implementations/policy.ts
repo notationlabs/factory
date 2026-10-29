@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { PolicyContract } from "../contracts/outpost.ts";
 import { OutpostGroup } from "./outpost.ts";
@@ -9,7 +8,7 @@ const policyConfig = v.object({
 });
 export type PolicyConfig = v.InferInput<typeof policyConfig>;
 
-export type PolicyOptions = ResourceOpts<PolicyConfig, {}>;
+export type PolicyOptions = PolicyConfig;
 
 /** A policy for credentials a plugin's `provider` mints. A code host's own policy (e.g. `github.Policy`) is typed by its provider. */
 export class Policy
@@ -18,7 +17,7 @@ export class Policy
 {
   readonly provider: string;
 
-  constructor(id: string, { config }: PolicyOptions) {
+  constructor(id: string, config: PolicyOptions) {
     const { provider, scopes } = v.parse(policyConfig, config);
     super("factory/Policy", id, config);
     this.provider = provider;

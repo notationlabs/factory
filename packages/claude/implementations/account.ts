@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
   type Account as AccountContract,
   isSecret,
@@ -12,7 +12,7 @@ const accountConfig = v.object({
 });
 export type AccountConfig = v.InferInput<typeof accountConfig>;
 
-export type AccountOptions = ResourceOpts<AccountConfig, {}>;
+export type AccountOptions = AccountConfig;
 
 /** The credentials Claude Code runs on. The deployer writes them to the vault, and injects them into every container that lists `claude.runtime`, and no other. */
 export class Account
@@ -22,7 +22,7 @@ export class Account
   readonly runtime = "claude";
   readonly secrets: Record<string, Secret>;
 
-  constructor(id: string, { config }: AccountOptions) {
+  constructor(id: string, config: AccountOptions) {
     const { auth } = v.parse(accountConfig, config);
     super("claude/Account", id, config);
     this.secrets = { CLAUDE_CODE_OAUTH_TOKEN: auth };

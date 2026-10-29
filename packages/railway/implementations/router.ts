@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import { type Router as RouterContract, secret } from "factory";
 import * as v from "valibot";
 import { Project, type ProjectInstance } from "../resources/project.ts";
@@ -12,7 +12,7 @@ import type { Vault } from "./vault.ts";
 const routerConfig = v.object({ project: v.string() });
 export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
-export type RouterOptions = ResourceOpts<RouterGroupConfig, { vault: Vault }>;
+export type RouterOptions = RouterGroupConfig & { vault: Vault };
 
 /**
  * `new railway.Router(...)`: the hub's Railway project, a public router
@@ -29,10 +29,10 @@ export class Router
   readonly api: ServiceInstance;
   readonly store: RouterConfigInstance;
 
-  constructor(id: string, { config, dependencies }: RouterOptions) {
+  constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("railway/Router", id, config, dependencies);
-    this.vault = dependencies.vault;
+    super("railway/Router", id, config, { vault });
+    this.vault = vault;
     this.project = this.add(
       new Project(`${id}-project`, { config: { name: project } }),
     );

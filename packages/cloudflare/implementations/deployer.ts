@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
   type Account,
   type Deployer as DeployerContract,
@@ -14,10 +14,10 @@ const deployerConfig = v.object({
 });
 export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
-export type DeployerOptions = ResourceOpts<
-  DeployerConfig,
-  { router: Router; accounts?: Account[] }
->;
+export type DeployerOptions = DeployerConfig & {
+  router: Router;
+  accounts?: Account[];
+};
 
 /**
  * `new cloudflare.Deployer(...)`: a scale-to-zero Worker that builds outposts'
@@ -35,10 +35,12 @@ export class Deployer
   readonly accounts: Account[];
   readonly worker: WorkerInstance;
 
-  constructor(id: string, { config, dependencies }: DeployerOptions) {
-    const { knownHosts } = v.parse(deployerConfig, config ?? {});
-    const { router, accounts = [] } = dependencies;
-    super("cloudflare/Deployer", id, config, dependencies);
+  constructor(
+    id: string,
+    { router, accounts = [], ...config }: DeployerOptions,
+  ) {
+    const { knownHosts } = v.parse(deployerConfig, config);
+    super("cloudflare/Deployer", id, config, { router, accounts });
     this.router = router;
     this.accounts = accounts;
 

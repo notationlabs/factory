@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import {
   type Channel as ChannelContract,
   type ChannelConfig,
@@ -31,16 +30,13 @@ export class Channel
 
   constructor(
     id: string,
-    {
-      config,
-      dependencies,
-    }: ResourceOpts<ChannelConfig, { connection: ConnectionRef }>,
+    { connection, ...config }: ChannelConfig & { connection: ConnectionRef },
   ) {
-    super("github/Channel", id, config, dependencies);
+    super("github/Channel", id, config, { connection });
     const { outpost } = this.dependencies;
-    const { scope = outpost.repo } = v.parse(channelConfig, config ?? {});
+    const { scope = outpost.repo } = v.parse(channelConfig, config);
     this.scope = scope;
-    this.connection = dependencies.connection;
+    this.connection = connection;
     outpost.store.contribute(
       {
         channels: {

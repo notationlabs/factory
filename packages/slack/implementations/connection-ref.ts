@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type { ConnectionRef as ConnectionRefContract } from "lightbox";
 import { Channel, type ChannelOptions } from "./channel.ts";
 
@@ -11,13 +11,13 @@ export class ConnectionRef
 {
   readonly name: string;
 
-  constructor(id: string, { config }: ResourceOpts<ConnectionRefConfig, {}>) {
+  constructor(id: string, config: ConnectionRefConfig) {
     super("slack/ConnectionRef", id, config);
     this.name = config.name;
   }
 
   /** One Slack channel: `scope` is its name, e.g. `"#ops"`. */
-  channel({ id, config }: ChannelOptions): Channel {
-    return new Channel(id, { config, dependencies: { connection: this } });
+  channel({ id, ...config }: ChannelOptions): Channel {
+    return new Channel(id, { ...config, connection: this });
   }
 }

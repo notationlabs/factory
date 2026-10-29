@@ -2,7 +2,6 @@ import {
   collectResourceGraph,
   type GroupDependencies,
   ResourceGroup,
-  type ResourceOpts,
 } from "@notation/resource";
 import {
   OutpostConfig,
@@ -16,7 +15,7 @@ export class Outpost extends ResourceGroup<OutpostGroupConfig> {
   readonly repo: string;
   readonly store: OutpostConfigInstance;
 
-  constructor(id: string, { config }: ResourceOpts<OutpostGroupConfig, {}>) {
+  constructor(id: string, config: OutpostGroupConfig) {
     super("lightbox/Outpost", id, config);
     this.repo = config.repo;
     this.store = this.add(
@@ -35,7 +34,7 @@ let active: Outpost | undefined;
  */
 export const outpost = (declare: () => void) => (repo: string) =>
   collectResourceGraph(() => {
-    active = new Outpost("outpost", { config: { repo } });
+    active = new Outpost("outpost", { repo });
     try {
       declare();
     } finally {

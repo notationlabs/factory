@@ -8,86 +8,81 @@ export default outpost(() => {
 
   const ops = slack.Connection.get("acme-agents").channel({
     id: "ops",
-    config: { scope: "#ops" },
+    scope: "#ops",
   });
 
   const code = new github.Policy("code", {
-    config: { permissions: { contents: "write", pull_requests: "write" } },
+    permissions: { contents: "write", pull_requests: "write" },
   });
 
   const shared = new github.Policy("shared", {
-    config: { repo: "acme/shared", permissions: { contents: "read" } },
+    repo: "acme/shared",
+    permissions: { contents: "read" },
   });
 
   const custom = new Policy("custom", {
-    config: { provider: "acme-auth", scopes: ["read"] },
+    provider: "acme-auth",
+    scopes: ["read"],
   });
 
   const dev = new Container("dev", {
-    config: {
-      image: "./Dockerfile",
-      runtimes: [claude.runtime],
-      files: { "~/.npmrc": "./npmrc", "~/.config/app.json": { region: "eu" } },
-    },
-    dependencies: { policies: [code, shared, custom] },
+    image: "./Dockerfile",
+    runtimes: [claude.runtime],
+    files: { "~/.npmrc": "./npmrc", "~/.config/app.json": { region: "eu" } },
+    policies: [code, shared, custom],
   });
 
   const triage = new claude.Agent("triage", {
-    config: { model: "claude-haiku-5-5", systemPrompt: "./prompts/triage.md" },
+    model: "claude-haiku-5-5",
+    systemPrompt: "./prompts/triage.md",
   });
 
   const coder = new claude.Agent("coder", {
-    config: {
-      model: "claude-opus-5-5",
-      effort: "high",
-      systemPrompt: "./prompts/coder.md",
-      settings: { cleanupPeriodDays: 30 },
-      files: { "~/.claude/CLAUDE.md": "./CLAUDE.md" },
-    },
+    model: "claude-opus-5-5",
+    effort: "high",
+    systemPrompt: "./prompts/coder.md",
+    settings: { cleanupPeriodDays: 30 },
+    files: { "~/.claude/CLAUDE.md": "./CLAUDE.md" },
   });
 
   const branch = (event: { issue: { number: number } }) =>
     `issue-${event.issue.number}`;
 
   new Trigger("on-open", {
-    config: {
-      event: gh.issue({ from: github.collaborators() }),
-      worktree: branch,
-    },
-    dependencies: { agent: triage, container: dev },
+    event: gh.issue({ from: github.collaborators() }),
+    worktree: branch,
+    agent: triage,
+    container: dev,
   });
 
   new Trigger("mention", {
-    config: {
-      event: gh.issueComment({
-        actions: ["created", "edited"],
-        mention: "@claude",
-        from: github.collaborators(),
-      }),
-      worktree: branch,
-    },
-    dependencies: { agent: coder, container: dev },
+    event: gh.issueComment({
+      actions: ["created", "edited"],
+      mention: "@claude",
+      from: github.collaborators(),
+    }),
+    worktree: branch,
+    agent: coder,
+    container: dev,
   });
 
   new Trigger("docs", {
-    config: {
-      event: gh.issueComment({
-        mention: "@claude",
-        labels: ["docs"],
-        from: github.team("acme/docs"),
-      }),
-      worktree: (event) => `docs/${event.issue.number}`,
-      base: "docs",
-    },
-    dependencies: { agent: coder, container: dev },
+    event: gh.issueComment({
+      mention: "@claude",
+      labels: ["docs"],
+      from: github.team("acme/docs"),
+    }),
+    worktree: (event) => `docs/${event.issue.number}`,
+    base: "docs",
+    agent: coder,
+    container: dev,
   });
 
   new Trigger("slack", {
-    config: {
-      event: ops.mention("@claude", {
-        from: [slack.group("eng"), slack.user("dan@acme.dev")],
-      }),
-    },
-    dependencies: { agent: coder, container: dev },
+    event: ops.mention("@claude", {
+      from: [slack.group("eng"), slack.user("dan@acme.dev")],
+    }),
+    agent: coder,
+    container: dev,
   });
 });

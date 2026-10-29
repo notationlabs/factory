@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type {
   ChannelOptions,
   ConnectionRef as ConnectionRefContract,
@@ -14,13 +14,13 @@ export class ConnectionRef
 {
   readonly name: string;
 
-  constructor(id: string, { config }: ResourceOpts<ConnectionRefConfig, {}>) {
+  constructor(id: string, config: ConnectionRefConfig) {
     super("github/ConnectionRef", id, config);
     this.name = config.name;
   }
 
   /** A repo's issues. `scope` defaults to the outpost's repo. */
-  channel({ id, config }: ChannelOptions): Channel {
-    return new Channel(id, { config, dependencies: { connection: this } });
+  channel({ id, ...config }: ChannelOptions): Channel {
+    return new Channel(id, { ...config, connection: this });
   }
 }

@@ -1,4 +1,3 @@
-import type { ResourceOpts } from "@notation/resource";
 import * as v from "valibot";
 import type { PolicyContract, Runtime } from "../contracts/outpost.ts";
 import { OutpostGroup } from "./outpost.ts";
@@ -20,10 +19,9 @@ const containerConfig = v.object({
 });
 export type ContainerConfig = v.InferInput<typeof containerConfig>;
 
-export type ContainerOptions = ResourceOpts<
-  ContainerConfig,
-  { policies?: PolicyContract[] }
->;
+export type ContainerOptions = ContainerConfig & {
+  policies?: PolicyContract[];
+};
 
 /** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
 export class Container extends OutpostGroup<
@@ -33,9 +31,8 @@ export class Container extends OutpostGroup<
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
 
-  constructor(id: string, { config, dependencies }: ContainerOptions) {
+  constructor(id: string, { policies = [], ...config }: ContainerOptions) {
     const { image, runtimes, files } = v.parse(containerConfig, config);
-    const policies = dependencies?.policies ?? [];
     const seen = new Set<string>();
     for (const runtime of runtimes) {
       if (seen.has(runtime.id)) {
@@ -43,7 +40,7 @@ export class Container extends OutpostGroup<
       }
       seen.add(runtime.id);
     }
-    super("lightbox/Container", id, config, dependencies);
+    super("lightbox/Container", id, config, { policies });
     this.runtimes = runtimes;
     this.policies = policies;
     this.dependencies.outpost.store.contribute(

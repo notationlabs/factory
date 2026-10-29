@@ -1,4 +1,4 @@
-import { ResourceGroup, type ResourceOpts } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type { OperatorAuth as OperatorAuthContract } from "lightbox";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
@@ -6,10 +6,9 @@ import type { Connection } from "./connection.ts";
 const operatorAuthConfig = v.object({ logins: v.array(v.string()) });
 export type OperatorAuthConfig = v.InferInput<typeof operatorAuthConfig>;
 
-export type OperatorAuthOptions = ResourceOpts<
-  OperatorAuthConfig,
-  { connection: Connection }
->;
+export type OperatorAuthOptions = OperatorAuthConfig & {
+  connection: Connection;
+};
 
 /** Operators sign in with GitHub, through the connection's App, and the router checks their login against `logins`. */
 export class OperatorAuth
@@ -18,14 +17,14 @@ export class OperatorAuth
 {
   readonly provider = "github";
 
-  constructor(id: string, { config, dependencies }: OperatorAuthOptions) {
+  constructor(id: string, { connection, ...config }: OperatorAuthOptions) {
     const { logins } = v.parse(operatorAuthConfig, config);
-    super("github/OperatorAuth", id, config, dependencies);
-    dependencies.connection.router.store.contribute(
+    super("github/OperatorAuth", id, config, { connection });
+    connection.router.store.contribute(
       {
         operators: {
           provider: "github",
-          connection: dependencies.connection.name,
+          connection: connection.name,
           logins,
         },
       },

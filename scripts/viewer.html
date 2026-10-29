@@ -211,6 +211,16 @@
         font-family: ui-monospace, monospace;
         cursor: pointer;
       }
+      #details .label {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #details .label a {
+        color: var(--accent);
+        font-family: ui-monospace, monospace;
+        cursor: pointer;
+      }
       pre {
         margin: 8px 0 0;
         padding: 10px;
@@ -288,33 +298,37 @@
       const colour = (s) => "hsl(" + hue(s) + " 65% 55%)";
 
       /** Nodes as { key, title, sub, colour, deps: keys, body }. */
-      const resourceNodes = (e) =>
-        e.resources.map((r) => ({
-          key: r.id,
-          title: r.id,
-          sub: r.type,
-          colourBy: r.group,
-          groupLabel: r.group,
-          deps: r.dependsOn,
-          body: r.params,
-          bodyLabel: "params",
-        }));
+      const groupTitle = (g) =>
+        g.config.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
 
-      const groupNodes = (e) => {
-        const label = (g) =>
-          g.config.key ?? g.config.name ?? g.config.repo ?? "#" + g.id;
-        return e.groups.map((g) => ({
+      const resourceNodes = (e) =>
+        e.resources.map((r) => {
+          const g = e.groups.find((g) => g.id === r.groupId);
+          return {
+            key: r.id,
+            title: r.id,
+            sub: r.type,
+            colourBy: r.group,
+            groupLabel: g ? r.group + " " + groupTitle(g) : r.group,
+            deps: r.dependsOn,
+            body: r.params,
+            bodyLabel: "params",
+            group: g,
+          };
+        });
+
+      const groupNodes = (e) =>
+        e.groups.map((g) => ({
           key: String(g.id),
-          title: label(g),
+          title: groupTitle(g),
           sub: g.type,
           colourBy: g.type.split("/")[0],
           groupLabel: g.type.split("/")[0],
           deps: Object.values(g.dependencies).map(String),
           body: g.config,
           bodyLabel: "config",
-          resources: e.resources.filter((r) => r.group === g.type).length,
+          resources: e.resources.filter((r) => r.groupId === g.id).length,
         }));
-      };
 
       /**
        * Layers by longest path from the roots, so every dependency sits in an
@@ -674,19 +688,36 @@
           " · layer " +
           n.layer +
           (n.resources !== undefined
-            ? " · " + n.resources + " resources of this type"
+            ? " · " + n.resources + " resources"
             : "") +
           "</div>" +
           links("depends on", n.deps) +
           links("depended on by", graph.dependents.get(n.key)) +
+          (n.group ? '<div class="label">' + n.bodyLabel + "</div>" : "") +
           "<pre>" +
           highlight(n.body) +
-          "</pre>";
+          "</pre>" +
+          (n.group
+            ? '<div class="label">group config · <a data-group="' +
+              n.group.id +
+              '">' +
+              esc(n.group.type + " " + groupTitle(n.group)) +
+              "</a></div>" +
+              "<pre>" +
+              highlight(n.group.config) +
+              "</pre>"
+            : "");
       };
 
       document.getElementById("details").addEventListener("click", (ev) => {
         const a = ev.target.closest("a[data-key]");
         if (a) select(a.dataset.key);
+        const g = ev.target.closest("a[data-group]");
+        if (g) {
+          state.view = "groups";
+          state.selected = g.dataset.group;
+          render();
+        }
       });
 
       document.getElementById("header").addEventListener("click", (ev) => {

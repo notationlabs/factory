@@ -1,16 +1,10 @@
-import {
-  outputSources,
-  ResourceGroup,
-  type ResourceOpts,
-} from "@notation/resource";
+import { outputSources, ResourceGroup } from "@notation/resource";
 import type { Vault as VaultContract, VaultSecretOptions } from "factory";
 import type { ProjectInstance } from "../resources/project.ts";
 import {
   SealedVariable,
   type SealedVariableInstance,
 } from "../resources/variable.ts";
-
-export type VaultOptions = ResourceOpts<{}, {}>;
 
 /**
  * `new railway.Vault(...)`: sealed shared variables in the hub's project.
@@ -21,8 +15,8 @@ export class Vault extends ResourceGroup implements VaultContract {
   readonly provider = "railway";
   #project?: ProjectInstance;
 
-  constructor({ id }: VaultOptions) {
-    super("railway/Vault", { id });
+  constructor(id: string) {
+    super("railway/Vault", id);
   }
 
   /** Called by the router that takes this vault. */
@@ -40,8 +34,7 @@ export class Vault extends ResourceGroup implements VaultContract {
       );
     }
     const item = this.add(
-      new SealedVariable({
-        id,
+      new SealedVariable(id, {
         config: { name, source: value },
         dependencies: { project: this.#project },
       }),

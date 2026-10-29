@@ -2,7 +2,6 @@ import {
   collectResourceGraph,
   type GroupDependencies,
   ResourceGroup,
-  type ResourceGroupOptions,
   type ResourceOpts,
 } from "@notation/resource";
 import {
@@ -17,11 +16,11 @@ export class Outpost extends ResourceGroup<OutpostGroupConfig> {
   readonly repo: string;
   readonly store: OutpostConfigInstance;
 
-  constructor({ id, config }: ResourceOpts<OutpostGroupConfig, {}>) {
-    super("factory/Outpost", { id, config });
+  constructor(id: string, { config }: ResourceOpts<OutpostGroupConfig, {}>) {
+    super("factory/Outpost", id, config);
     this.repo = config.repo;
     this.store = this.add(
-      new OutpostConfig({ id: `${id}-config`, config: { repo: config.repo } }),
+      new OutpostConfig(`${id}-config`, { config: { repo: config.repo } }),
     );
   }
 }
@@ -36,7 +35,7 @@ let active: Outpost | undefined;
  */
 export const outpost = (declare: () => void) => (repo: string) =>
   collectResourceGraph(() => {
-    active = new Outpost({ id: "outpost", config: { repo } });
+    active = new Outpost("outpost", { config: { repo } });
     try {
       declare();
     } finally {
@@ -60,12 +59,10 @@ export abstract class OutpostGroup<
   C extends Record<string, any> = Record<string, any>,
   D extends GroupDependencies = {},
 > extends ResourceGroup<C, D & { outpost: Outpost }> {
-  constructor(type: string, opts: ResourceGroupOptions<C, D>) {
-    super(type, {
-      ...opts,
-      dependencies: { ...opts.dependencies, outpost: currentOutpost() } as D & {
-        outpost: Outpost;
-      },
-    });
+  constructor(type: string, id: string, config?: C, dependencies?: D) {
+    super(type, id, config, {
+      ...dependencies,
+      outpost: currentOutpost(),
+    } as D & { outpost: Outpost });
   }
 }

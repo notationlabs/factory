@@ -38,7 +38,16 @@ export type { Schema, SchemaItem, DefineResourceApiSchema };
 export type ResourceType = `${string}/${string}/${string}`;
 
 export type ResourceOpts<C, D> = OptionalIfAllPropertiesOptional<"config", C> &
-  OptionalIfAllPropertiesOptional<"dependencies", D> & { id: string };
+  OptionalIfAllPropertiesOptional<"dependencies", D>;
+
+/**
+ * The arguments a resource takes after its ID. The options can be left out
+ * when neither config nor dependencies has a required property.
+ */
+type ResourceArgs<C, D> =
+  {} extends ResourceOpts<C, D>
+    ? [opts?: ResourceOpts<C, D>]
+    : [opts: ResourceOpts<C, D>];
 
 /**
  * The object types a resource's schema gives rise to.
@@ -202,11 +211,14 @@ export abstract class Resource<
     ] = other;
   }
 
-  constructor(opts: ResourceOpts<C, D>) {
-    this.id = opts.id;
-    this.config = opts.config || ({} as C);
+  constructor(
+    id: string,
+    { config, dependencies }: { config?: C; dependencies?: D } = {},
+  ) {
+    this.id = id;
+    this.config = config || ({} as C);
     // A copy: `dependOn` adds to it.
-    this.dependencies = { ...opts.dependencies } as D;
+    this.dependencies = { ...dependencies } as D;
     return this;
   }
 
@@ -336,7 +348,7 @@ export type ResourceClass<
   C extends Record<string, any> = T["params"],
   IntrinsicParams extends Partial<T["params"]> = {},
 > = {
-  new (opts: ResourceOpts<C, D>): Resource<T, D, C>;
+  new (id: string, ...args: ResourceArgs<C, D>): Resource<T, D, C>;
   readonly type: ResourceType;
   requireDependencies: <
     Dependencies extends Record<string, BaseResource | void>,

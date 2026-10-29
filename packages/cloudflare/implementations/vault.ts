@@ -22,18 +22,17 @@ export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
   readonly provider = "cloudflare";
   readonly store: SecretsStoreInstance;
 
-  constructor({ id, config }: VaultOptions) {
+  constructor(id: string, { config }: VaultOptions = {}) {
     const { name = id } = v.parse(vaultConfig, config ?? {});
-    super("cloudflare/Vault", { id, config });
+    super("cloudflare/Vault", id, config);
     this.store = this.add(
-      new SecretsStore({ id: `${id}-store`, config: { name } }),
+      new SecretsStore(`${id}-store`, { config: { name } }),
     );
   }
 
   secret({ id, name, value }: VaultSecretOptions): StoreSecretInstance {
     const item = this.add(
-      new StoreSecret({
-        id,
+      new StoreSecret(id, {
         config: { name, source: value },
         dependencies: { store: this.store },
       }),

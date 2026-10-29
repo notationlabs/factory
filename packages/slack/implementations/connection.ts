@@ -34,14 +34,13 @@ export class Connection
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor({ id, config, dependencies }: ConnectionOptions) {
+  constructor(id: string, { config, dependencies }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
-    super("slack/Connection", { id, config, dependencies });
+    super("slack/Connection", id, config, dependencies);
     this.name = name;
     this.router = dependencies.router;
     this.app = this.add(
-      new App({
-        id: `${id}-app`,
+      new App(`${id}-app`, {
         config: { name, workspace },
         dependencies: { router: dependencies.router.api },
       }),
@@ -74,6 +73,6 @@ export class Connection
 
   /** In an outpost: the connection the infra declares as `name`. */
   static get(name: string): ConnectionRef {
-    return new ConnectionRef({ id: name, config: { name } });
+    return new ConnectionRef(name, { config: { name } });
   }
 }

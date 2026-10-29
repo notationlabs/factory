@@ -27,9 +27,9 @@ export class CodeHost
   readonly connection: Connection;
   readonly allow: RepoPattern[];
 
-  constructor({ id, config, dependencies }: CodeHostOptions) {
+  constructor(id: string, { config, dependencies }: CodeHostOptions) {
     const { allow } = v.parse(codeHostConfig, config);
-    super("github/CodeHost", { id, config, dependencies });
+    super("github/CodeHost", id, config, dependencies);
     this.connection = dependencies.connection;
     this.allow = allow;
     this.connection.router.store.contribute(

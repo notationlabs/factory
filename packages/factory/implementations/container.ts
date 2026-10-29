@@ -33,7 +33,7 @@ export class Container extends OutpostGroup<
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
 
-  constructor({ id, config, dependencies }: ContainerOptions) {
+  constructor(id: string, { config, dependencies }: ContainerOptions) {
     const { image, runtimes, files } = v.parse(containerConfig, config);
     const policies = dependencies?.policies ?? [];
     const seen = new Set<string>();
@@ -43,7 +43,7 @@ export class Container extends OutpostGroup<
       }
       seen.add(runtime.id);
     }
-    super("factory/Container", { id, config, dependencies });
+    super("factory/Container", id, config, dependencies);
     this.runtimes = runtimes;
     this.policies = policies;
     this.dependencies.outpost.store.contribute(

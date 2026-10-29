@@ -36,7 +36,7 @@ export class Trigger<E> extends OutpostGroup<
   TriggerConfig<E>,
   { agent: Agent; container: Container; channel: Channel }
 > {
-  constructor({ id, config, dependencies }: TriggerOptions<E>) {
+  constructor(id: string, { config, dependencies }: TriggerOptions<E>) {
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
     const { agent, container } = dependencies;
@@ -48,10 +48,9 @@ export class Trigger<E> extends OutpostGroup<
         `trigger ${id}: container ${container.id} doesn't list runtime ${agent.runtime.id}, which agent ${agent.id} needs`,
       );
     }
-    super("factory/Trigger", {
-      id,
-      config,
-      dependencies: { ...dependencies, channel: event.channel },
+    super("factory/Trigger", id, config, {
+      ...dependencies,
+      channel: event.channel,
     });
     this.dependencies.outpost.store.contribute(
       {

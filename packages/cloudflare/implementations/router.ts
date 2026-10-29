@@ -31,16 +31,16 @@ export class Router
   readonly api: WorkerInstance;
   readonly store: RouterConfigInstance;
 
-  constructor({ id, config, dependencies }: RouterOptions) {
+  constructor(id: string, { config, dependencies }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
-    super("cloudflare/Router", { id, config, dependencies });
+    super("cloudflare/Router", id, config, dependencies);
     this.project = project;
     this.vault = dependencies.vault;
     this.kv = this.add(
-      new KvNamespace({ id: `${id}-kv`, config: { title: project } }),
+      new KvNamespace(`${id}-kv`, { config: { title: project } }),
     );
     this.bucket = this.add(
-      new R2Bucket({ id: `${id}-bucket`, config: { name: project } }),
+      new R2Bucket(`${id}-bucket`, { config: { name: project } }),
     );
     this.vault.secret({
       id: `${id}-root-key`,
@@ -48,8 +48,7 @@ export class Router
       value: secret.generated(),
     });
     this.api = this.add(
-      new Worker({
-        id: `${id}-worker`,
+      new Worker(`${id}-worker`, {
         config: {
           ScriptName: `${project}-router`,
           ContainerInstanceType: "standard-1",
@@ -62,8 +61,7 @@ export class Router
       }),
     );
     this.store = this.add(
-      new RouterConfig({
-        id: `${id}-config`,
+      new RouterConfig(`${id}-config`, {
         config: { key: "config" },
         dependencies: { kv: this.kv },
       }),

@@ -18,35 +18,29 @@ There are two graphs, each deployed on its own:
 
 ```ts
 export default factory(() => {
-  const vault = new cloudflare.Vault({ id: "vault" });
-  const router = new cloudflare.Router({
-    id: "router",
+  const vault = new cloudflare.Vault("vault");
+  const router = new cloudflare.Router("router", {
     config: { project: "acme-agents" },
     dependencies: { vault },
   });
 
-  const gh = new github.Connection({
-    id: "gh",
+  const gh = new github.Connection("gh", {
     config: { name: "acme-agents", org: "acme" },
     dependencies: { router },
   });
-  new github.CodeHost({
-    id: "github",
+  new github.CodeHost("github", {
     config: { allow: [{ owner: "acme" }] },
     dependencies: { connection: gh },
   });
-  new github.OperatorAuth({
-    id: "operators",
+  new github.OperatorAuth("operators", {
     config: { logins: ["alice"] },
     dependencies: { connection: gh },
   });
 
-  const claudeAccount = new claude.Account({
-    id: "claude",
+  const claudeAccount = new claude.Account("claude", {
     config: { auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN") },
   });
-  new cloudflare.Deployer({
-    id: "deployer",
+  new cloudflare.Deployer("deployer", {
     dependencies: { router, accounts: [claudeAccount] },
   });
 });
@@ -93,22 +87,18 @@ The connection, code host and operator auth each contribute their entry to the r
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- scope defaults to the outpost's repo
 
-  const code = new github.Policy({
-    id: "code",
+  const code = new github.Policy("code", {
     config: { permissions: { contents: "write", pull_requests: "write" } },
   });
-  const dev = new Container({
-    id: "dev",
+  const dev = new Container("dev", {
     config: { image: "./Dockerfile", runtimes: [claude.runtime] },
     dependencies: { policies: [code] },
   });
-  const coder = new claude.Agent({
-    id: "coder",
+  const coder = new claude.Agent("coder", {
     config: { model: "claude-opus-5-5" },
   });
 
-  new Trigger({
-    id: "mention",
+  new Trigger("mention", {
     config: {
       event: gh.issueComment({
         mention: "@claude",
@@ -204,7 +194,7 @@ The router's config is `store`, not `config`, because `ResourceGroup` already us
 
 ### Implementing one
 
-A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource, with `{ id, config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its id, config and dependencies as given, then adds its resources and makes its contributions. A group's dependencies are kept as references, so the graph of groups is what they were declared with. A group in an outpost extends `OutpostGroup`, which adds the outpost to its dependencies, so it can contribute to the outpost's config without the user passing it:
+A provider exports classes that `implements` the contracts. A group is constructed like a concrete resource: its id first, then `{ config, dependencies }` typed by Notation's `ResourceOpts`. Each constructor validates its config with valibot, calls `super` with its type, id, config and dependencies as given, then adds its resources and makes its contributions. A group's dependencies are kept as references, so the graph of groups is what they were declared with. A group in an outpost extends `OutpostGroup`, which adds the outpost to its dependencies, so it can contribute to the outpost's config without the user passing it:
 
 ```ts
 export class Connection extends ResourceGroup<ConnectionConfig, { router: Router }> implements ConnectionContract {
@@ -212,18 +202,18 @@ export class Connection extends ResourceGroup<ConnectionConfig, { router: Router
   readonly router: Router;
   readonly app: AppInstance;
 
-  constructor({ id, config, dependencies }: ConnectionOptions) {
+  constructor(id: string, { config, dependencies }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", { id, config, dependencies });
+    super("github/Connection", id, config, dependencies);
     this.name = name;
     this.router = dependencies.router;
-    this.app = this.add(new App({ id: `${id}-app`, config: { name, org }, dependencies: { router: dependencies.router.api } }));
+    this.app = this.add(new App(`${id}-app`, { config: { name, org }, dependencies: { router: dependencies.router.api } }));
     this.router.vault.secret({ id: `${id}-private-key`, name: `github-${name}-private-key`, value: secret.output(this.app.out.privateKey) });
     this.router.store.contribute({ connections: { [`github/${name}`]: { provider: "github", source: this.app.out.id, credentials: { … } } } }, { by: `connection ${id}` });
   }
 
   static get(name: string): ConnectionRef {
-    return new ConnectionRef({ id: name, config: { name } });
+    return new ConnectionRef(name, { config: { name } });
   }
 }
 ```

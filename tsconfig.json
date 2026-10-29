@@ -8,27 +8,15 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "paths": {
-      "@notation/resource": [
-        "./packages/notation-resource/src/index.ts"
-      ],
-      "lightbox": [
-        "./packages/lightbox/index.ts"
-      ],
+      "@notation/resource": ["./packages/notation-resource/src/index.ts"],
+      "lightbox": ["./packages/lightbox/index.ts"],
       "@lightbox/cloudflare": [
         "./packages/cloudflare/implementations/index.ts"
       ],
-      "@lightbox/github": [
-        "./packages/github/implementations/index.ts"
-      ],
-      "@lightbox/slack": [
-        "./packages/slack/implementations/index.ts"
-      ],
-      "@lightbox/claude": [
-        "./packages/claude/implementations/index.ts"
-      ],
-      "@lightbox/railway": [
-        "./packages/railway/implementations/index.ts"
-      ]
+      "@lightbox/github": ["./packages/github/implementations/index.ts"],
+      "@lightbox/slack": ["./packages/slack/implementations/index.ts"],
+      "@lightbox/claude": ["./packages/claude/implementations/index.ts"],
+      "@lightbox/railway": ["./packages/railway/implementations/index.ts"]
     }
   },
   "include": [

@@ -1,9 +1,15 @@
 import { ResourceGroup, type ResourceOpts } from "@notation/resource";
-import type { ChannelOptions, ConnectionRef as ConnectionRefContract } from "lightbox";
+import type {
+  ChannelOptions,
+  ConnectionRef as ConnectionRefContract,
+} from "lightbox";
 import { Channel } from "./channel.ts";
 
 /** In an outpost: a GitHub connection the infra declares, from `github.Connection.get(name)`. */
-export class ConnectionRef extends ResourceGroup implements ConnectionRefContract {
+export class ConnectionRef
+  extends ResourceGroup
+  implements ConnectionRefContract
+{
   readonly name: string;
 
   constructor({ config }: ResourceOpts<{ name: string }, {}>) {

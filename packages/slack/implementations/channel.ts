@@ -6,12 +6,21 @@ import {
 } from "lightbox";
 import * as v from "valibot";
 import type { ConnectionRef } from "./connection-ref.ts";
-import { type MentionEvent, type MentionOptions, mentionOptions } from "./selectors.ts";
+import {
+  type MentionEvent,
+  type MentionOptions,
+  mentionOptions,
+} from "./selectors.ts";
 
 /** A Slack channel needs naming: there's no default. */
-const channelConfig = v.object({ scope: v.pipe(v.string(), v.startsWith("#")) });
+const channelConfig = v.object({
+  scope: v.pipe(v.string(), v.startsWith("#")),
+});
 
-export type ChannelOptions = ResourceOpts<v.InferInput<typeof channelConfig>, {}>;
+export type ChannelOptions = ResourceOpts<
+  v.InferInput<typeof channelConfig>,
+  {}
+>;
 
 /**
  * One Slack channel on a Slack connection, made by `connection.channel(...)`.
@@ -27,7 +36,10 @@ export class Channel extends ResourceGroup implements ChannelContract {
     id,
     config,
     dependencies,
-  }: ResourceOpts<v.InferInput<typeof channelConfig>, { connection: ConnectionRef }>) {
+  }: ResourceOpts<
+    v.InferInput<typeof channelConfig>,
+    { connection: ConnectionRef }
+  >) {
     const { scope } = v.parse(channelConfig, config);
     super("slack/Channel", {
       key: id,

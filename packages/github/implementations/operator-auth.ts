@@ -11,7 +11,10 @@ export type OperatorAuthOptions = ResourceOpts<
 >;
 
 /** Operators sign in with GitHub, through the connection's App, and the router checks their login against `logins`. */
-export class OperatorAuth extends ResourceGroup implements OperatorAuthContract {
+export class OperatorAuth
+  extends ResourceGroup
+  implements OperatorAuthContract
+{
   readonly provider = "github";
 
   constructor({ id, config, dependencies }: OperatorAuthOptions) {

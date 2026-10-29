@@ -47,7 +47,11 @@ export class Deployer extends ResourceGroup implements DeployerContract {
     });
     for (const account of accounts)
       for (const [env, value] of Object.entries(account.secrets))
-        router.vault.secret({ id: `${id}-${account.key}-${env}`, name: env, value });
+        router.vault.secret({
+          id: `${id}-${account.key}-${env}`,
+          name: env,
+          value,
+        });
     this.worker = this.add(
       new Worker({
         id: `${id}-worker`,

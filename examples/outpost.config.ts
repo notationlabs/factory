@@ -5,6 +5,7 @@ import * as slack from "@lightbox/slack";
 
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
+
   const ops = slack.Connection.get("acme-agents").channel({
     id: "ops",
     config: { scope: "#ops" },

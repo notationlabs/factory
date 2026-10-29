@@ -20,7 +20,8 @@ export const App = defineResource<AppApi>({ type: "slack/apps/App" })
   .defineOperations({
     create: async (params) => createApp(params),
     read: async (key) => readApp(key),
-    update: async (key, _patch, params) => setRequestUrl(key, params.requestUrl),
+    update: async (key, _patch, params) =>
+      setRequestUrl(key, params.requestUrl),
     delete: async () => {
       throw new Error(
         "The Slack app is protected: delete it on its settings page",

@@ -19,14 +19,36 @@ There are two graphs, each deployed on its own:
 ```ts
 export default lightbox(() => {
   const vault = new cloudflare.Vault({ id: "vault" });
-  const router = new cloudflare.Router({ id: "router", config: { project: "acme-agents" }, dependencies: { vault } });
+  const router = new cloudflare.Router({
+    id: "router",
+    config: { project: "acme-agents" },
+    dependencies: { vault },
+  });
 
-  const gh = new github.Connection({ id: "gh", config: { name: "acme-agents", org: "acme" }, dependencies: { router } });
-  new github.CodeHost({ id: "github", config: { allow: [{ owner: "acme" }] }, dependencies: { connection: gh } });
-  new github.OperatorAuth({ id: "operators", config: { logins: ["alice"] }, dependencies: { connection: gh } });
+  const gh = new github.Connection({
+    id: "gh",
+    config: { name: "acme-agents", org: "acme" },
+    dependencies: { router },
+  });
+  new github.CodeHost({
+    id: "github",
+    config: { allow: [{ owner: "acme" }] },
+    dependencies: { connection: gh },
+  });
+  new github.OperatorAuth({
+    id: "operators",
+    config: { logins: ["alice"] },
+    dependencies: { connection: gh },
+  });
 
-  const claudeAccount = new claude.Account({ id: "claude", config: { auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN") } });
-  new cloudflare.Deployer({ id: "deployer", dependencies: { router, accounts: [claudeAccount] } });
+  const claudeAccount = new claude.Account({
+    id: "claude",
+    config: { auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN") },
+  });
+  new cloudflare.Deployer({
+    id: "deployer",
+    dependencies: { router, accounts: [claudeAccount] },
+  });
 });
 ```
 
@@ -43,9 +65,23 @@ The connection, code host and operator auth each contribute their entry to the r
 
 ```json
 {
-  "connections": { "github/acme-agents": { "provider": "github", "source": "<gh-app's id>", "credentials": { "privateKey": "github-acme-agents-private-key" } } },
-  "codeHost": { "provider": "github", "connection": "acme-agents", "allow": [{ "owner": "acme" }] },
-  "operators": { "provider": "github", "connection": "acme-agents", "logins": ["alice"] }
+  "connections": {
+    "github/acme-agents": {
+      "provider": "github",
+      "source": "<gh-app's id>",
+      "credentials": { "privateKey": "github-acme-agents-private-key" }
+    }
+  },
+  "codeHost": {
+    "provider": "github",
+    "connection": "acme-agents",
+    "allow": [{ "owner": "acme" }]
+  },
+  "operators": {
+    "provider": "github",
+    "connection": "acme-agents",
+    "logins": ["alice"]
+  }
 }
 ```
 
@@ -57,14 +93,27 @@ The connection, code host and operator auth each contribute their entry to the r
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- scope defaults to the outpost's repo
 
-  const code = new github.Policy({ id: "code", config: { permissions: { contents: "write", pull_requests: "write" } } });
-  const dev = new Container({ id: "dev", config: { image: "./Dockerfile", runtimes: [claude.runtime] }, dependencies: { policies: [code] } });
-  const coder = new claude.Agent({ id: "coder", config: { model: "claude-opus-5-5" } });
+  const code = new github.Policy({
+    id: "code",
+    config: { permissions: { contents: "write", pull_requests: "write" } },
+  });
+  const dev = new Container({
+    id: "dev",
+    config: { image: "./Dockerfile", runtimes: [claude.runtime] },
+    dependencies: { policies: [code] },
+  });
+  const coder = new claude.Agent({
+    id: "coder",
+    config: { model: "claude-opus-5-5" },
+  });
 
   new Trigger({
     id: "mention",
     dependencies: {
-      event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
+      event: gh.issueComment({
+        mention: "@claude",
+        from: github.collaborators(),
+      }),
       agent: coder,
       container: dev,
       worktree: (event) => `issue-${event.issue.number}`, // <-- `event` is typed by the selector
@@ -78,15 +127,41 @@ collects one concrete resource, `outpost-config`, keyed by the repo:
 ```json
 {
   "repo": "acme/webapp",
-  "channels": { "issues": { "provider": "github", "connection": "acme-agents", "scope": "acme/webapp" } },
-  "containers": { "dev": { "image": "./Dockerfile", "runtimes": ["claude"], "policies": ["code"], "files": {} } },
-  "policies": { "code": { "provider": "github", "repo": "acme/webapp", "permissions": { "contents": "write", "pull_requests": "write" } } },
+  "channels": {
+    "issues": {
+      "provider": "github",
+      "connection": "acme-agents",
+      "scope": "acme/webapp"
+    }
+  },
+  "containers": {
+    "dev": {
+      "image": "./Dockerfile",
+      "runtimes": ["claude"],
+      "policies": ["code"],
+      "files": {}
+    }
+  },
+  "policies": {
+    "code": {
+      "provider": "github",
+      "repo": "acme/webapp",
+      "permissions": { "contents": "write", "pull_requests": "write" }
+    }
+  },
   "agents": { "coder": { "runtime": "claude", "model": "claude-opus-5-5" } },
   "triggers": {
     "mention": {
-      "channel": "issues", "event": "issue_comment",
-      "match": { "actions": ["created"], "mention": "@claude", "from": { "kind": "collaborators" } },
-      "agent": "coder", "container": "dev", "worktree": {}
+      "channel": "issues",
+      "event": "issue_comment",
+      "match": {
+        "actions": ["created"],
+        "mention": "@claude",
+        "from": { "kind": "collaborators" }
+      },
+      "agent": "coder",
+      "container": "dev",
+      "worktree": {}
     }
   }
 }
@@ -105,14 +180,24 @@ export interface Vault extends ResourceGroup {
 }
 
 export interface Router extends ResourceGroup {
-  readonly api: RouterApi;           // where it's reached
+  readonly api: RouterApi; // where it's reached
   readonly store: RouterConfigStore; // where its config is contributed to
-  readonly vault: Vault;             // on the router's own provider
+  readonly vault: Vault; // on the router's own provider
 }
 
-export interface Connection extends ResourceGroup { readonly name: string; readonly router: Router }  // in the hub
-export interface ConnectionRef extends ResourceGroup { readonly name: string; channel(opts: ChannelOptions): Channel }  // in an outpost
-export interface Channel extends ResourceGroup { readonly key: string; readonly scope: string; readonly connection: ConnectionRef }
+export interface Connection extends ResourceGroup {
+  readonly name: string;
+  readonly router: Router;
+} // in the hub
+export interface ConnectionRef extends ResourceGroup {
+  readonly name: string;
+  channel(opts: ChannelOptions): Channel;
+} // in an outpost
+export interface Channel extends ResourceGroup {
+  readonly key: string;
+  readonly scope: string;
+  readonly connection: ConnectionRef;
+}
 ```
 
 `hub.ts` has `CodeHost`, `OperatorAuth`, `Account` and `Deployer`. `outpost.ts` has `Runtime`, `Agent`, `PolicyContract` and the outpost config's entries.

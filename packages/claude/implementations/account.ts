@@ -1,5 +1,9 @@
 import { ResourceGroup, type ResourceOpts } from "@notation/resource";
-import { type Account as AccountContract, isSecret, type Secret } from "lightbox";
+import {
+  type Account as AccountContract,
+  isSecret,
+  type Secret,
+} from "lightbox";
 import * as v from "valibot";
 
 const accountConfig = v.object({
@@ -7,7 +11,10 @@ const accountConfig = v.object({
   auth: v.custom<Secret>(isSecret, "auth must be a secret"),
 });
 
-export type AccountOptions = ResourceOpts<v.InferInput<typeof accountConfig>, {}>;
+export type AccountOptions = ResourceOpts<
+  v.InferInput<typeof accountConfig>,
+  {}
+>;
 
 /** The credentials Claude Code runs on. The deployer writes them to the vault, and injects them into every container that lists `claude.runtime`, and no other. */
 export class Account extends ResourceGroup implements AccountContract {

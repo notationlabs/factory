@@ -15,7 +15,10 @@ export type OperatorAuthOptions = ResourceOpts<
 >;
 
 /** Operators sign in to Cloudflare Access, which decides who gets in. The router verifies Access's token before it returns an admin session. */
-export class OperatorAuth extends ResourceGroup implements OperatorAuthContract {
+export class OperatorAuth
+  extends ResourceGroup
+  implements OperatorAuthContract
+{
   readonly provider = "cloudflare";
   readonly application: AccessApplicationInstance;
 

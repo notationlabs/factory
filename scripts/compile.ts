@@ -34,23 +34,36 @@ export type CompiledExample = {
   name: string;
   kind: "hub" | "outpost";
   repo?: string;
-  groups: { id: number; type: string; config: unknown; dependencies: Record<string, number> }[];
+  groups: {
+    id: number;
+    type: string;
+    config: unknown;
+    dependencies: Record<string, number>;
+  }[];
   resources: CompiledResource[];
   error?: string;
 };
 
 const isResource = (value: unknown): value is BaseResource =>
-  typeof value === "object" && value !== null && "schema" in value && "contributions" in value;
+  typeof value === "object" &&
+  value !== null &&
+  "schema" in value &&
+  "contributions" in value;
 
 /** JSON-safe: resources become their ids, functions are marked, output values become placeholders. */
 const plain = (value: unknown): unknown => {
-  if (isOutputValue(value)) return `<${value.resource.id}.${value.path.join(".")}>`;
+  if (isOutputValue(value))
+    return `<${value.resource.id}.${value.path.join(".")}>`;
   if (isResource(value)) return `<resource ${value.id}>`;
-  if (typeof value === "function") return `<function ${value.name || "anonymous"}>`;
-  if (typeof value === "symbol" || typeof value === "bigint") return String(value);
+  if (typeof value === "function")
+    return `<function ${value.name || "anonymous"}>`;
+  if (typeof value === "symbol" || typeof value === "bigint")
+    return String(value);
   if (Array.isArray(value)) return value.map(plain);
   if (typeof value === "object" && value !== null)
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, plain(v)]),
+    );
   return value;
 };
 
@@ -61,7 +74,8 @@ const stubOutputs = (resources: BaseResource[]) => {
       new Proxy(
         {},
         {
-          get: (_, key) => (typeof key === "string" ? `<${resource.id}.${key}>` : undefined),
+          get: (_, key) =>
+            typeof key === "string" ? `<${resource.id}.${key}>` : undefined,
         },
       ),
     );
@@ -75,7 +89,9 @@ const compileGraph = async (graph: ResourceGraph) => {
     try {
       params = plain(await resource.getParams());
     } catch (error) {
-      params = { $error: error instanceof Error ? error.message : String(error) };
+      params = {
+        $error: error instanceof Error ? error.message : String(error),
+      };
     }
     resources.push({
       id: resource.id,
@@ -117,14 +133,19 @@ const compileExample = async (file: string): Promise<CompiledExample> => {
       repo,
       groups: [],
       resources: [],
-      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      error:
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
     };
   }
 };
 
 const open = (path: string) => {
   const cmd =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "explorer"
+        : "xdg-open";
   execFile(cmd, [path], (error) => {
     if (error) console.error(`Couldn't open ${path}: ${error.message}`);
   });

@@ -1,4 +1,4 @@
-import { defineResource, mergeRecords } from "@notation/resource";
+import { defineResource } from "@notation/resource";
 import { deleteScript, getScript, uploadScript } from "../lib/worker.ts";
 import type { KvNamespaceInstance } from "./kv.ts";
 import type { R2BucketInstance } from "./r2.ts";
@@ -17,8 +17,6 @@ type WorkerApi = {
     /** Sleeps after this long idle, e.g. `"10m"`. Always on if unset. */
     IdleTimeout?: string;
     Vars?: Record<string, unknown>;
-    /** Secrets Store bindings: each binding's name, and the store secret it reads. */
-    Secrets?: Record<string, string>;
   };
   UpdateParams: undefined;
   ReadResult: { url: string };
@@ -39,11 +37,6 @@ export const Worker = defineResource<WorkerApi>({
     ContainerInstanceType: { propertyType: "param", presence: "optional" },
     IdleTimeout: { propertyType: "param", presence: "optional" },
     Vars: { propertyType: "param", presence: "optional" },
-    Secrets: {
-      propertyType: "param",
-      presence: "optional",
-      collect: mergeRecords,
-    },
     url: { propertyType: "computed", presence: "required" },
   } as const)
   .defineOperations({

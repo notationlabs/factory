@@ -1,4 +1,4 @@
-import { outputSources, ResourceGroup } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type { Vault as VaultContract, VaultSecretOptions } from "factory";
 import type { ProjectInstance } from "../resources/project.ts";
 import {
@@ -27,26 +27,17 @@ export class Vault extends ResourceGroup implements VaultContract {
     this.#project = project;
   }
 
-  secret({
-    id,
-    name,
-    value,
-    readers,
-  }: VaultSecretOptions): SealedVariableInstance {
+  secret({ id, name }: VaultSecretOptions): SealedVariableInstance {
     if (!this.#project) {
       throw new Error(
         `railway.Vault: pass it to a railway.Router before adding ${name}`,
       );
     }
-    const item = this.add(
+    return this.add(
       new SealedVariable(id, {
-        config: { name, source: value },
+        config: { name },
         dependencies: { project: this.#project },
       }),
     );
-    // An output value's resource must exist before its value can be written.
-    for (const source of outputSources(value)) item.dependOn(source);
-    for (const reader of readers) reader.bindSecret(item);
-    return item;
   }
 }

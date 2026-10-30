@@ -59,7 +59,6 @@ export class Connection
       id: `${id}-private-key`,
       name: privateKey,
       value: secret.output(this.app.out.privateKey),
-      readers: [this.router],
     });
     this.router.store.contribute(
       {

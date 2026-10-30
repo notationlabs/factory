@@ -2,18 +2,38 @@
 
 export const createProject = async (_params: {
   name: string;
-}): Promise<{ id: string }> => {
+}): Promise<{ id: string; environmentId: string }> => {
   throw new Error("not implemented: create a Railway project");
 };
 
 export const getProject = async (_key: {
   id: string;
-}): Promise<{ id: string; name: string }> => {
+}): Promise<{ id: string; name: string; environmentId: string }> => {
   throw new Error("not implemented: read a Railway project");
 };
 
 export const deleteProject = async (_key: { id: string }): Promise<void> => {
   throw new Error("not implemented: delete a Railway project");
+};
+
+export const createProjectToken = async (_params: {
+  projectId: string;
+  environmentId: string;
+  name: string;
+}): Promise<{ id: string; value: string }> => {
+  throw new Error("not implemented: create a Railway project token");
+};
+
+export const getProjectToken = async (_key: {
+  id: string;
+}): Promise<{ id: string; value: string }> => {
+  throw new Error("not implemented: read a Railway project token");
+};
+
+export const deleteProjectToken = async (_key: {
+  id: string;
+}): Promise<void> => {
+  throw new Error("not implemented: delete a Railway project token");
 };
 
 export type ServiceParams = {

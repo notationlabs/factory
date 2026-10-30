@@ -53,7 +53,7 @@ export const StoreSecret = defineResource<StoreSecretApi>({
       secondaryKey: true,
     },
     name: { propertyType: "param", presence: "required", primaryKey: true },
-    source: { propertyType: "param", presence: "required", sensitive: true },
+    source: { propertyType: "param", presence: "required" },
     fingerprint: { propertyType: "computed", presence: "required" },
   } as const)
   .defineOperations({

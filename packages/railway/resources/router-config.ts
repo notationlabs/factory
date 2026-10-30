@@ -1,4 +1,4 @@
-import { defineResource, mergeRecords } from "@notation/resource";
+import { defineResource, mergeContributions } from "@notation/resource";
 import { type RouterConfig as Config, single } from "factory";
 import {
   deleteRouterConfig,
@@ -34,17 +34,17 @@ export const RouterConfig = defineResource<RouterConfigApi>({
     connections: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     codeHost: {
       propertyType: "param",
       presence: "optional",
-      collect: single("codeHost"),
+      collect: single,
     },
     operators: {
       propertyType: "param",
       presence: "optional",
-      collect: single("operators"),
+      collect: single,
     },
   } as const)
   .defineOperations({

@@ -21,9 +21,6 @@ export class Policy
     const { provider, scopes } = v.parse(policyConfig, config);
     super("factory/Policy", id, config);
     this.provider = provider;
-    this.dependencies.outpost.store.contribute(
-      { policies: { [id]: { provider, scopes } } },
-      { by: `policy ${id}` },
-    );
+    this.outpost.store.contribute({ policies: { [id]: { provider, scopes } } });
   }
 }

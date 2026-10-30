@@ -1,4 +1,4 @@
-import { defineResource, mergeRecords } from "@notation/resource";
+import { defineResource, mergeContributions } from "@notation/resource";
 import type { OutpostConfig as Config } from "../contracts/outpost.ts";
 import { deleteOutpost, putOutpost, readOutpost } from "../lib/outpost.ts";
 
@@ -28,27 +28,27 @@ export const OutpostConfig = defineResource<OutpostConfigApi>({
     channels: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     containers: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     policies: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     agents: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     triggers: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
   } as const)
   .defineOperations({

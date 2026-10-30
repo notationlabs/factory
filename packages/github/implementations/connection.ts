@@ -22,7 +22,7 @@ export type ConnectionOptions = ConnectionConfig & { router: Router };
  * the router is the only thing that reads it.
  */
 export class Connection
-  extends ResourceGroup<ConnectionConfig, { router: Router }>
+  extends ResourceGroup<ConnectionConfig>
   implements ConnectionContract
 {
   readonly name: string;
@@ -31,47 +31,40 @@ export class Connection
 
   constructor(id: string, { router, ...config }: ConnectionOptions) {
     const { name, org } = v.parse(connectionConfig, config);
-    super("github/Connection", id, config, { router });
+    super("github/Connection", id, config);
     this.name = name;
     this.router = router;
-    const by = `connection ${id}`;
     this.app = this.add(
       new App(`${id}-app`, {
         config: { name, org },
         dependencies: { router: router.api },
       }),
     );
-    this.app.contribute(
-      {
-        events: ["issues", "issue_comment", "push"],
-        permissions: {
-          contents: "write",
-          issues: "write",
-          pull_requests: "write",
-          actions_variables: "write",
-          metadata: "read",
-        },
+    this.app.contribute({
+      events: ["issues", "issue_comment", "push"],
+      permissions: {
+        contents: "write",
+        issues: "write",
+        pull_requests: "write",
+        actions_variables: "write",
+        metadata: "read",
       },
-      { by },
-    );
+    });
     const privateKey = `github-${name}-private-key`;
     this.router.vault.secret({
       id: `${id}-private-key`,
       name: privateKey,
-      value: secret.output(this.app.out.privateKey),
+      value: secret.output(this.app.outputValue("privateKey")),
     });
-    this.router.store.contribute(
-      {
-        connections: {
-          [`github/${name}`]: {
-            provider: "github",
-            source: this.app.out.id,
-            credentials: { privateKey },
-          },
+    this.router.store.contribute({
+      connections: {
+        [`github/${name}`]: {
+          provider: "github",
+          source: this.app.outputValue("id"),
+          credentials: { privateKey },
         },
       },
-      { by },
-    );
+    });
   }
 
   /** In an outpost: the connection the infra declares as `name`. */

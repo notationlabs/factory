@@ -23,9 +23,8 @@ export class Agent extends OutpostGroup<AgentConfig> implements AgentContract {
   constructor(id: string, config: AgentOptions) {
     const settings = v.parse(agentConfig, config);
     super("claude/Agent", id, config);
-    this.dependencies.outpost.store.contribute(
-      { agents: { [id]: { runtime: runtime.id, ...settings } } },
-      { by: `agent ${id}` },
-    );
+    this.outpost.store.contribute({
+      agents: { [id]: { runtime: runtime.id, ...settings } },
+    });
   }
 }

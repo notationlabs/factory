@@ -8,8 +8,8 @@
     "viewer": "tsx scripts/compile.ts --view"
   },
   "devDependencies": {
+    "@notation/resource": "0.16.0",
     "@types/node": "^24.19.2",
-    "deep-object-diff": "^1.1.9",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "valibot": "^1.1.0"

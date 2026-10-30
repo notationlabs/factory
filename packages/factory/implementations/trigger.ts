@@ -31,10 +31,11 @@ export type TriggerOptions<E> = TriggerConfig<E> & {
  * real event, so it isn't in the outpost's config: the runner imports the
  * repo's config to call it.
  */
-export class Trigger<E> extends OutpostGroup<
-  TriggerConfig<E>,
-  { agent: Agent; container: Container; channel: Channel }
-> {
+export class Trigger<E> extends OutpostGroup<TriggerConfig<E>> {
+  readonly agent: Agent;
+  readonly container: Container;
+  readonly channel: Channel;
+
   constructor(id: string, { agent, container, ...config }: TriggerOptions<E>) {
     const { event, worktree } = config;
     const { base } = v.parse(triggerConfig, config);
@@ -46,25 +47,21 @@ export class Trigger<E> extends OutpostGroup<
         `trigger ${id}: container ${container.id} doesn't list runtime ${agent.runtime.id}, which agent ${agent.id} needs`,
       );
     }
-    super("factory/Trigger", id, config, {
-      agent,
-      container,
-      channel: event.channel,
-    });
-    this.dependencies.outpost.store.contribute(
-      {
-        triggers: {
-          [id]: {
-            channel: event.channel.id,
-            event: event.event,
-            match: event.match,
-            agent: agent.id,
-            container: container.id,
-            ...(worktree && { worktree: { base } }),
-          },
+    super("factory/Trigger", id, config);
+    this.agent = agent;
+    this.container = container;
+    this.channel = event.channel;
+    this.outpost.store.contribute({
+      triggers: {
+        [id]: {
+          channel: event.channel.id,
+          event: event.event,
+          match: event.match,
+          agent: agent.id,
+          container: container.id,
+          ...(worktree && { worktree: { base } }),
         },
       },
-      { by: `trigger ${id}` },
-    );
+    });
   }
 }

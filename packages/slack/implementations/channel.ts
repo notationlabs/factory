@@ -25,7 +25,7 @@ export type ChannelOptions = { id: string } & ChannelConfig;
  * conversation is a thread.
  */
 export class Channel
-  extends OutpostGroup<ChannelConfig, { connection: ConnectionRef }>
+  extends OutpostGroup<ChannelConfig>
   implements ChannelContract
 {
   readonly scope: string;
@@ -36,17 +36,14 @@ export class Channel
     { connection, ...config }: ChannelConfig & { connection: ConnectionRef },
   ) {
     const { scope } = v.parse(channelConfig, config);
-    super("slack/Channel", id, config, { connection });
+    super("slack/Channel", id, config);
     this.scope = scope;
     this.connection = connection;
-    this.dependencies.outpost.store.contribute(
-      {
-        channels: {
-          [id]: { provider: "slack", connection: this.connection.name, scope },
-        },
+    this.outpost.store.contribute({
+      channels: {
+        [id]: { provider: "slack", connection: this.connection.name, scope },
       },
-      { by: `channel ${id}` },
-    );
+    });
   }
 
   /** Messages that mention `name`, e.g. `"@claude"`. */

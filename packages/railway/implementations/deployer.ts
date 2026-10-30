@@ -3,6 +3,7 @@ import {
   type Account,
   type Deployer as DeployerContract,
   secret,
+  type VaultItem,
 } from "lightbox";
 import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Router } from "./router.ts";
@@ -28,22 +29,6 @@ export class Deployer
     this.router = router;
     this.accounts = accounts;
 
-    router.vault.secret({
-      id: `${id}-token`,
-      name: "RAILWAY_API_TOKEN",
-      value: secret.env("RAILWAY_API_TOKEN"),
-    });
-
-    for (const account of accounts) {
-      for (const [env, value] of Object.entries(account.secrets)) {
-        router.vault.secret({
-          id: `${id}-${account.id}-${env}`,
-          name: env,
-          value,
-        });
-      }
-    }
-
     this.service = this.add(
       new Service(`${id}-service`, {
         config: {
@@ -58,5 +43,34 @@ export class Deployer
         dependencies: { project: router.project },
       }),
     );
+
+    // It signs its calls to the router with a key derived from the root key.
+    this.bindSecret(router.rootKey);
+    router.vault.secret({
+      id: `${id}-token`,
+      name: "RAILWAY_API_TOKEN",
+      value: secret.env("RAILWAY_API_TOKEN"),
+      readers: [this],
+    });
+
+    for (const account of accounts) {
+      for (const [env, value] of Object.entries(account.secrets)) {
+        router.vault.secret({
+          id: `${id}-${account.id}-${env}`,
+          name: env,
+          value,
+          readers: [this],
+        });
+      }
+    }
+  }
+
+  bindSecret(item: VaultItem): void {
+    const { name } = item.config;
+    this.service.contribute(
+      { secrets: { [name]: name } },
+      { by: `deployer ${this.id}` },
+    );
+    this.service.dependOn(item);
   }
 }

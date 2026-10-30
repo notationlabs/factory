@@ -3,7 +3,7 @@ import type {
   Contributable,
   ResourceGroup,
 } from "@notation/resource";
-import type { Vault } from "./vault.ts";
+import type { SecretReader, Vault } from "./vault.ts";
 
 /**
  * In the router's config: how to verify a connection's deliveries (`source`,
@@ -53,9 +53,10 @@ export type RouterConfigStore = Omit<BaseResource, "contribute"> &
  * channel replies and mints code host tokens. A provider decides where each
  * part lives (a Worker and a KV entry, …). The config is `store`, not
  * `config`, which ResourceGroup already uses for the group's own options.
- * `vault` is on the router's own provider.
+ * `vault` is on the router's own provider. It reads its connections'
+ * credentials and the root key from it.
  */
-export interface Router extends ResourceGroup {
+export interface Router extends ResourceGroup, SecretReader {
   readonly api: RouterApi;
   readonly store: RouterConfigStore;
   readonly vault: Vault;

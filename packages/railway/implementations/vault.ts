@@ -27,7 +27,12 @@ export class Vault extends ResourceGroup implements VaultContract {
     this.#project = project;
   }
 
-  secret({ id, name, value }: VaultSecretOptions): SealedVariableInstance {
+  secret({
+    id,
+    name,
+    value,
+    readers,
+  }: VaultSecretOptions): SealedVariableInstance {
     if (!this.#project) {
       throw new Error(
         `railway.Vault: pass it to a railway.Router before adding ${name}`,
@@ -41,6 +46,7 @@ export class Vault extends ResourceGroup implements VaultContract {
     );
     // An output value's resource must exist before its value can be written.
     for (const source of outputSources(value)) item.dependOn(source);
+    for (const reader of readers) reader.bindSecret(item);
     return item;
   }
 }

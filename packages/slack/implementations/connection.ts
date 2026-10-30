@@ -48,11 +48,13 @@ export class Connection
       id: `${id}-bot-token`,
       name: botToken,
       value: secret.prompt(`Bot token for the ${name} Slack app`),
+      readers: [this.router],
     });
     this.router.vault.secret({
       id: `${id}-signing-secret`,
       name: signingSecret,
       value: secret.prompt(`Signing secret for the ${name} Slack app`),
+      readers: [this.router],
     });
     this.router.store.contribute(
       {

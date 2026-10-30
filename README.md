@@ -55,7 +55,7 @@ vault-store, router-kv, router-bucket, router-root-key, router-worker, router-co
 gh-app, gh-private-key, deployer-token, deployer-claude-CLAUDE_CODE_OAUTH_TOKEN, deployer-worker
 ```
 
-Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from. A secret is planned by its source and a fingerprint, never by reading it back.
+Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. Each item names its readers, the router or the deployer, and each reader binds it on its Worker or service and depends on it. The deployer binds the root key as well. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from. A secret is planned by its source and a fingerprint, never by reading it back.
 
 The connection, code host and operator auth each contribute their entry to the router's config:
 
@@ -167,10 +167,14 @@ A contract is an interface in `packages/lightbox/contracts/`: the fields and met
 ```ts
 export interface Vault extends ResourceGroup {
   readonly provider: string;
-  secret(opts: VaultSecretOptions): BaseResource;
+  secret(opts: VaultSecretOptions): VaultItem; // binds the item to each of `opts.readers`
 }
 
-export interface Router extends ResourceGroup {
+export interface SecretReader {
+  bindSecret(item: VaultItem): void;
+} // the router and the deployer
+
+export interface Router extends ResourceGroup, SecretReader {
   readonly api: RouterApi; // where it's reached
   readonly store: RouterConfigStore; // where its config is contributed to
   readonly vault: Vault; // on the router's own provider
@@ -210,7 +214,7 @@ export class Connection extends ResourceGroup<ConnectionConfig, { router: Router
     this.name = name;
     this.router = router;
     this.app = this.add(new App(`${id}-app`, { config: { name, org }, dependencies: { router: router.api } }));
-    this.router.vault.secret({ id: `${id}-private-key`, name: `github-${name}-private-key`, value: secret.output(this.app.out.privateKey) });
+    this.router.vault.secret({ id: `${id}-private-key`, name: `github-${name}-private-key`, value: secret.output(this.app.out.privateKey), readers: [router] });
     this.router.store.contribute({ connections: { [`github/${name}`]: { provider: "github", source: this.app.out.id, credentials: { … } } } }, { by: `connection ${id}` });
   }
 

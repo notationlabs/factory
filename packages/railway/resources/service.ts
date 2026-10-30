@@ -1,4 +1,4 @@
-import { defineResource } from "@notation/resource";
+import { defineResource, mergeRecords } from "@notation/resource";
 import {
   createService,
   deleteService,
@@ -19,12 +19,16 @@ type ServiceApi = {
     /** Scales to zero when idle. */
     sleep?: boolean;
     vars?: Record<string, unknown>;
+    /** Sealed shared variables it references, as `${{shared.NAME}}`: each variable's name in the service, and the shared variable it reads. */
+    secrets?: Record<string, string>;
   };
   UpdateParams: {
     public?: boolean;
     volume?: string;
     sleep?: boolean;
     vars?: Record<string, unknown>;
+    /** Sealed shared variables it references, as `${{shared.NAME}}`: each variable's name in the service, and the shared variable it reads. */
+    secrets?: Record<string, string>;
   };
   ReadResult: { id: string; url: string };
 };
@@ -44,6 +48,11 @@ export const Service = defineResource<ServiceApi>({
     volume: { propertyType: "param", presence: "optional" },
     sleep: { propertyType: "param", presence: "optional" },
     vars: { propertyType: "param", presence: "optional" },
+    secrets: {
+      propertyType: "param",
+      presence: "optional",
+      collect: mergeRecords,
+    },
     id: { propertyType: "computed", presence: "required", primaryKey: true },
     url: { propertyType: "computed", presence: "required" },
   } as const)

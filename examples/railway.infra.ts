@@ -33,6 +33,7 @@ export default lightbox(() => {
 
   new railway.Deployer("deployer", {
     router,
+    vault,
     accounts: [claudeAccount],
   });
 });

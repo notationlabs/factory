@@ -43,6 +43,7 @@ export default lightbox(() => {
   });
   new cloudflare.Deployer("deployer", {
     router,
+    vault,
     accounts: [claudeAccount],
   });
 });

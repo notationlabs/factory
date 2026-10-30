@@ -41,6 +41,7 @@ export default lightbox(() => {
   new cloudflare.Deployer("deployer", {
     knownHosts: ["ssh-ed25519 AAAA... me@laptop"],
     router,
+    vault,
     accounts: [claudeAccount],
   });
 });

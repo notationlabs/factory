@@ -1,6 +1,6 @@
 import type { Secret } from "factory";
 
-/** The Secrets Store API calls the vault makes. Stubs. Values are written, never read back: a secret is planned by its fingerprint. */
+/** The Secrets Store API calls the vault makes. Stubs. Values are written, never read back: a secret is planned by whether it exists. */
 
 export const createStore = async (_params: {
   name: string;
@@ -26,9 +26,9 @@ export const putSecret = async (
 export const getSecret = async (_key: {
   storeId: string;
   name: string;
-}): Promise<{ fingerprint: string }> => {
+}): Promise<{}> => {
   throw new Error(
-    "not implemented: read the secret's metadata and fingerprint",
+    "not implemented: read the secret's metadata, or throw ResourceNotFoundError",
   );
 };
 

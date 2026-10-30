@@ -55,7 +55,7 @@ vault-store, router-kv, router-bucket, router-root-key, router-worker, router-co
 gh-app, gh-private-key, deployer-token, deployer-claude-CLAUDE_CODE_OAUTH_TOKEN, deployer-worker
 ```
 
-Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. Each item names its readers, the router or the deployer, and each reader binds it on its Worker or service and depends on it. The deployer binds the root key as well. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from. A secret is planned by its source and a fingerprint, never by reading it back.
+Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. Each item names its readers, the router or the deployer, and each reader binds it on its Worker or service and depends on it. The deployer binds the root key as well. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from when the item is created. Notation Factory tracks an item's identity, its name and source, and the provider holds its value: an item is planned by whether it exists, a changed source replaces it, and its value is never read back.
 
 The connection, code host and operator auth each contribute their entry to the router's config:
 
@@ -278,4 +278,4 @@ The API calls (`packages/*/lib/`) are stubs, so nothing deploys yet.
 - **Operation context.** The GitHub and Slack apps' `create` opens a browser, and `secret.prompt` asks for a value, but Notation's operation context has no `open` or `prompt`.
 - **Changing an App's events or permissions.** GitHub has no API for them, so the App's `update` calls `requestAppChange`, a stub that throws. It needs the same browser step as `create`.
 - **Protected resources.** The vault, GitHub Apps and Slack apps throw on `delete`. `infra down` should leave them and open their settings instead.
-- **Secrets.** A vault item's `source` is a `sensitive` param and its fingerprint a computed field. A secret from `secret.output` is resolved into params at deploy, so the App's private key passes through them.
+- **Secrets.** A secret from `secret.output` is resolved into params at deploy, so the App's private key passes through them and into state.

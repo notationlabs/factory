@@ -39,10 +39,10 @@ type StoreSecretApi = {
   Key: { storeId: string; name: string };
   CreateParams: { storeId: string; name: string; source: Secret };
   UpdateParams: undefined;
-  ReadResult: { fingerprint: string };
+  ReadResult: {};
 };
 
-/** One item in the vault. `source` says where its value comes from; it's planned by `fingerprint`, never by reading the value. */
+/** One item in the vault. Its params are its identity: `source` says where its value comes from when it's created, and the store holds the value. Changing `source` replaces it. */
 export const StoreSecret = defineResource<StoreSecretApi>({
   type: "cloudflare/secrets-store/Secret",
 })
@@ -53,14 +53,12 @@ export const StoreSecret = defineResource<StoreSecretApi>({
       secondaryKey: true,
     },
     name: { propertyType: "param", presence: "required", primaryKey: true },
-    source: { propertyType: "param", presence: "required" },
-    fingerprint: { propertyType: "computed", presence: "required" },
+    source: { propertyType: "param", presence: "required", immutable: true },
   } as const)
   .defineOperations({
     create: async ({ storeId, name, source }) =>
       putSecret({ storeId, name }, source),
     read: async (key) => getSecret(key),
-    update: async (key, _patch, { source }) => putSecret(key, source),
     delete: async (key) => deleteSecret(key),
   })
   .requireDependencies<{ store: SecretsStoreInstance }>()

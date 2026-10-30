@@ -22,7 +22,7 @@ import {
  * router matches; a conversation is an issue.
  */
 export class Channel
-  extends OutpostGroup<ChannelConfig, { connection: ConnectionRef }>
+  extends OutpostGroup<ChannelConfig>
   implements ChannelContract
 {
   readonly scope: string;
@@ -32,23 +32,20 @@ export class Channel
     id: string,
     { connection, ...config }: ChannelConfig & { connection: ConnectionRef },
   ) {
-    super("github/Channel", id, config, { connection });
-    const { outpost } = this.dependencies;
+    super("github/Channel", id, config);
+    const { outpost } = this;
     const { scope = outpost.repo } = v.parse(channelConfig, config);
     this.scope = scope;
     this.connection = connection;
-    outpost.store.contribute(
-      {
-        channels: {
-          [id]: {
-            provider: "github",
-            connection: this.connection.name,
-            scope,
-          },
+    outpost.store.contribute({
+      channels: {
+        [id]: {
+          provider: "github",
+          connection: this.connection.name,
+          scope,
         },
       },
-      { by: `channel ${id}` },
-    );
+    });
   }
 
   /** Issue events. `actions` defaults to `["opened"]`. */

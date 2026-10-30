@@ -1,4 +1,4 @@
-import { defineResource, mergeRecords } from "@notation/resource";
+import { defineResource, mergeContributions } from "@notation/resource";
 import { type RouterConfig as Config, single } from "lightbox";
 import { deleteValue, getValue, putValue } from "../lib/kv.ts";
 import type { KvNamespaceInstance } from "./kv.ts";
@@ -35,17 +35,17 @@ export const RouterConfig = defineResource<RouterConfigApi>({
     connections: {
       propertyType: "param",
       presence: "optional",
-      collect: mergeRecords,
+      collect: mergeContributions,
     },
     codeHost: {
       propertyType: "param",
       presence: "optional",
-      collect: single("codeHost"),
+      collect: single,
     },
     operators: {
       propertyType: "param",
       presence: "optional",
-      collect: single("operators"),
+      collect: single,
     },
   } as const)
   .defineOperations({

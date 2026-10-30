@@ -1,4 +1,4 @@
-import { isOutputValue, type OutputValue } from "@notation/resource";
+import { isOutputValue } from "@notation/resource";
 
 /**
  * Where a secret's value comes from when its vault item is created. It's part
@@ -9,7 +9,7 @@ export type Secret =
   | { kind: "env"; name: string }
   | { kind: "generated"; bytes: number }
   | { kind: "prompt"; label: string }
-  | { kind: "output"; value: OutputValue<string> };
+  | { kind: "output"; value: string };
 
 export const secret = {
   /** Read from the environment of whoever runs the deploy, e.g. `CLAUDE_CODE_OAUTH_TOKEN`. */
@@ -18,8 +18,8 @@ export const secret = {
   generated: (bytes = 32): Secret => ({ kind: "generated", bytes }),
   /** Pasted, unechoed, by whoever runs the deploy, e.g. a Slack bot token. */
   prompt: (label: string): Secret => ({ kind: "prompt", label }),
-  /** Another resource's output, e.g. a GitHub App's private key. */
-  output: (value: OutputValue<string>): Secret => ({ kind: "output", value }),
+  /** Another resource's output, from its `outputValue`, e.g. a GitHub App's private key. */
+  output: (value: string): Secret => ({ kind: "output", value }),
 };
 
 export const isSecret = (value: unknown): value is Secret => {

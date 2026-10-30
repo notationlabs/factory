@@ -14,17 +14,14 @@ export type DeployerOptions = { router: Router; accounts?: Account[] };
  * outposts as services in the hub's project. It manages them with a project
  * token of its own. The accounts' secrets go into the router's vault.
  */
-export class Deployer
-  extends ResourceGroup<{}, { router: Router; accounts?: Account[] }>
-  implements DeployerContract
-{
+export class Deployer extends ResourceGroup implements DeployerContract {
   readonly router: Router;
   readonly accounts: Account[];
   readonly token: ProjectTokenInstance;
   readonly service: ServiceInstance;
 
   constructor(id: string, { router, accounts = [] }: DeployerOptions) {
-    super("railway/Deployer", id, {}, { router, accounts });
+    super("railway/Deployer", id, {});
     this.router = router;
     this.accounts = accounts;
 

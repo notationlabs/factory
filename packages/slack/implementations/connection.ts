@@ -24,7 +24,7 @@ export type ConnectionOptions = ConnectionConfig & { router: Router };
  * code still lives on the code host.
  */
 export class Connection
-  extends ResourceGroup<ConnectionConfig, { router: Router }>
+  extends ResourceGroup<ConnectionConfig>
   implements ConnectionContract
 {
   readonly name: string;
@@ -33,7 +33,7 @@ export class Connection
 
   constructor(id: string, { router, ...config }: ConnectionOptions) {
     const { name, workspace } = v.parse(connectionConfig, config);
-    super("slack/Connection", id, config, { router });
+    super("slack/Connection", id, config);
     this.name = name;
     this.router = router;
     this.app = this.add(
@@ -54,18 +54,15 @@ export class Connection
       name: signingSecret,
       value: secret.prompt(`Signing secret for the ${name} Slack app`),
     });
-    this.router.store.contribute(
-      {
-        connections: {
-          [`slack/${name}`]: {
-            provider: "slack",
-            source: this.app.out.appId,
-            credentials: { botToken, signingSecret },
-          },
+    this.router.store.contribute({
+      connections: {
+        [`slack/${name}`]: {
+          provider: "slack",
+          source: this.app.outputValue("appId"),
+          credentials: { botToken, signingSecret },
         },
       },
-      { by: `connection ${id}` },
-    );
+    });
   }
 
   /** In an outpost: the connection the infra declares as `name`. */

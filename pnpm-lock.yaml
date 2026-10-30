@@ -8,12 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@notation/resource':
+        specifier: 0.16.0
+        version: 0.16.0
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
-      deep-object-diff:
-        specifier: ^1.1.9
-        version: 1.1.9
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -182,6 +182,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@notation/resource@0.16.0':
+    resolution: {integrity: sha512-5Hhb1LKq+5V+s1qtTmgThLZYOMU036re10RR+fYj/G0BsVKruG79YrL1l9cdgAIrHV06w2Hszj08f2aKt6J2yQ==}
+
+  '@notation/utils@0.16.0':
+    resolution: {integrity: sha512-6Yh+BvEt+ThFtOXv381WyP/bkxiAD5JPa6T0TobitsJw103n/fwctyNUphbg6yHjBjKzCkanT9pbC+Q+NfQVjw==}
+
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
 
@@ -298,6 +304,13 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@notation/resource@0.16.0':
+    dependencies:
+      '@notation/utils': 0.16.0
+      deep-object-diff: 1.1.9
+
+  '@notation/utils@0.16.0': {}
 
   '@types/node@24.19.2':
     dependencies:

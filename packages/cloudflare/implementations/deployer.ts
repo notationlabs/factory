@@ -22,10 +22,7 @@ export type DeployerOptions = DeployerConfig & {
  * secrets go into the router's vault.
  */
 export class Deployer
-  extends ResourceGroup<
-    DeployerConfig,
-    { router: Router; accounts?: Account[] }
-  >
+  extends ResourceGroup<DeployerConfig>
   implements DeployerContract
 {
   readonly router: Router;
@@ -38,7 +35,7 @@ export class Deployer
     { router, accounts = [], ...config }: DeployerOptions,
   ) {
     const { knownHosts } = v.parse(deployerConfig, config);
-    super("cloudflare/Deployer", id, config, { router, accounts });
+    super("cloudflare/Deployer", id, config);
     this.router = router;
     this.accounts = accounts;
 

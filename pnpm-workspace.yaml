@@ -1,2 +1,5 @@
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@notation/resource@0.16.0'
+  - '@notation/utils@0.16.0'

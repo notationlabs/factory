@@ -18,7 +18,7 @@ export type CodeHostOptions = CodeHostConfig & { connection: Connection };
  * passes.
  */
 export class CodeHost
-  extends ResourceGroup<CodeHostConfig, { connection: Connection }>
+  extends ResourceGroup<CodeHostConfig>
   implements CodeHostContract
 {
   readonly connection: Connection;
@@ -26,18 +26,15 @@ export class CodeHost
 
   constructor(id: string, { connection, ...config }: CodeHostOptions) {
     const { allow } = v.parse(codeHostConfig, config);
-    super("github/CodeHost", id, config, { connection });
+    super("github/CodeHost", id, config);
     this.connection = connection;
     this.allow = allow;
-    this.connection.router.store.contribute(
-      {
-        codeHost: {
-          provider: "github",
-          connection: this.connection.name,
-          allow,
-        },
+    this.connection.router.store.contribute({
+      codeHost: {
+        provider: "github",
+        connection: this.connection.name,
+        allow,
       },
-      { by: `code host ${id}` },
-    );
+    });
   }
 }

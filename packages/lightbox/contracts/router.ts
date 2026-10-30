@@ -1,6 +1,6 @@
 import type {
   BaseResource,
-  Contributable,
+  DeepPartial,
   ResourceGroup,
 } from "@notation/resource";
 import type { Vault } from "./vault.ts";
@@ -45,8 +45,9 @@ export type RouterApi = BaseResource & { output: { url: string } };
  * contributions to it. BaseResource's own `contribute` is omitted because it
  * takes any record, which would let a contribution of any shape through.
  */
-export type RouterConfigStore = Omit<BaseResource, "contribute"> &
-  Contributable<RouterConfig>;
+export type RouterConfigStore = Omit<BaseResource, "contribute"> & {
+  contribute(values: DeepPartial<RouterConfig>): void;
+};
 
 /**
  * Receives every connection's deliveries, matches outposts' triggers, relays

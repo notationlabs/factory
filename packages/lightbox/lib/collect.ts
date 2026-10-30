@@ -1,14 +1,21 @@
 import {
-  type ContributionSource,
+  type CollectContext,
   ContributionConflictError,
+  type DeepPartial,
 } from "@notation/resource";
 
 /** A collected param only one contributor may set, e.g. an infra's one code host. */
-export const single =
-  (name: string) =>
-  <V>(items: V[], from: ContributionSource[]): V => {
-    if (items.length > 1) {
-      throw new ContributionConflictError(name, from[0]!, from[1]!);
-    }
-    return items[0]!;
-  };
+export const single = <T>(
+  items: DeepPartial<T>[],
+  context: CollectContext,
+): T => {
+  if (items.length > 1) {
+    throw new ContributionConflictError(
+      context.resourceId,
+      context.param,
+      [context.contributors[0]!, context.contributors[1]!],
+      [items[0], items[1]],
+    );
+  }
+  return items[0] as T;
+};

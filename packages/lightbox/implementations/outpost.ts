@@ -1,8 +1,4 @@
-import {
-  collectResourceGraph,
-  type GroupDependencies,
-  ResourceGroup,
-} from "@notation/resource";
+import { collectResourceGraph, ResourceGroup } from "@notation/resource";
 import {
   OutpostConfig,
   type OutpostConfigInstance,
@@ -51,17 +47,16 @@ const currentOutpost = (): Outpost => {
 };
 
 /**
- * A group declared inside `outpost(() => …)`. It depends on that outpost,
- * which it contributes to, without the user passing it.
+ * A group declared inside `outpost(() => …)`. It contributes to that
+ * outpost, without the user passing it.
  */
 export abstract class OutpostGroup<
   C extends Record<string, any> = Record<string, any>,
-  D extends GroupDependencies = {},
-> extends ResourceGroup<C, D & { outpost: Outpost }> {
-  constructor(type: string, id: string, config?: C, dependencies?: D) {
-    super(type, id, config, {
-      ...dependencies,
-      outpost: currentOutpost(),
-    } as D & { outpost: Outpost });
+> extends ResourceGroup<C> {
+  readonly outpost: Outpost;
+
+  constructor(type: string, id: string, config?: C) {
+    super(type, id, config);
+    this.outpost = currentOutpost();
   }
 }

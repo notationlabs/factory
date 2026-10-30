@@ -24,10 +24,7 @@ export type ContainerOptions = ContainerConfig & {
 };
 
 /** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
-export class Container extends OutpostGroup<
-  ContainerConfig,
-  { policies?: PolicyContract[] }
-> {
+export class Container extends OutpostGroup<ContainerConfig> {
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
 
@@ -40,21 +37,18 @@ export class Container extends OutpostGroup<
       }
       seen.add(runtime.id);
     }
-    super("lightbox/Container", id, config, { policies });
+    super("lightbox/Container", id, config);
     this.runtimes = runtimes;
     this.policies = policies;
-    this.dependencies.outpost.store.contribute(
-      {
-        containers: {
-          [id]: {
-            image,
-            runtimes: runtimes.map((r) => r.id),
-            policies: policies.map((p) => p.id),
-            files,
-          },
+    this.outpost.store.contribute({
+      containers: {
+        [id]: {
+          image,
+          runtimes: runtimes.map((r) => r.id),
+          policies: policies.map((p) => p.id),
+          files,
         },
       },
-      { by: `container ${id}` },
-    );
+    });
   }
 }

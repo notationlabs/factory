@@ -42,7 +42,7 @@ export type CompiledExample = {
     type: string;
     id: string;
     config: unknown;
-    /** The groups it was declared with, by name. */
+    /** The groups it holds, by field name. */
     dependencies: Record<string, GroupRef | GroupRef[]>;
   }[];
   resources: CompiledResource[];
@@ -53,7 +53,7 @@ const isResource = (value: unknown): value is BaseResource =>
   typeof value === "object" &&
   value !== null &&
   "schema" in value &&
-  "contributions" in value;
+  "getParams" in value;
 
 const isGroup = (value: unknown): value is ResourceGroup =>
   value instanceof ResourceGroup;
@@ -113,13 +113,7 @@ const compileGraph = async (graph: ResourceGraph) => {
       id: resource.id,
       type: resource.type,
       group: resource.group,
-      dependsOn: [
-        ...new Set(
-          Object.values(resource.dependencies)
-            .filter((d): d is BaseResource => !!d)
-            .map((d) => d.id),
-        ),
-      ],
+      dependsOn: [...new Set(resource.getDependencies().map((d) => d.id))],
       params,
     });
   }
@@ -128,12 +122,14 @@ const compileGraph = async (graph: ResourceGraph) => {
     id: g.id,
     config: plain(g.config),
     dependencies: Object.fromEntries(
-      Object.entries(g.dependencies)
-        .filter(([, d]) => d !== undefined)
-        .map(([name, d]) => [
-          name,
-          Array.isArray(d) ? d.map(groupRef) : groupRef(d!),
-        ]),
+      Object.entries(g).flatMap(
+        ([name, d]): [string, GroupRef | GroupRef[]][] =>
+          isGroup(d)
+            ? [[name, groupRef(d)]]
+            : Array.isArray(d) && d.length > 0 && d.every(isGroup)
+              ? [[name, d.map(groupRef)]]
+              : [],
+      ),
     ),
   }));
   return { groups, resources };

@@ -11,13 +11,14 @@ type SealedVariableApi = {
   Key: { projectId: string; name: string };
   CreateParams: { projectId: string; name: string; source: Secret };
   UpdateParams: undefined;
-  ReadResult: { fingerprint: string };
+  ReadResult: {};
 };
 
 /**
  * One vault item, as a sealed shared variable the router and deployer
- * services reference. Sealed values are never shown or returned by the API,
- * so it's planned by `fingerprint`.
+ * services reference. Its params are its identity: `source` says where its
+ * value comes from when it's created, and Railway holds the value, which its
+ * API never returns. Changing `source` replaces it.
  */
 export const SealedVariable = defineResource<SealedVariableApi>({
   type: "railway/variables/SealedVariable",
@@ -29,14 +30,12 @@ export const SealedVariable = defineResource<SealedVariableApi>({
       secondaryKey: true,
     },
     name: { propertyType: "param", presence: "required", primaryKey: true },
-    source: { propertyType: "param", presence: "required" },
-    fingerprint: { propertyType: "computed", presence: "required" },
+    source: { propertyType: "param", presence: "required", immutable: true },
   } as const)
   .defineOperations({
     create: async ({ projectId, name, source }) =>
       putSealedVariable({ projectId, name }, source),
     read: async (key) => getSealedVariable(key),
-    update: async (key, _patch, { source }) => putSealedVariable(key, source),
     delete: async (key) => deleteSealedVariable(key),
   })
   .requireDependencies<{ project: ProjectInstance }>()

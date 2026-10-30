@@ -1,8 +1,9 @@
 import { isOutputValue, type OutputValue } from "@notation/resource";
 
 /**
- * Where a secret's value comes from. A vault plans a secret by its source and
- * a fingerprint of its value, and never reads the value back.
+ * Where a secret's value comes from when its vault item is created. It's part
+ * of the item's identity, not its value: the provider holds the value, and a
+ * vault never reads it back.
  */
 export type Secret =
   | { kind: "env"; name: string }

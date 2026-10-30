@@ -64,8 +64,10 @@ export const putSealedVariable = async (
 export const getSealedVariable = async (_key: {
   projectId: string;
   name: string;
-}): Promise<{ fingerprint: string }> => {
-  throw new Error("not implemented: read a sealed variable's fingerprint");
+}): Promise<{}> => {
+  throw new Error(
+    "not implemented: check a sealed variable exists, or throw ResourceNotFoundError",
+  );
 };
 
 export const deleteSealedVariable = async (_key: {

@@ -1,5 +1,4 @@
 import { defineResource } from "@notation/resource";
-import type { Secret } from "lightbox";
 import {
   createStore,
   deleteSecret,
@@ -37,12 +36,12 @@ export type SecretsStoreInstance = InstanceType<typeof SecretsStore>;
 
 type StoreSecretApi = {
   Key: { storeId: string; name: string };
-  CreateParams: { storeId: string; name: string; source: Secret };
+  CreateParams: { storeId: string; name: string };
   UpdateParams: undefined;
   ReadResult: {};
 };
 
-/** One item in the vault. Its params are its identity: `source` says where its value comes from when it's created, and the store holds the value. Changing `source` replaces it. */
+/** One item in the vault. Its params are its identity, and the store holds its value. */
 export const StoreSecret = defineResource<StoreSecretApi>({
   type: "cloudflare/secrets-store/Secret",
 })
@@ -53,11 +52,9 @@ export const StoreSecret = defineResource<StoreSecretApi>({
       secondaryKey: true,
     },
     name: { propertyType: "param", presence: "required", primaryKey: true },
-    source: { propertyType: "param", presence: "required", immutable: true },
   } as const)
   .defineOperations({
-    create: async ({ storeId, name, source }) =>
-      putSecret({ storeId, name }, source),
+    create: async (params) => putSecret(params),
     read: async (key) => getSecret(key),
     delete: async (key) => deleteSecret(key),
   })

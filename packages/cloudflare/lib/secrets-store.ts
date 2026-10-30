@@ -1,5 +1,3 @@
-import type { Secret } from "lightbox";
-
 /** The Secrets Store API calls the vault makes. Stubs. Values are written, never read back: a secret is planned by whether it exists. */
 
 export const createStore = async (_params: {
@@ -14,13 +12,11 @@ export const getStore = async (_key: {
   throw new Error("not implemented: read a Secrets Store store");
 };
 
-export const putSecret = async (
-  _key: { storeId: string; name: string },
-  _source: Secret,
-): Promise<void> => {
-  throw new Error(
-    "not implemented: resolve the secret's value from its source and write it to the store",
-  );
+export const putSecret = async (_key: {
+  storeId: string;
+  name: string;
+}): Promise<void> => {
+  throw new Error("not implemented: mint the secret's value into the store");
 };
 
 export const getSecret = async (_key: {

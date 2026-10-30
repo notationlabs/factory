@@ -1,4 +1,4 @@
-import { outputSources, ResourceGroup } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import type { Vault as VaultContract, VaultSecretOptions } from "lightbox";
 import * as v from "valibot";
 import {
@@ -26,21 +26,12 @@ export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
     );
   }
 
-  secret({
-    id,
-    name,
-    value,
-    readers,
-  }: VaultSecretOptions): StoreSecretInstance {
-    const item = this.add(
+  secret({ id, name }: VaultSecretOptions): StoreSecretInstance {
+    return this.add(
       new StoreSecret(id, {
-        config: { name, source: value },
+        config: { name },
         dependencies: { store: this.store },
       }),
     );
-    // An output value's resource must exist before its value can be written.
-    for (const source of outputSources(value)) item.dependOn(source);
-    for (const reader of readers) reader.bindSecret(item);
-    return item;
   }
 }

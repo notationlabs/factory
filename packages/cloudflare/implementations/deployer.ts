@@ -3,7 +3,6 @@ import {
   type Account,
   type Deployer as DeployerContract,
   secret,
-  type VaultItem,
 } from "lightbox";
 import * as v from "valibot";
 import { Worker, type WorkerInstance } from "../resources/worker.ts";
@@ -45,6 +44,22 @@ export class Deployer
     this.router = router;
     this.accounts = accounts;
 
+    router.vault.secret({
+      id: `${id}-token`,
+      name: "DEPLOYER_API_TOKEN",
+      value: secret.prompt("Cloudflare API token for Workers Builds"),
+    });
+
+    for (const account of accounts) {
+      for (const [env, value] of Object.entries(account.secrets)) {
+        router.vault.secret({
+          id: `${id}-${account.id}-${env}`,
+          name: env,
+          value,
+        });
+      }
+    }
+
     this.worker = this.add(
       new Worker(`${id}-worker`, {
         config: {
@@ -60,34 +75,5 @@ export class Deployer
         dependencies: { kv: router.kv, store: router.vault.store },
       }),
     );
-
-    // It signs its calls to the router with a key derived from the root key.
-    this.bindSecret(router.rootKey);
-    router.vault.secret({
-      id: `${id}-token`,
-      name: "DEPLOYER_API_TOKEN",
-      value: secret.prompt("Cloudflare API token for Workers Builds"),
-      readers: [this],
-    });
-
-    for (const account of accounts) {
-      for (const [env, value] of Object.entries(account.secrets)) {
-        router.vault.secret({
-          id: `${id}-${account.id}-${env}`,
-          name: env,
-          value,
-          readers: [this],
-        });
-      }
-    }
-  }
-
-  bindSecret(item: VaultItem): void {
-    const { name } = item.config;
-    this.worker.contribute(
-      { Secrets: { [name]: name } },
-      { by: `deployer ${this.id}` },
-    );
-    this.worker.dependOn(item);
   }
 }

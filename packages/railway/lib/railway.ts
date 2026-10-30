@@ -1,5 +1,3 @@
-import type { Secret } from "lightbox";
-
 /** The Railway API calls the hub's resources make. Stubs: achq's plugin-railway has the real ones. */
 
 export const createProject = async (_params: {
@@ -52,12 +50,12 @@ export const deleteService = async (_key: { id: string }): Promise<void> => {
   throw new Error("not implemented: delete a service");
 };
 
-export const putSealedVariable = async (
-  _key: { projectId: string; name: string },
-  _source: Secret,
-): Promise<void> => {
+export const putSealedVariable = async (_key: {
+  projectId: string;
+  name: string;
+}): Promise<void> => {
   throw new Error(
-    "not implemented: resolve the secret's value from its source and write it as a sealed shared variable",
+    "not implemented: mint the secret's value as a sealed shared variable",
   );
 };
 

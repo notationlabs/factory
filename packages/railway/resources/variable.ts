@@ -1,5 +1,4 @@
 import { defineResource } from "@notation/resource";
-import type { Secret } from "lightbox";
 import {
   deleteSealedVariable,
   getSealedVariable,
@@ -9,16 +8,15 @@ import type { ProjectInstance } from "./project.ts";
 
 type SealedVariableApi = {
   Key: { projectId: string; name: string };
-  CreateParams: { projectId: string; name: string; source: Secret };
+  CreateParams: { projectId: string; name: string };
   UpdateParams: undefined;
   ReadResult: {};
 };
 
 /**
  * One vault item, as a sealed shared variable the router and deployer
- * services reference. Its params are its identity: `source` says where its
- * value comes from when it's created, and Railway holds the value, which its
- * API never returns. Changing `source` replaces it.
+ * services reference. Its params are its identity, and Railway holds its
+ * value, which its API never returns.
  */
 export const SealedVariable = defineResource<SealedVariableApi>({
   type: "railway/variables/SealedVariable",
@@ -30,11 +28,9 @@ export const SealedVariable = defineResource<SealedVariableApi>({
       secondaryKey: true,
     },
     name: { propertyType: "param", presence: "required", primaryKey: true },
-    source: { propertyType: "param", presence: "required", immutable: true },
   } as const)
   .defineOperations({
-    create: async ({ projectId, name, source }) =>
-      putSealedVariable({ projectId, name }, source),
+    create: async (params) => putSealedVariable(params),
     read: async (key) => getSealedVariable(key),
     delete: async (key) => deleteSealedVariable(key),
   })

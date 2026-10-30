@@ -55,7 +55,7 @@ vault-store, router-kv, router-bucket, router-root-key, router-worker, router-co
 gh-app, gh-private-key, deployer-token, deployer-claude-CLAUDE_CODE_OAUTH_TOKEN, deployer-worker
 ```
 
-Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. Each item names its readers, the router or the deployer, and each reader binds it on its Worker or service and depends on it. The deployer binds the root key as well. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from when the item is created. Lightbox tracks an item's identity, its name and source, and the provider holds its value: an item is planned by whether it exists, a changed source replaces it, and its value is never read back.
+Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. An item's params are its identity, where it's kept, and the provider holds its value, which is never read back. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from, but nothing mints it yet.
 
 The connection, code host and operator auth each contribute their entry to the router's config:
 
@@ -167,14 +167,10 @@ A contract is an interface in `packages/lightbox/contracts/`: the fields and met
 ```ts
 export interface Vault extends ResourceGroup {
   readonly provider: string;
-  secret(opts: VaultSecretOptions): VaultItem; // binds the item to each of `opts.readers`
+  secret(opts: VaultSecretOptions): BaseResource;
 }
 
-export interface SecretReader {
-  bindSecret(item: VaultItem): void;
-} // the router and the deployer
-
-export interface Router extends ResourceGroup, SecretReader {
+export interface Router extends ResourceGroup {
   readonly api: RouterApi; // where it's reached
   readonly store: RouterConfigStore; // where its config is contributed to
   readonly vault: Vault; // on the router's own provider
@@ -214,7 +210,7 @@ export class Connection extends ResourceGroup<ConnectionConfig, { router: Router
     this.name = name;
     this.router = router;
     this.app = this.add(new App(`${id}-app`, { config: { name, org }, dependencies: { router: router.api } }));
-    this.router.vault.secret({ id: `${id}-private-key`, name: `github-${name}-private-key`, value: secret.output(this.app.out.privateKey), readers: [router] });
+    this.router.vault.secret({ id: `${id}-private-key`, name: `github-${name}-private-key`, value: secret.output(this.app.out.privateKey) });
     this.router.store.contribute({ connections: { [`github/${name}`]: { provider: "github", source: this.app.out.id, credentials: { … } } } }, { by: `connection ${id}` });
   }
 
@@ -278,4 +274,5 @@ The API calls (`packages/*/lib/`) are stubs, so nothing deploys yet.
 - **Operation context.** The GitHub and Slack apps' `create` opens a browser, and `secret.prompt` asks for a value, but Notation's operation context has no `open` or `prompt`.
 - **Changing an App's events or permissions.** GitHub has no API for them, so the App's `update` calls `requestAppChange`, a stub that throws. It needs the same browser step as `create`.
 - **Protected resources.** The vault, GitHub Apps and Slack apps throw on `delete`. `infra down` should leave them and open their settings instead.
-- **Secrets.** A secret from `secret.output` is resolved into params at deploy, so the App's private key passes through them and into state.
+- **Minting secrets.** A vault item's create has no value to write: Notation has no way yet to give a create an input it never plans or stores. `vault.secret` takes `value`, and doesn't pass it on.
+- **Binding secrets.** Nothing says which of the router and deployer reads which item, so their Workers and services don't bind any. A binding should refer to its item, so the edge comes from the reference.

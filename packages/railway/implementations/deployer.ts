@@ -1,9 +1,9 @@
 import { ResourceGroup } from "@notation/resource";
+import { type Account, type Deployer as DeployerContract } from "factory";
 import {
-  type Account,
-  type Deployer as DeployerContract,
-  secret,
-} from "factory";
+  ProjectToken,
+  type ProjectTokenInstance,
+} from "../resources/project-token.ts";
 import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Router } from "./router.ts";
 
@@ -11,9 +11,8 @@ export type DeployerOptions = { router: Router; accounts?: Account[] };
 
 /**
  * `new railway.Deployer(...)`: a private, scale-to-zero service that builds
- * outposts as services in the hub's project. It manages them with your
- * `RAILWAY_API_TOKEN`, copied into the vault when it changes, as are the
- * accounts' secrets.
+ * outposts as services in the hub's project. It manages them with a project
+ * token of its own. The accounts' secrets go into the router's vault.
  */
 export class Deployer
   extends ResourceGroup<{}, { router: Router; accounts?: Account[] }>
@@ -21,6 +20,7 @@ export class Deployer
 {
   readonly router: Router;
   readonly accounts: Account[];
+  readonly token: ProjectTokenInstance;
   readonly service: ServiceInstance;
 
   constructor(id: string, { router, accounts = [] }: DeployerOptions) {
@@ -28,11 +28,12 @@ export class Deployer
     this.router = router;
     this.accounts = accounts;
 
-    router.vault.secret({
-      id: `${id}-token`,
-      name: "RAILWAY_API_TOKEN",
-      value: secret.env("RAILWAY_API_TOKEN"),
-    });
+    this.token = this.add(
+      new ProjectToken(`${id}-token`, {
+        config: { name: "factory-deployer" },
+        dependencies: { project: router.project },
+      }),
+    );
 
     for (const account of accounts) {
       for (const [env, value] of Object.entries(account.secrets)) {

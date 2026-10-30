@@ -1,10 +1,7 @@
 import { ResourceGroup } from "@notation/resource";
-import {
-  type Account,
-  type Deployer as DeployerContract,
-  secret,
-} from "factory";
+import { type Account, type Deployer as DeployerContract } from "factory";
 import * as v from "valibot";
+import { ApiToken, type ApiTokenInstance } from "../resources/api-token.ts";
 import { Worker, type WorkerInstance } from "../resources/worker.ts";
 import type { Router } from "./router.ts";
 
@@ -21,8 +18,8 @@ export type DeployerOptions = DeployerConfig & {
 
 /**
  * `new cloudflare.Deployer(...)`: a scale-to-zero Worker that builds outposts'
- * containers with Workers Builds. Its API token is pasted on the first deploy,
- * and it and the accounts' secrets go into the router's vault.
+ * containers with Workers Builds, with an API token of its own. The accounts'
+ * secrets go into the router's vault.
  */
 export class Deployer
   extends ResourceGroup<
@@ -33,6 +30,7 @@ export class Deployer
 {
   readonly router: Router;
   readonly accounts: Account[];
+  readonly token: ApiTokenInstance;
   readonly worker: WorkerInstance;
 
   constructor(
@@ -44,11 +42,17 @@ export class Deployer
     this.router = router;
     this.accounts = accounts;
 
-    router.vault.secret({
-      id: `${id}-token`,
-      name: "DEPLOYER_API_TOKEN",
-      value: secret.prompt("Cloudflare API token for Workers Builds"),
-    });
+    this.token = this.add(
+      new ApiToken(`${id}-token`, {
+        config: {
+          name: `${router.project}-deployer`,
+          permissions: [
+            "Workers Scripts Write",
+            "Workers Builds Configuration Edit",
+          ],
+        },
+      }),
+    );
 
     for (const account of accounts) {
       for (const [env, value] of Object.entries(account.secrets)) {

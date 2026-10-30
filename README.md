@@ -55,7 +55,7 @@ vault-store, router-kv, router-bucket, router-root-key, router-worker, router-co
 gh-app, gh-private-key, deployer-token, deployer-claude-CLAUDE_CODE_OAUTH_TOKEN, deployer-worker
 ```
 
-Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes its API token and each account's secrets. An item's params are its identity, where it's kept, and the provider holds its value, which is never read back. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from, but nothing mints it yet.
+Secrets are vault items, added by `vault.secret(...)`: the router generates the root key, the connection writes its App's private key, and the deployer writes each account's secrets. The deployer's own API token isn't a vault item: it's a concrete resource the deployer owns, and Notation gets its value to the deployer. An item's params are its identity, where it's kept, and the provider holds its value, which is never read back. `secret.env`, `secret.generated`, `secret.prompt` and `secret.output` say where each value comes from, but nothing mints it yet.
 
 The connection, code host and operator auth each contribute their entry to the router's config:
 

@@ -5,7 +5,7 @@ type ProjectApi = {
   Key: { id: string };
   CreateParams: { name: string };
   UpdateParams: undefined;
-  ReadResult: { id: string; name: string };
+  ReadResult: { id: string; name: string; environmentId: string };
 };
 
 /** The hub's Railway project: the router, the deployer and every outpost are services in it. */
@@ -15,6 +15,8 @@ export const Project = defineResource<ProjectApi>({
   .defineSchema({
     name: { propertyType: "param", presence: "required", immutable: true },
     id: { propertyType: "computed", presence: "required", primaryKey: true },
+    /** Its production environment, which the hub's services run in. */
+    environmentId: { propertyType: "computed", presence: "required" },
   } as const)
   .defineOperations({
     create: async (params) => createProject(params),

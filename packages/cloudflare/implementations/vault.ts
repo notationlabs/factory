@@ -26,7 +26,12 @@ export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
     );
   }
 
-  secret({ id, name, value }: VaultSecretOptions): StoreSecretInstance {
+  secret({
+    id,
+    name,
+    value,
+    readers,
+  }: VaultSecretOptions): StoreSecretInstance {
     const item = this.add(
       new StoreSecret(id, {
         config: { name, source: value },
@@ -35,6 +40,7 @@ export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
     );
     // An output value's resource must exist before its value can be written.
     for (const source of outputSources(value)) item.dependOn(source);
+    for (const reader of readers) reader.bindSecret(item);
     return item;
   }
 }

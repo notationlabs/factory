@@ -1,5 +1,9 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Router as RouterContract, secret } from "factory";
+import {
+  type Router as RouterContract,
+  secret,
+  type VaultItem,
+} from "factory";
 import * as v from "valibot";
 import { KvNamespace, type KvNamespaceInstance } from "../resources/kv.ts";
 import { R2Bucket, type R2BucketInstance } from "../resources/r2.ts";
@@ -30,6 +34,7 @@ export class Router
   readonly bucket: R2BucketInstance;
   readonly api: WorkerInstance;
   readonly store: RouterConfigInstance;
+  readonly rootKey: VaultItem;
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
@@ -42,11 +47,6 @@ export class Router
     this.bucket = this.add(
       new R2Bucket(`${id}-bucket`, { config: { name: project } }),
     );
-    this.vault.secret({
-      id: `${id}-root-key`,
-      name: "FACTORY_ROOT_KEY",
-      value: secret.generated(),
-    });
     this.api = this.add(
       new Worker(`${id}-worker`, {
         config: {
@@ -66,5 +66,20 @@ export class Router
         dependencies: { kv: this.kv },
       }),
     );
+    this.rootKey = this.vault.secret({
+      id: `${id}-root-key`,
+      name: "FACTORY_ROOT_KEY",
+      value: secret.generated(),
+      readers: [this],
+    });
+  }
+
+  bindSecret(item: VaultItem): void {
+    const { name } = item.config;
+    this.api.contribute(
+      { Secrets: { [name]: name } },
+      { by: `router ${this.id}` },
+    );
+    this.api.dependOn(item);
   }
 }

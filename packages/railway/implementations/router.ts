@@ -1,5 +1,9 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Router as RouterContract, secret } from "factory";
+import {
+  type Router as RouterContract,
+  secret,
+  type VaultItem,
+} from "factory";
 import * as v from "valibot";
 import { Project, type ProjectInstance } from "../resources/project.ts";
 import {
@@ -28,6 +32,7 @@ export class Router
   readonly project: ProjectInstance;
   readonly api: ServiceInstance;
   readonly store: RouterConfigInstance;
+  readonly rootKey: VaultItem;
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
@@ -37,11 +42,6 @@ export class Router
       new Project(`${id}-project`, { config: { name: project } }),
     );
     this.vault.bind(this.project);
-    this.vault.secret({
-      id: `${id}-root-key`,
-      name: "FACTORY_ROOT_KEY",
-      value: secret.generated(),
-    });
     this.api = this.add(
       new Service(`${id}-service`, {
         config: { name: "factory-router", public: true, volume: "/data" },
@@ -54,5 +54,20 @@ export class Router
         dependencies: { service: this.api },
       }),
     );
+    this.rootKey = this.vault.secret({
+      id: `${id}-root-key`,
+      name: "FACTORY_ROOT_KEY",
+      value: secret.generated(),
+      readers: [this],
+    });
+  }
+
+  bindSecret(item: VaultItem): void {
+    const { name } = item.config;
+    this.api.contribute(
+      { secrets: { [name]: name } },
+      { by: `router ${this.id}` },
+    );
+    this.api.dependOn(item);
   }
 }

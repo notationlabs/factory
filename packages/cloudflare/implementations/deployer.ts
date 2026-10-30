@@ -4,6 +4,7 @@ import * as v from "valibot";
 import { ApiToken, type ApiTokenInstance } from "../resources/api-token.ts";
 import { Worker, type WorkerInstance } from "../resources/worker.ts";
 import type { Router } from "./router.ts";
+import type { Vault } from "./vault.ts";
 
 const deployerConfig = v.object({
   /** Written to outposts' authorized_keys, for `container ssh` and `resume`. */
@@ -13,30 +14,33 @@ export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
 export type DeployerOptions = DeployerConfig & {
   router: Router;
+  vault: Vault;
   accounts?: Account[];
 };
 
 /**
  * `new cloudflare.Deployer(...)`: a scale-to-zero Worker that builds outposts'
  * containers with Workers Builds, with an API token of its own. The accounts'
- * secrets go into the router's vault.
+ * secrets go into the vault.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
   implements DeployerContract
 {
   readonly router: Router;
+  readonly vault: Vault;
   readonly accounts: Account[];
   readonly token: ApiTokenInstance;
   readonly worker: WorkerInstance;
 
   constructor(
     id: string,
-    { router, accounts = [], ...config }: DeployerOptions,
+    { router, vault, accounts = [], ...config }: DeployerOptions,
   ) {
     const { knownHosts } = v.parse(deployerConfig, config);
     super("cloudflare/Deployer", id, config);
     this.router = router;
+    this.vault = vault;
     this.accounts = accounts;
 
     this.token = this.add(
@@ -53,7 +57,7 @@ export class Deployer
 
     for (const account of accounts) {
       for (const [env, value] of Object.entries(account.secrets)) {
-        router.vault.secret({
+        vault.secret({
           id: `${id}-${account.id}-${env}`,
           name: env,
           value,
@@ -73,7 +77,7 @@ export class Deployer
             ),
           },
         },
-        dependencies: { kv: router.kv, store: router.vault.store },
+        dependencies: { kv: router.kv, store: vault.store },
       }),
     );
   }

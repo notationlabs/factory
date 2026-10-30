@@ -6,23 +6,30 @@ import {
 } from "../resources/project-token.ts";
 import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Router } from "./router.ts";
+import type { Vault } from "./vault.ts";
 
-export type DeployerOptions = { router: Router; accounts?: Account[] };
+export type DeployerOptions = {
+  router: Router;
+  vault: Vault;
+  accounts?: Account[];
+};
 
 /**
  * `new railway.Deployer(...)`: a private, scale-to-zero service that builds
  * outposts as services in the hub's project. It manages them with a project
- * token of its own. The accounts' secrets go into the router's vault.
+ * token of its own. The accounts' secrets go into the vault.
  */
 export class Deployer extends ResourceGroup implements DeployerContract {
   readonly router: Router;
+  readonly vault: Vault;
   readonly accounts: Account[];
   readonly token: ProjectTokenInstance;
   readonly service: ServiceInstance;
 
-  constructor(id: string, { router, accounts = [] }: DeployerOptions) {
+  constructor(id: string, { router, vault, accounts = [] }: DeployerOptions) {
     super("railway/Deployer", id, {});
     this.router = router;
+    this.vault = vault;
     this.accounts = accounts;
 
     this.token = this.add(
@@ -34,7 +41,7 @@ export class Deployer extends ResourceGroup implements DeployerContract {
 
     for (const account of accounts) {
       for (const [env, value] of Object.entries(account.secrets)) {
-        router.vault.secret({
+        vault.secret({
           id: `${id}-${account.id}-${env}`,
           name: env,
           value,

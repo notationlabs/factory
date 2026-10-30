@@ -43,6 +43,7 @@ export default factory(() => {
   });
   new cloudflare.Deployer("deployer", {
     router,
+    vault,
     accounts: [claudeAccount],
   });
 });

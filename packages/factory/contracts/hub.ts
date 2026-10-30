@@ -3,6 +3,7 @@ import type { Secret } from "../lib/secret.ts";
 import type { Connection } from "./connection.ts";
 import type { Runtime } from "./outpost.ts";
 import type { RepoPattern, Router } from "./router.ts";
+import type { Vault } from "./vault.ts";
 
 /** Where the repos live, which of them get outposts (`allow`), and what mints containers' code credentials. An infra has one. */
 export interface CodeHost extends ResourceGroup {
@@ -24,5 +25,6 @@ export interface Account extends ResourceGroup {
 /** Checks and builds outposts' containers, and gives them `accounts`' credentials. */
 export interface Deployer extends ResourceGroup {
   readonly router: Router;
+  readonly vault: Vault;
   readonly accounts: Account[];
 }

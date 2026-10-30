@@ -33,6 +33,7 @@ export default factory(() => {
 
   new railway.Deployer("deployer", {
     router,
+    vault,
     accounts: [claudeAccount],
   });
 });

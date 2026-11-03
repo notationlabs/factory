@@ -3,8 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
 import { Glow } from "#/views/glow";
-import { Branches, ChannelsGraph, HeroStack, HubAndOutposts, Tiles } from "#/views/iso";
 import { Issue } from "#/views/issue";
+import { Dispatch, HubStatus, Providers, Routing, Worktrees } from "#/views/scenes";
 import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
 export const Route = createFileRoute("/")({
@@ -95,7 +95,7 @@ function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
 
 function Hero() {
   return (
-    <section className="grid lg:grid-cols-2">
+    <section className="grid grid-cols-1 lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28 lg:border-r lg:border-rule">
         <p className={`${overline} text-ink-3`}>
           By <span className="font-sans font-black normal-case tracking-tight text-ink">Notation</span>
@@ -122,8 +122,8 @@ function Hero() {
         </div>
       </div>
       <div className="flex items-center justify-center px-10 pb-16 lg:py-16">
-        <div className="w-full max-w-[420px]">
-          <HeroStack />
+        <div className="w-full max-w-[460px]">
+          <Dispatch />
         </div>
       </div>
     </section>
@@ -182,8 +182,8 @@ function Agents() {
           />
         }
         art={
-          <Picture>
-            <ChannelsGraph />
+          <Picture figure="FIG_01 · router">
+            <Routing />
           </Picture>
         }
       />
@@ -203,10 +203,8 @@ function Agents() {
           />
         }
         art={
-          <Picture>
-            <div className="w-full max-w-[400px]">
-              <Branches />
-            </div>
+          <Picture figure="FIG_02 · worktrees">
+            <Worktrees />
           </Picture>
         }
       />
@@ -226,10 +224,8 @@ function Agents() {
           />
         }
         art={
-          <Picture>
-            <div className="w-full max-w-[460px]">
-              <Tiles />
-            </div>
+          <Picture figure="FIG_03 · providers">
+            <Providers />
           </Picture>
         }
       />
@@ -259,10 +255,8 @@ function Outposts() {
           />
         }
         art={
-          <Picture>
-            <div className="w-full max-w-[460px]">
-              <HubAndOutposts />
-            </div>
+          <Picture figure="FIG_04 · hub">
+            <HubStatus />
           </Picture>
         }
       />
@@ -346,17 +340,20 @@ function Row({
   last?: boolean;
 }) {
   return (
-    <div className={`grid md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
+    <div className={`grid grid-cols-1 md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
       <div className={`${flip ? "md:order-2 md:border-l" : "md:border-r"} border-rule`}>{text}</div>
       <div className={`${flip ? "md:order-1" : ""} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
     </div>
   );
 }
 
-function Picture({ children }: { children: ReactNode }) {
+// A cell for an illustration, on a grid of dots, with a figure label in
+// the top left corner.
+function Picture({ figure, children }: { figure: string; children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12">
-      {children}
+    <div className="relative flex h-full min-h-80 items-center justify-center px-6 pt-14 pb-12 md:px-12 bg-[radial-gradient(var(--color-rule)_1px,transparent_1px)] [background-size:18px_18px]">
+      <span className={`absolute top-3 left-3 bg-paper px-1.5 py-0.5 ${overline} text-[10px] text-ink-3`}>{figure}</span>
+      <div className="w-full max-w-[540px]">{children}</div>
     </div>
   );
 }

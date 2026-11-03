@@ -21,11 +21,6 @@
   --color-term: #ffffff;
   --color-flash: rgb(37 99 235 / 0.08);
 
-  --iso-top: #ffffff;
-  --iso-line: rgb(0 0 0 / 0.14);
-  --iso-wire: rgb(0 0 0 / 0.3);
-  --iso-glass: rgb(0 0 0 / 0.02);
-  --iso-ink: var(--color-neutral-700);
 
   --shadow-window:
     0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 6px rgb(0 0 0 / 0.04),
@@ -49,11 +44,6 @@
   --color-term: var(--color-neutral-950);
   --color-flash: rgb(96 165 250 / 0.12);
 
-  --iso-top: #141416;
-  --iso-line: rgb(255 255 255 / 0.14);
-  --iso-wire: rgb(255 255 255 / 0.3);
-  --iso-glass: rgb(255 255 255 / 0.025);
-  --iso-ink: var(--color-neutral-300);
 
   --shadow-window:
     0 0 0 1px var(--color-neutral-700), 0 2px 6px rgb(0 0 0 / 0.3),
@@ -109,45 +99,7 @@
   animation: lightbox-pulse 1.4s ease-in-out infinite;
 }
 
-/* A short dash, set with a long gap, travelling along a path. */
-@keyframes lightbox-dash {
-  from {
-    stroke-dashoffset: 614;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* Dashes of 6 and gaps of 6 moving along by two periods. */
-@keyframes lightbox-march {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-
-@keyframes lightbox-float {
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-.lightbox-dash {
-  animation: lightbox-dash 3.2s linear infinite both;
-}
-
-.lightbox-march {
-  animation: lightbox-march 1.2s linear infinite;
-}
-
-.lightbox-float {
-  animation: lightbox-float 5s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .lightbox-dash,
-  .lightbox-march,
-  .lightbox-float,
   .lightbox-arrive,
   .lightbox-flash,
   .lightbox-caret,

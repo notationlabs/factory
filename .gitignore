@@ -1,2 +1,6 @@
 node_modules
 dist
+docs/.generated
+docs/.tanstack
+docs/.wrangler
+docs/dist

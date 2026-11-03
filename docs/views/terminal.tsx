@@ -108,8 +108,8 @@ export function CodeTabs({ files }: { files: CodeFile[] }) {
   );
 }
 
-function PromptMark({ dir }: { dir?: string }) {
-  return <span className="text-accent-ink">{dir ? `${dir} $ ` : "$ "}</span>;
+function PromptMark({ prompt }: { prompt?: string }) {
+  return <span className="text-accent-ink">{prompt ?? "$"} </span>;
 }
 
 function Caret() {
@@ -162,7 +162,7 @@ export function TypedTerminal({ title, lines }: { title?: string; lines: TermLin
           return (
             <span key={index} className={`block ${item.prompt === undefined ? "text-ink-2" : ""}`}>
               <span className={visible ? undefined : "invisible"}>
-                {item.prompt !== undefined && <PromptMark dir={item.prompt} />}
+                {item.prompt !== undefined && <PromptMark prompt={item.prompt} />}
                 {item.text.slice(0, shown)}
                 {index === line && item.prompt !== undefined && <Caret />}
               </span>
@@ -171,7 +171,7 @@ export function TypedTerminal({ title, lines }: { title?: string; lines: TermLin
           );
         })}
         <span className={`block ${done ? "" : "invisible"}`}>
-          <PromptMark dir={lines[0]?.prompt} />
+          <PromptMark prompt={[...lines].reverse().find((item) => item.prompt !== undefined)?.prompt} />
           <Caret />
         </span>
       </Window>

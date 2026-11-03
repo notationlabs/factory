@@ -97,10 +97,7 @@ function Hero() {
   return (
     <section className="grid grid-cols-1 lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28 lg:border-r lg:border-rule">
-        <p className={`${overline} text-ink-3`}>
-          By <span className="font-sans font-black normal-case tracking-tight text-ink">Notation</span>
-        </p>
-        <h1 className="mt-5 text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
+        <h1 className="text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
           Ask in a thread.
           <br />
           Run in a lightbox.
@@ -182,7 +179,7 @@ function Agents() {
           />
         }
         art={
-          <Picture figure="FIG_01 · router">
+          <Picture>
             <Routing />
           </Picture>
         }
@@ -203,7 +200,7 @@ function Agents() {
           />
         }
         art={
-          <Picture figure="FIG_02 · worktrees">
+          <Picture>
             <Worktrees />
           </Picture>
         }
@@ -224,7 +221,7 @@ function Agents() {
           />
         }
         art={
-          <Picture figure="FIG_03 · providers">
+          <Picture>
             <Providers />
           </Picture>
         }
@@ -255,7 +252,7 @@ function Outposts() {
           />
         }
         art={
-          <Picture figure="FIG_04 · hub">
+          <Picture>
             <HubStatus />
           </Picture>
         }
@@ -294,11 +291,11 @@ function Outposts() {
           <Feature
             icon={<TerminalIcon />}
             title="Pick Up Where the Agent Left Off"
-            description="Resume any conversation from your terminal, on the branch the agent was working on."
+            description="Attach your terminal to the agent's Claude session, in its worktree, and carry on the conversation."
             checks={[
-              "Read the agent's work in its worktree",
-              "Continue its Claude session",
-              "Push a fix yourself",
+              "The agent remembers what it did",
+              "Give it the next instruction yourself",
+              "Or edit and push the branch by hand",
             ]}
             link={{ label: "Using lightbox on GitHub", slug: "manual/github-usage" }}
           />
@@ -309,13 +306,14 @@ function Outposts() {
               <div className="w-full">
                 <TypedTerminal
                   lines={[
-                    { prompt: "~/acme/webapp", text: "lightbox container resume 42" },
+                    { prompt: "~/acme/webapp $", text: "lightbox container resume 42" },
+                    { text: "Attached to coder on branch issue-42", pause: 900 },
                     {
-                      text: "Connected to dev · branch issue-42 · resuming Claude session",
-                      pause: 900,
+                      text: "⏺ Discount codes now apply before tax. I opened #43.",
+                      pause: 700,
                     },
-                    { prompt: "~/acme/webapp", text: "git log --oneline -1" },
-                    { text: "3f9c2e1 Apply discount codes before tax" },
+                    { prompt: ">", text: "Round the total to two decimal places too" },
+                    { text: "⏺ Done. I pushed the change to #43.", pause: 1800 },
                   ]}
                 />
               </div>
@@ -347,12 +345,10 @@ function Row({
   );
 }
 
-// A cell for an illustration, on a grid of dots, with a figure label in
-// the top left corner.
-function Picture({ figure, children }: { figure: string; children: ReactNode }) {
+// A cell for an illustration, on a grid of dots.
+function Picture({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex h-full min-h-80 items-center justify-center px-6 pt-14 pb-12 md:px-12 bg-[radial-gradient(var(--color-rule)_1px,transparent_1px)] [background-size:18px_18px]">
-      <span className={`absolute top-3 left-3 bg-paper px-1.5 py-0.5 ${overline} text-[10px] text-ink-3`}>{figure}</span>
+    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12 bg-[radial-gradient(var(--color-rule)_1px,transparent_1px)] [background-size:18px_18px]">
       <div className="w-full max-w-[540px]">{children}</div>
     </div>
   );

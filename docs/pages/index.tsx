@@ -24,7 +24,7 @@ const overline = "font-mono text-xs uppercase tracking-[0.14em]";
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen [--page-max-width:72rem]">
+    <div className="flex flex-col min-h-screen [--page-max-width:1240px]">
       <div className="dark bg-paper text-ink border-b border-rule">
         <SiteHeader />
       </div>

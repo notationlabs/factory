@@ -42,8 +42,8 @@ export function Issue() {
   useEffect(() => {
     if (typed < requestLength || stage > 0) return;
     const timers = [
-      window.setTimeout(() => setStage(1), 700),
-      window.setTimeout(() => setStage(2), 3400),
+      window.setTimeout(() => setStage(1), 1600),
+      window.setTimeout(() => setStage(2), 4300),
     ];
     return () => timers.forEach(clearTimeout);
   }, [typed, stage]);

@@ -3,14 +3,26 @@ import { prefersReducedMotion, useInView } from "#/views/in-view";
 
 // A window with traffic lights and an optional title, such as a file name.
 // Code keeps its lines and scrolls sideways; terminal output wraps.
-export function Window({ title, scroll, children }: { title?: string; scroll?: boolean; children: ReactNode }) {
+export function Window({
+  title,
+  scroll,
+  children,
+}: {
+  title?: ReactNode;
+  scroll?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="rounded-xl bg-term text-ink shadow-window overflow-hidden">
       <div className="h-9 px-4 flex items-center gap-2 border-b border-rule">
-        <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-        <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
-        <span className="w-3 h-3 rounded-full bg-[#28c840]" />
-        {title && <span className="ml-3 font-mono text-xs text-ink-3">{title}</span>}
+        <span className="shrink-0 w-3 h-3 rounded-full bg-[#ff5f57]" />
+        <span className="shrink-0 w-3 h-3 rounded-full bg-[#febc2e]" />
+        <span className="shrink-0 w-3 h-3 rounded-full bg-[#28c840]" />
+        {typeof title === "string" ? (
+          <span className="ml-3 font-mono text-xs text-ink-3">{title}</span>
+        ) : (
+          title
+        )}
       </div>
       <pre
         className={`px-6 py-5 font-mono text-[13px] leading-[1.8] ${scroll ? "whitespace-pre overflow-x-auto" : "whitespace-pre-wrap break-words"}`}
@@ -25,7 +37,7 @@ export function Window({ title, scroll, children }: { title?: string; scroll?: b
 // comments, strings and a few keywords.
 const tokens = /(\/\/.*$)|("[^"]*"|`[^`]*`)|\b(export|default|const|new|import|from)\b/gm;
 
-export function Code({ title, source }: { title?: string; source: string }) {
+function highlight(source: string) {
   const parts: ReactNode[] = [];
   let last = 0;
   for (const match of source.matchAll(tokens)) {
@@ -40,11 +52,56 @@ export function Code({ title, source }: { title?: string; source: string }) {
     last = index + match[0].length;
   }
   parts.push(source.slice(last));
+  return parts.map((part, index) => <Fragment key={index}>{part}</Fragment>);
+}
+
+export function Code({ title, source }: { title?: string; source: string }) {
   return (
     <Window title={title} scroll>
-      {parts.map((part, index) => (
-        <Fragment key={index}>{part}</Fragment>
+      {highlight(source)}
+    </Window>
+  );
+}
+
+export type CodeFile = { name: string; source: string };
+
+// Files shown one at a time, with a tab for each file in the title bar.
+// Every file is laid out in the same grid cell, so the window takes the
+// height of the longest one and does not resize when the tab changes.
+export function CodeTabs({ files }: { files: CodeFile[] }) {
+  const [active, setActive] = useState(0);
+  const tabs = (
+    <span role="tablist" className="ml-3 flex gap-1 min-w-0 overflow-x-auto">
+      {files.map((file, index) => (
+        <button
+          key={file.name}
+          type="button"
+          role="tab"
+          aria-selected={index === active}
+          onClick={() => setActive(index)}
+          className={`rounded-md px-2.5 py-1 font-mono text-xs whitespace-nowrap transition-colors ${
+            index === active ? "bg-ink/6 text-ink" : "text-ink-3 hover:text-ink-2"
+          }`}
+        >
+          {file.name}
+        </button>
       ))}
+    </span>
+  );
+  return (
+    <Window title={tabs} scroll>
+      <span className="grid">
+        {files.map((file, index) => (
+          <span
+            key={file.name}
+            role="tabpanel"
+            aria-hidden={index !== active}
+            className={`[grid-area:1/1] ${index === active ? "" : "invisible"}`}
+          >
+            {highlight(file.source)}
+          </span>
+        ))}
+      </span>
     </Window>
   );
 }
@@ -54,7 +111,9 @@ function PromptMark({ dir }: { dir?: string }) {
 }
 
 function Caret() {
-  return <span className="lightbox-caret inline-block w-[0.55em] h-[1.15em] -mb-[0.2em] bg-accent" />;
+  return (
+    <span className="lightbox-caret inline-block w-[0.55em] h-[1.15em] -mb-[0.2em] bg-accent" />
+  );
 }
 
 export type TermLine = { prompt?: string; text: string; pause?: number };
@@ -81,7 +140,8 @@ export function TypedTerminal({ title, lines }: { title?: string; lines: TermLin
       return () => clearTimeout(timer);
     }
     const next = lines[line + 1];
-    const wait = line === 0 && chars === 0 ? 500 : next?.prompt !== undefined ? 900 : (next?.pause ?? 350);
+    const wait =
+      line === 0 && chars === 0 ? 500 : next?.prompt !== undefined ? 900 : (next?.pause ?? 350);
     const timer = window.setTimeout(() => {
       setLine(line + 1);
       setChars(next && next.prompt === undefined ? next.text.length : 0);
@@ -95,7 +155,8 @@ export function TypedTerminal({ title, lines }: { title?: string; lines: TermLin
       <Window title={title}>
         {lines.map((item, index) => {
           const shown = index < line ? item.text.length : index === line ? chars : 0;
-          const visible = index < line || (index === line && (item.prompt !== undefined || shown > 0));
+          const visible =
+            index < line || (index === line && (item.prompt !== undefined || shown > 0));
           return (
             <span key={index} className={`block ${item.prompt === undefined ? "text-ink-2" : ""}`}>
               <span className={visible ? undefined : "invisible"}>

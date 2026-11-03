@@ -4,21 +4,25 @@ import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, SlackIcon, TerminalIcon } from "#/views/icons";
 import { Issue } from "#/views/issue";
 import { Path } from "#/views/path";
-import { Code, TypedTerminal } from "#/views/terminal";
+import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "lightbox – Coding agents in remote containers" },
-      { name: "description", content: "lightbox runs coding agents in remote containers and connects them to GitHub and Slack." },
+      {
+        name: "description",
+        content:
+          "lightbox runs coding agents in remote containers and connects them to GitHub and Slack.",
+      },
     ],
   }),
   component: LandingPage,
 });
 
 // The hero says what lightbox does and shows an agent answering an issue.
-// Each section after it makes one claim and shows the code or terminal that
-// backs it up.
+// The sections after it follow an event through lightbox: how it travels,
+// how the pieces are declared, and how you take over the session.
 
 const link = "font-mono text-[13px] text-link hover:underline underline-offset-4";
 
@@ -53,32 +57,61 @@ const outpost = `export default outpost(() => {
   });
 });`;
 
+const steps = [
+  {
+    verb: "Listens",
+    text: "to messages on your channels.",
+    where: "GitHub issues · Slack threads",
+  },
+  {
+    verb: "Dispatches",
+    text: "an agent into a container on your cloud.",
+    where: "Cloudflare Containers · Railway",
+  },
+  {
+    verb: "Connects",
+    text: "you to the agent's session over a secure line.",
+    where: "SSH · Tailscale",
+  },
+];
+
 function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen bg-paper text-ink">
       <SiteHeader />
-      <main className="page-wrap flex-1 pt-10 md:pt-16">
+      <main className="page-wrap flex-1 pt-12 md:pt-20">
         <div className="relative mx-auto max-w-6xl">
           <section className="relative">
-            <h1 className="sr-only">lightbox</h1>
-            <p className="max-w-4xl text-center md:text-left text-lg md:text-xl leading-[2.1] text-ink-2">
-              Listens to <Term icon={<GitHubIcon />} color="bg-[#24292f] dark:ring-1 dark:ring-inset dark:ring-white/20">GitHub</Term>{" "}
-              issues and <Term icon={<SlackIcon />} color="bg-[#611f69]">Slack</Term> threads, runs{" "}
-              <Term icon={<AgentIcon />} color="bg-[#d97757]">Claude Code</Term>
-              <br className="hidden md:block" /> in <Term icon={<ContainerIcon />} color="bg-accent">containers</Term> on
-              your cloud, and hands each session to your <Term icon={<TerminalIcon />} color="bg-[#334155]">terminal</Term>.
-            </p>
-            <div className="mt-10 md:mt-12">
-              <Issue />
-            </div>
-            <div className="mt-14 md:mt-20 flex flex-wrap justify-center gap-3">
-              <Link
-                to="/docs/$"
-                params={{ _splat: "manual/introduction" }}
-                className="inline-flex items-center rounded-full border border-ink/15 bg-card px-6 py-3 text-base font-medium text-ink transition-colors hover:bg-ink hover:text-paper hover:border-ink"
+            <h1 className="max-w-4xl text-[2.6rem] md:text-[4.2rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance">
+              Coding agents that work where your team talks.
+            </h1>
+            <p className="mt-6 md:mt-8 max-w-4xl text-lg md:text-xl leading-[2.1] text-ink-2">
+              lightbox listens to{" "}
+              <Term
+                icon={<GitHubIcon />}
+                color="bg-[#24292f] dark:ring-1 dark:ring-inset dark:ring-white/20"
               >
-                Read the manual
-              </Link>
+                GitHub
+              </Term>{" "}
+              issues and{" "}
+              <Term icon={<SlackIcon />} color="bg-[#611f69]">
+                Slack
+              </Term>{" "}
+              threads, runs{" "}
+              <Term icon={<AgentIcon />} color="bg-[#d97757]">
+                Claude Code
+              </Term>
+              <br className="hidden lg:block" /> in{" "}
+              <Term icon={<ContainerIcon />} color="bg-accent">
+                containers
+              </Term>{" "}
+              on your cloud, and hands each session to your{" "}
+              <Term icon={<TerminalIcon />} color="bg-[#334155]">
+                terminal
+              </Term>
+              .
+            </p>
+            <div className="mt-8 md:mt-10 flex flex-wrap gap-3">
               <Link
                 to="/docs/$"
                 params={{ _splat: "manual/quickstart" }}
@@ -89,37 +122,71 @@ function LandingPage() {
                 </span>
                 Quick start
               </Link>
+              <Link
+                to="/docs/$"
+                params={{ _splat: "manual/introduction" }}
+                className="inline-flex items-center rounded-full border border-ink/15 bg-card px-6 py-3 text-base font-medium text-ink transition-colors hover:bg-ink hover:text-paper hover:border-ink"
+              >
+                Read the manual
+              </Link>
+            </div>
+            <div className="mt-14 md:mt-20">
+              <Issue />
             </div>
           </section>
 
           <Section
-            title="One hub for your organisation."
-            fact={
-              <Link to="/docs/$" params={{ _splat: "manual/infra" }} className={link}>
-                Declaring&nbsp;infra&nbsp;→
-              </Link>
-            }
+            side
+            title="Events in, agents out."
+            body="A webhook from GitHub or Slack reaches the router in your hub. The hub starts the outpost's container for that repo and gives the agent the event."
           >
-            <Code title="lightbox.infra.ts" source={hub} />
-          </Section>
-
-          <Section
-            title="An outpost in each repo."
-            fact={
-              <Link to="/docs/$" params={{ _splat: "manual/outposts" }} className={link}>
-                Declaring&nbsp;outposts&nbsp;→
-              </Link>
-            }
-          >
-            <Code title=".lightbox/config.ts" source={outpost} />
-          </Section>
-
-          <Section side title="Events in, agents out." fact="GitHub · Slack → Cloudflare · Railway">
             <Path />
           </Section>
+          <ol className="mt-14 md:mt-16 grid gap-8 md:grid-cols-3 md:gap-10">
+            {steps.map((step, index) => (
+              <li key={step.verb} className="border-t border-rule pt-5">
+                <span className="font-mono text-[11px] text-accent-ink">0{index + 1}</span>
+                <p className="mt-2 text-[17px] leading-snug">
+                  <span className="font-semibold">{step.verb}</span>{" "}
+                  <span className="text-ink-2">{step.text}</span>
+                </p>
+                <p className="mt-3 font-mono text-xs text-ink-3">{step.where}</p>
+              </li>
+            ))}
+          </ol>
 
           <Section
+            title="Declared in two files."
+            body={
+              <>
+                The hub is set up once for your organisation: the router, the vault, the GitHub App
+                and the accounts agents run on. Each repo adds an outpost that says which events
+                wake which agent, and in which container.
+              </>
+            }
+            fact={
+              <>
+                <Link to="/docs/$" params={{ _splat: "manual/infra" }} className={link}>
+                  Declaring&nbsp;infra&nbsp;→
+                </Link>
+                <Link to="/docs/$" params={{ _splat: "manual/outposts" }} className={link}>
+                  Declaring&nbsp;outposts&nbsp;→
+                </Link>
+              </>
+            }
+          >
+            <CodeTabs
+              files={[
+                { name: "lightbox.infra.ts", source: hub },
+                { name: ".lightbox/config.ts", source: outpost },
+              ]}
+            />
+          </Section>
+
+          <Section
+            side
             title="Pick up where the agent left off."
+            body="Each issue gets its own branch and worktree. Resume the container from your terminal to read the agent's work, run it, and carry on in the same Claude session."
             fact={
               <Link to="/docs/$" params={{ _splat: "manual/github-usage" }} className={link}>
                 Conversations&nbsp;&amp;&nbsp;sessions&nbsp;→
@@ -129,12 +196,36 @@ function LandingPage() {
             <TypedTerminal
               lines={[
                 { prompt: "~/acme/webapp", text: "lightbox container resume 42" },
-                { text: "Connected to dev · branch issue-42 · resuming Claude session", pause: 900 },
+                {
+                  text: "Connected to dev · branch issue-42 · resuming Claude session",
+                  pause: 900,
+                },
                 { prompt: "~/acme/webapp", text: "git log --oneline -1" },
                 { text: "3f9c2e1 Apply discount codes before tax" },
               ]}
             />
           </Section>
+
+          <section className="mt-28 md:mt-40 rounded-2xl bg-card shadow-window px-6 py-12 md:px-14 md:py-16 md:flex md:items-center md:justify-between md:gap-10">
+            <div>
+              <h2 className="text-[1.8rem] md:text-[2.3rem] leading-tight font-semibold tracking-[-0.03em] text-balance">
+                Deploy a hub and answer your first issue.
+              </h2>
+              <p className="mt-3 text-ink-2">
+                The quick start takes you from an empty Cloudflare account to a resumed session.
+              </p>
+            </div>
+            <Link
+              to="/docs/$"
+              params={{ _splat: "manual/quickstart" }}
+              className="mt-8 md:mt-0 shrink-0 inline-flex items-center gap-2.5 rounded-full bg-accent px-6 py-3 text-base font-medium text-on-accent transition-colors hover:bg-ink hover:text-paper"
+            >
+              <span className="w-[18px] h-[18px]">
+                <TerminalIcon />
+              </span>
+              Quick start
+            </Link>
+          </section>
         </div>
       </main>
       <Footer />
@@ -158,27 +249,39 @@ function Term({ icon, color, children }: { icon: ReactNode; color: string; child
   );
 }
 
-// Heading, one mono fact line, then the artifact that backs it up.
+// Heading, a short explanation, a line of mono links, then the artifact that
+// backs it up.
 function Section({
   title,
+  body,
   fact,
   side,
   children,
 }: {
   title: string;
+  body?: ReactNode;
   fact?: ReactNode;
   side?: boolean;
   children?: ReactNode;
 }) {
   return (
     <section
-      className={`mt-24 md:mt-36 ${side ? "md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:gap-14 md:items-center" : ""}`}
+      className={`mt-28 md:mt-40 ${side ? "md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:gap-14 md:items-center" : ""}`}
     >
       <div>
         <h2 className="text-[1.8rem] md:text-[2.3rem] leading-tight font-semibold tracking-[-0.03em] text-balance">
           {title}
         </h2>
-        {fact && <p className="mt-4 font-mono text-[13px] whitespace-pre-wrap text-ink-2">{fact}</p>}
+        {body && (
+          <p className="mt-4 max-w-2xl text-[17px] leading-relaxed text-ink-2 text-pretty">
+            {body}
+          </p>
+        )}
+        {fact && (
+          <p className="mt-5 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[13px] text-ink-2">
+            {fact}
+          </p>
+        )}
       </div>
       {children && <div className={side ? "mt-8 md:mt-0" : "mt-8"}>{children}</div>}
     </section>
@@ -191,13 +294,24 @@ function Footer() {
       <div className="mx-auto max-w-6xl border-t border-rule py-7 flex flex-col gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 sm:flex-row sm:items-center sm:justify-between">
         <p>Notation Labs Ltd</p>
         <p className="flex gap-6">
-          <Link to="/docs/$" params={{ _splat: "manual/introduction" }} className="hover:text-link transition-colors">
+          <Link
+            to="/docs/$"
+            params={{ _splat: "manual/introduction" }}
+            className="hover:text-link transition-colors"
+          >
             Manual
           </Link>
-          <Link to="/docs/$" params={{ _splat: "packages/core" }} className="hover:text-link transition-colors">
+          <Link
+            to="/docs/$"
+            params={{ _splat: "packages/core" }}
+            className="hover:text-link transition-colors"
+          >
             Packages
           </Link>
-          <a href="https://github.com/notationlabs/lightbox" className="hover:text-link transition-colors">
+          <a
+            href="https://github.com/notationlabs/lightbox"
+            className="hover:text-link transition-colors"
+          >
             GitHub
           </a>
         </p>

@@ -47,14 +47,11 @@ function LandingPage() {
   );
 }
 
-// A band of the page between hairlines. The content sits in a column with
-// ruled sides, and a small square marks each end of the rule above it.
+// A band of the page with a hairline below it.
 function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
   return (
     <div className={`${dark ? "dark" : ""} bg-paper text-ink`}>
-      <div className="relative mx-auto max-w-[90rem] border-x border-b border-rule">
-        <span className="absolute -top-[3px] -left-[3px] w-[5px] h-[5px] bg-rule" />
-        <span className="absolute -top-[3px] -right-[3px] w-[5px] h-[5px] bg-rule" />
+      <div className="mx-auto max-w-[90rem] border-b border-rule">
         {children}
       </div>
     </div>
@@ -64,7 +61,7 @@ function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
 function Hero() {
   return (
     <section className="grid grid-cols-1 lg:grid-cols-2">
-      <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28 lg:border-r lg:border-rule">
+      <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28">
         <h1 className="text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
           Ask in a thread.
           <br />
@@ -263,7 +260,7 @@ function Row({
 }) {
   return (
     <div className={`grid grid-cols-1 md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
-      <div className={`${flip ? "md:order-2 md:border-l" : "md:border-r"} border-rule`}>{text}</div>
+      <div className={flip ? "md:order-2" : ""}>{text}</div>
       <div className={`${flip ? "md:order-1" : ""} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
     </div>
   );
@@ -364,7 +361,7 @@ const footerColumns = [
 function Footer() {
   return (
     <footer className="dark bg-paper text-ink">
-      <div className="mx-auto max-w-[90rem] border-x border-rule">
+      <div className="mx-auto max-w-[90rem]">
         <div className="grid gap-10 px-6 py-16 sm:grid-cols-2 sm:px-12 md:px-20 lg:grid-cols-4">
           {footerColumns.map((column) => (
             <div key={column.heading}>

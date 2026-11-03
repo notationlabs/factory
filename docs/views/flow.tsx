@@ -54,10 +54,10 @@ export function Flow() {
   const active = (row: number) => !still && step.row === row && step.phase >= 0 && step.phase < 3;
 
   return (
-    <div className="rounded-2xl bg-card shadow-window px-4 py-8 sm:px-10 sm:py-10">
+    <div>
       <div className="grid grid-cols-3 gap-x-6 sm:gap-x-12">
         <Heading>Channels</Heading>
-        <Heading>Hub</Heading>
+        <Heading centre>Hub</Heading>
         <Heading>Outpost</Heading>
       </div>
 
@@ -85,7 +85,7 @@ export function Flow() {
               animationDuration: `${travel}ms`,
               animationDirection: step.phase === 2 ? "reverse" : "normal",
             }}
-            className={`lightbox-along absolute top-0 left-0 w-2.5 h-2.5 rounded-full shadow-[0_0_0_4px_var(--color-card)] ${step.phase === 2 ? "bg-link" : "bg-accent"}`}
+            className={`lightbox-along absolute top-0 left-0 w-2.5 h-2.5 rounded-full shadow-[0_0_0_4px_var(--color-paper)] ${step.phase === 2 ? "bg-link" : "bg-accent"}`}
           />
         )}
 
@@ -139,9 +139,9 @@ export function Flow() {
   );
 }
 
-function Heading({ children }: { children: ReactNode }) {
+function Heading({ centre, children }: { centre?: boolean; children: ReactNode }) {
   return (
-    <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 text-center sm:text-left">
+    <p className={`text-sm sm:text-base font-semibold text-ink text-center ${centre ? "" : "sm:text-left"}`}>
       {children}
     </p>
   );

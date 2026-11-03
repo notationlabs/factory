@@ -26,14 +26,6 @@ export function GitHubIcon({ className = "block w-full h-full" }: { className?: 
   );
 }
 
-export function SlackIcon() {
-  return (
-    <LineIcon>
-      <path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h16M3.5 15h16" />
-    </LineIcon>
-  );
-}
-
 export function AgentIcon() {
   return (
     <LineIcon>

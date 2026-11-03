@@ -1,15 +1,9 @@
 import type { ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
-import {
-  AgentIcon,
-  ContainerIcon,
-  GitHubIcon,
-  HubIcon,
-  SlackIcon,
-  TerminalIcon,
-} from "#/views/icons";
-import { Flow } from "#/views/flow";
+import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
+import { Glow } from "#/views/glow";
+import { Branches, ChannelsGraph, HeroStack, HubAndOutposts, Tiles } from "#/views/iso";
 import { Issue } from "#/views/issue";
 import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
@@ -58,323 +52,370 @@ const outpost = `export default outpost(() => {
   });
 });`;
 
-const integrations = [
-  { name: "GitHub", slug: "packages/github" },
-  { name: "Slack", slug: "packages/slack" },
-  { name: "Claude Code", slug: "packages/claude" },
-  { name: "Cloudflare", slug: "packages/cloudflare" },
-  { name: "Railway", slug: "packages/railway" },
-  { name: "Your terminal", slug: "packages/cli" },
-];
-
-const overline = "font-mono text-xs md:text-[13px] uppercase tracking-[0.1em]";
-
-const button =
-  "inline-flex h-12 items-center justify-center gap-2 rounded-md border px-5 text-base font-medium transition-colors";
+const overline = "font-mono text-xs uppercase tracking-[0.14em]";
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-paper text-ink [--page-max-width:76rem]">
-      <SiteHeader />
-      <main className="page-wrap flex-1 pt-10 md:pt-20 flex flex-col gap-24 md:gap-32">
-        <Hero />
-        <Integrations />
-        <Platform />
-        <Events />
-        <Cards />
-        <Closing />
+    <div className="flex flex-col min-h-screen">
+      <div className="dark bg-paper text-ink border-b border-rule">
+        <SiteHeader />
+      </div>
+      <main className="flex-1">
+        <Frame dark>
+          <Hero />
+        </Frame>
+        <Frame dark>
+          <Agents />
+        </Frame>
+        <Frame>
+          <Outposts />
+        </Frame>
+        <Frame dark>
+          <Closing />
+        </Frame>
       </main>
       <Footer />
     </div>
   );
 }
 
-function Hero() {
+// A band of the page between hairlines. The content sits in a column with
+// ruled sides, and a small square marks each end of the rule above it.
+function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
   return (
-    <section className="grid gap-12 xl:grid-cols-2 xl:items-center">
-      <div className="flex flex-col items-start">
-        <h1 className="text-[2.6rem] md:text-[3.6rem] leading-[1.05] font-semibold tracking-[-0.03em]">
-          <span className="text-accent-ink">Coding agents.</span>
-          <br />
-          Out of the box.
-        </h1>
-        <p className="mt-6 max-w-xl text-lg md:text-xl leading-[1.9] text-ink-2">
-          Listens to{" "}
-          <Term
-            icon={<GitHubIcon />}
-            color="bg-[#24292f] dark:ring-1 dark:ring-inset dark:ring-white/20"
-          >
-            GitHub
-          </Term>{" "}
-          issues and{" "}
-          <Term icon={<SlackIcon />} color="bg-[#611f69]">
-            Slack
-          </Term>{" "}
-          threads, runs{" "}
-          <Term icon={<AgentIcon />} color="bg-[#d97757]">
-            Claude Code
-          </Term>{" "}
-          in{" "}
-          <Term icon={<ContainerIcon />} color="bg-accent">
-            containers
-          </Term>{" "}
-          on your cloud.
-        </p>
-        <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-          <DocLink
-            slug="manual/quickstart"
-            className={`${button} border-transparent bg-accent text-on-accent hover:bg-accent-ink`}
-          >
-            Quick start <Arrow />
-          </DocLink>
-          <DocLink
-            slug="manual/introduction"
-            className={`${button} border-ink/20 bg-card text-ink hover:border-ink/45`}
-          >
-            Read the manual
-          </DocLink>
-        </div>
+    <div className={`${dark ? "dark" : ""} bg-paper text-ink`}>
+      <div className="relative mx-auto max-w-[90rem] border-x border-b border-rule">
+        <span className="absolute -top-[3px] -left-[3px] w-[5px] h-[5px] bg-rule" />
+        <span className="absolute -top-[3px] -right-[3px] w-[5px] h-[5px] bg-rule" />
+        {children}
       </div>
-      <Issue />
-    </section>
-  );
-}
-
-// A grid of hairlines. Each cell draws its own right and bottom border, and
-// the grid is pulled 1px under its clipping box so the outer edges vanish.
-function Integrations() {
-  return (
-    <section>
-      <p className={`${overline} text-ink-2`}>Works with</p>
-      <div className="mt-4 overflow-hidden">
-        <div className="-mr-px -mb-px grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-t border-rule">
-          {integrations.map((item) => (
-            <DocLink
-              key={item.name}
-              slug={item.slug}
-              className="flex min-h-24 items-center justify-center border-r border-b border-rule px-4 py-6 text-lg font-semibold tracking-tight text-ink-3 transition-colors hover:text-ink"
-            >
-              {item.name}
-            </DocLink>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Platform() {
-  return (
-    <section className="max-w-3xl text-xl md:text-2xl leading-relaxed text-ink-2">
-      <p className="font-semibold text-ink">
-        lightbox runs coding agents in remote containers and connects them to the places your team
-        talks.
-      </p>
-      <p className="mt-4">
-        Mention an agent on an issue or in a thread. It works in its own container and replies in
-        place.
-      </p>
-      <DocLink slug="manual/introduction" className={`mt-6 text-lg ${textLink}`}>
-        Read the introduction <Arrow />
-      </DocLink>
-    </section>
-  );
-}
-
-function Events() {
-  return (
-    <section>
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:gap-12">
-        <div className="max-w-2xl">
-          <p className={`${overline} text-accent-ink`}>Agents & triggers</p>
-          <h2 className="mt-3 text-[1.9rem] md:text-[2.4rem] leading-tight font-semibold tracking-[-0.03em]">
-            Events in, agents out.
-          </h2>
-          <p className="mt-3 text-lg leading-relaxed text-ink-2">
-            Each conversation gets its own agent and its own branch. The reply goes back to the
-            thread it came from.
-          </p>
-        </div>
-        <DocLink slug="manual/agents-and-triggers" className={`shrink-0 ${textLink}`}>
-          Learn more about triggers <Arrow />
-        </DocLink>
-      </div>
-      <div className="mt-10">
-        <Flow />
-      </div>
-      <div className="mt-16 md:mt-24 grid gap-12 md:grid-cols-3 md:gap-16">
-        <Feature
-          icons={[
-            { icon: <GitHubIcon />, color: "bg-[#24292f]" },
-            { icon: <SlackIcon />, color: "bg-[#611f69]" },
-          ]}
-          title="Listens"
-          slug="manual/connections"
-        >
-          Messages on your channels, such as GitHub issues and Slack threads, arrive at the hub.
-        </Feature>
-        <Feature
-          icons={[
-            { icon: <HubIcon />, color: "bg-[#334155]" },
-            { icon: <ContainerIcon />, color: "bg-accent" },
-          ]}
-          title="Dispatches"
-          slug="manual/providers"
-        >
-          The hub sends each conversation to an agent in a remote container, on Cloudflare
-          Containers, Railway and others.
-        </Feature>
-        <Feature
-          icons={[
-            { icon: <AgentIcon />, color: "bg-[#d97757]" },
-            { icon: <TerminalIcon />, color: "bg-[#334155]" },
-          ]}
-          title="Connects"
-          slug="manual/worktrees"
-        >
-          You attach to any agent's session from your terminal, on the branch it was working on.
-        </Feature>
-      </div>
-    </section>
-  );
-}
-
-function Feature({
-  icons,
-  title,
-  slug,
-  children,
-}: {
-  icons: { icon: ReactNode; color: string }[];
-  title: string;
-  slug: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="flex h-36 items-center justify-center gap-3 rounded-xl border border-dashed border-rule">
-        {icons.map((item, index) => (
-          <span key={index} className="flex items-center gap-3">
-            {index > 0 && <span className="w-8 border-t border-dashed border-ink-3" />}
-            <span className="rounded-xl border border-rule bg-card p-2.5 shadow-sm">
-              <span className={`block w-9 h-9 rounded-lg p-2 text-white ${item.color}`}>
-                {item.icon}
-              </span>
-            </span>
-          </span>
-        ))}
-      </div>
-      <h3 className="mt-6 text-xl md:text-2xl font-semibold tracking-tight">{title}</h3>
-      <p className="mt-2 text-base leading-relaxed text-ink-2">{children}</p>
-      <DocLink slug={slug} className={`mt-4 ${textLink}`}>
-        Learn more <Arrow />
-      </DocLink>
     </div>
   );
 }
 
-function Cards() {
+function Hero() {
   return (
-    <section className="flex flex-col gap-8">
-      <Card
-        title="One hub, and an outpost in each repo"
-        links={[
-          { label: "Learn more about the hub", slug: "manual/infra" },
-          { label: "Learn more about outposts", slug: "manual/outposts" },
-        ]}
-        description="Declare the hub once, in your infra repo. Then give each repo an outpost."
-      >
-        <CodeTabs
-          files={[
-            { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
-            { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
-          ]}
-        />
-      </Card>
-      <Card
-        side
-        title="Pick up where the agent left off"
-        links={[{ label: "Learn more about sessions", slug: "manual/github-usage" }]}
-        description="Every conversation has a container and a branch. Resume it from your terminal to read the agent's work, continue its Claude session, or push a fix yourself."
-      >
-        <TypedTerminal
-          lines={[
-            { prompt: "~/acme/webapp", text: "lightbox container resume 42" },
-            {
-              text: "Connected to dev · branch issue-42 · resuming Claude session",
-              pause: 900,
-            },
-            { prompt: "~/acme/webapp", text: "git log --oneline -1" },
-            { text: "3f9c2e1 Apply discount codes before tax" },
-          ]}
-        />
-      </Card>
+    <section className="grid lg:grid-cols-2">
+      <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28 lg:border-r lg:border-rule">
+        <p className={`${overline} text-ink-3`}>
+          By <span className="font-sans font-black normal-case tracking-tight text-ink">Notation</span>
+        </p>
+        <h1 className="mt-5 text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
+          Ask in a thread.
+          <br />
+          Run in a lightbox.
+        </h1>
+        <p className="mt-7 max-w-md text-lg md:text-xl leading-relaxed text-ink-2">
+          lightbox is a hub, a CLI and a set of packages that run coding agents in remote containers
+          on your cloud.
+        </p>
+        <div className="mt-10 flex flex-wrap gap-4">
+          <DocLink slug="manual/quickstart" className={primaryButton}>
+            Quick start
+          </DocLink>
+          <a href="https://github.com/notationlabs/lightbox" className={secondaryButton}>
+            View on GitHub
+          </a>
+          <DocLink slug="manual/introduction" className={secondaryButton}>
+            Read the manual
+          </DocLink>
+        </div>
+      </div>
+      <div className="flex items-center justify-center px-10 pb-16 lg:py-16">
+        <div className="w-full max-w-[420px]">
+          <HeroStack />
+        </div>
+      </div>
     </section>
   );
 }
 
-function Card({
-  title,
-  description,
-  links,
-  side,
-  children,
+function SectionHead({ label, title, children }: { label: string; title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center px-6 py-20 md:py-28 text-center border-b border-rule">
+      <Wordmark>{label}</Wordmark>
+      <h2 className="mt-5 max-w-3xl text-[2.2rem] md:text-[3rem] leading-[1.08] font-medium tracking-[-0.04em] text-balance">
+        {title}
+      </h2>
+      <p className="mt-5 max-w-lg text-lg md:text-xl leading-relaxed text-ink-2">{children}</p>
+    </div>
+  );
+}
+
+// The logo's word with a part of lightbox in brackets after it, as a label
+// for a section.
+function Wordmark({ children }: { children: string }) {
+  return (
+    <p className="text-lg leading-none tracking-tight">
+      <span className="font-black">lightbox</span>
+      <span className="font-light text-ink-3">(</span>
+      <span className="font-black uppercase text-[0.8em] tracking-[0.06em]">{children}</span>
+      <span className="font-light text-ink-3">)</span>
+    </p>
+  );
+}
+
+function Agents() {
+  return (
+    <section>
+      <SectionHead label="agents" title="Answer Issues from a Container">
+        Mention the agent on an issue or in a Slack thread. It works on its own branch and replies
+        in place.
+      </SectionHead>
+      <Glow focus={[0.5, -0.15]} seed={3} className="border-b border-rule">
+        <div className="mx-auto max-w-3xl px-4 py-16 sm:px-8 md:py-24">
+          <Issue />
+        </div>
+      </Glow>
+      <Row
+        text={
+          <Feature
+            icon={<HubIcon />}
+            title="Listens on Your Channels"
+            description="The hub receives events from GitHub and Slack, and routes each one to a trigger in the repo's outpost."
+            checks={[
+              "Issues, issue comments and Slack mentions",
+              "Filters by label, mention and author",
+              "Only people you trust can start a run",
+            ]}
+            link={{ label: "Connect a channel", slug: "manual/connections" }}
+          />
+        }
+        art={
+          <Picture>
+            <ChannelsGraph />
+          </Picture>
+        }
+      />
+      <Row
+        flip
+        text={
+          <Feature
+            icon={<AgentIcon />}
+            title="One Branch per Conversation"
+            description="Each issue gets its own persistent worktree, so agents never overwrite each other's work."
+            checks={[
+              "Issue #42 works on the branch issue-42",
+              "Follow-up comments resume the same session",
+              "Agents push with short-lived tokens",
+            ]}
+            link={{ label: "Worktrees and sessions", slug: "manual/worktrees" }}
+          />
+        }
+        art={
+          <Picture>
+            <div className="w-full max-w-[400px]">
+              <Branches />
+            </div>
+          </Picture>
+        }
+      />
+      <Row
+        last
+        text={
+          <Feature
+            icon={<ContainerIcon />}
+            title="Runs on Your Cloud"
+            description="Run the hub and every container on Cloudflare or Railway. Switch providers in one file."
+            checks={[
+              "Cloudflare Containers or Railway services",
+              "Bring your own Dockerfile",
+              "Secrets stay in the hub's vault",
+            ]}
+            link={{ label: "Container providers", slug: "manual/providers" }}
+          />
+        }
+        art={
+          <Picture>
+            <div className="w-full max-w-[460px]">
+              <Tiles />
+            </div>
+          </Picture>
+        }
+      />
+    </section>
+  );
+}
+
+function Outposts() {
+  return (
+    <section>
+      <SectionHead label="outposts" title="Declare the Hub Once. Add an Outpost per Repo.">
+        The hub holds your connections, accounts and secrets. Each repo declares its own
+        containers, agents and triggers in TypeScript.
+      </SectionHead>
+      <Row
+        text={
+          <Feature
+            icon={<HubIcon />}
+            title="One Hub for the Organisation"
+            description="Stand up the router, deployer and vault in your infra repo. Every outpost shares them."
+            checks={[
+              "One GitHub App and one Slack bot for every repo",
+              "Containers are provisioned when a repo installs the App",
+              "Only the router and deployer can read the vault",
+            ]}
+            link={{ label: "Declaring infra", slug: "manual/infra" }}
+          />
+        }
+        art={
+          <Picture>
+            <div className="w-full max-w-[460px]">
+              <HubAndOutposts />
+            </div>
+          </Picture>
+        }
+      />
+      <Row
+        flip
+        text={
+          <Feature
+            icon={<GitHubIcon />}
+            title="Triggers in TypeScript"
+            description="A trigger is the whole dispatch rule: this event, from these authors, to this agent, in this container."
+            checks={[
+              "The event's type follows from its selector",
+              "The router matches events as data",
+              "Switch providers without touching the repo",
+            ]}
+            link={{ label: "Declaring outposts", slug: "manual/outposts" }}
+          />
+        }
+        art={
+          <Glow focus={[1.1, 0.2]} seed={11} className="h-full">
+            <div className="dark px-4 py-12 sm:px-8 md:py-16">
+              <CodeTabs
+                files={[
+                  { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
+                  { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
+                ]}
+              />
+            </div>
+          </Glow>
+        }
+      />
+      <Row
+        last
+        text={
+          <Feature
+            icon={<TerminalIcon />}
+            title="Pick Up Where the Agent Left Off"
+            description="Resume any conversation from your terminal, on the branch the agent was working on."
+            checks={[
+              "Read the agent's work in its worktree",
+              "Continue its Claude session",
+              "Push a fix yourself",
+            ]}
+            link={{ label: "Using lightbox on GitHub", slug: "manual/github-usage" }}
+          />
+        }
+        art={
+          <Glow focus={[-0.1, 0.9]} seed={5} className="h-full">
+            <div className="dark flex h-full items-center px-4 py-12 sm:px-8 md:py-16">
+              <div className="w-full">
+                <TypedTerminal
+                  lines={[
+                    { prompt: "~/acme/webapp", text: "lightbox container resume 42" },
+                    {
+                      text: "Connected to dev · branch issue-42 · resuming Claude session",
+                      pause: 900,
+                    },
+                    { prompt: "~/acme/webapp", text: "git log --oneline -1" },
+                    { text: "3f9c2e1 Apply discount codes before tax" },
+                  ]}
+                />
+              </div>
+            </div>
+          </Glow>
+        }
+      />
+    </section>
+  );
+}
+
+// Two cells side by side, split by a hairline. `flip` puts the art first.
+function Row({
+  text,
+  art,
+  flip,
+  last,
 }: {
-  title: string;
-  description: string;
-  links: { label: string; slug: string }[];
-  side?: boolean;
-  children: ReactNode;
+  text: ReactNode;
+  art: ReactNode;
+  flip?: boolean;
+  last?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl border border-rule bg-card p-6 sm:p-8 md:p-10 ${side ? "lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-14 lg:items-center" : ""}`}
-    >
-      <div className={side ? "" : "md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-14"}>
-        <h2 className="text-2xl md:text-[1.75rem] leading-tight font-semibold tracking-[-0.02em] text-balance">
-          {title}
-        </h2>
-        <div className={side ? "mt-3" : "mt-3 md:mt-0"}>
-          <p className="text-base md:text-lg leading-relaxed text-ink-2">{description}</p>
-          <p className="mt-5 flex flex-wrap gap-x-8 gap-y-2">
-            {links.map((item) => (
-              <DocLink key={item.slug} slug={item.slug} className={textLink}>
-                {item.label} <Arrow />
-              </DocLink>
-            ))}
-          </p>
-        </div>
+    <div className={`grid md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
+      <div className={`${flip ? "md:order-2 md:border-l" : "md:border-r"} border-rule`}>{text}</div>
+      <div className={`${flip ? "md:order-1" : ""} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
+    </div>
+  );
+}
+
+function Picture({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12">
+      {children}
+    </div>
+  );
+}
+
+function Feature({
+  icon,
+  title,
+  description,
+  checks,
+  link,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  checks: string[];
+  link: { label: string; slug: string };
+}) {
+  return (
+    <div className="flex h-full flex-col px-6 py-12 sm:px-10 md:min-h-[30rem]">
+      <span className="block w-5 h-5 text-accent-ink">{icon}</span>
+      <h3 className="mt-5 text-[1.75rem] md:text-[2rem] leading-tight font-medium tracking-[-0.03em]">
+        {title}
+      </h3>
+      <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-2">{description}</p>
+      <ul className="mt-5 flex flex-col gap-2.5 text-[17px]">
+        {checks.map((check) => (
+          <li key={check} className="flex items-center gap-3">
+            <Check />
+            {check}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-auto pt-10">
+        <DocLink slug={link.slug} className={pill}>
+          {link.label} <NorthEast />
+        </DocLink>
       </div>
-      <div className={side ? "mt-8 lg:mt-0" : "mt-8 md:mt-10"}>{children}</div>
     </div>
   );
 }
 
 function Closing() {
   return (
-    <section className="flex flex-col items-start gap-8 border-t border-rule pt-16 md:flex-row md:items-center md:justify-between md:pt-20">
-      <div>
-        <p className={`${overline} text-ink-2`}>Get started</p>
-        <h2 className="mt-3 text-[1.9rem] md:text-[2.4rem] leading-tight font-semibold tracking-[-0.03em]">
-          Put an agent on your next issue.
+    <Glow focus={[0.5, -0.35]} seed={19}>
+      <section className="flex flex-col items-center px-6 py-24 md:py-32 text-center text-white">
+        <h2 className="text-[2.2rem] md:text-[3.2rem] leading-[1.05] font-medium tracking-[-0.04em] [text-shadow:0_2px_24px_rgb(0_0_0/0.35)]">
+          Ask in a thread. Run in a lightbox.
         </h2>
-      </div>
-      <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+        <p className="mt-5 max-w-md text-lg md:text-xl leading-relaxed text-white/85">
+          Channels, containers and agents, declared in TypeScript and deployed to your cloud.
+        </p>
         <DocLink
           slug="manual/quickstart"
-          className={`${button} border-transparent bg-accent text-on-accent hover:bg-accent-ink`}
+          className="mt-9 inline-flex h-11 items-center rounded-md bg-white px-5 text-base font-medium text-neutral-950 shadow-[0_4px_20px_rgb(0_0_0/0.25)] hover:bg-white/90"
         >
-          Quick start <Arrow />
+          Quick start
         </DocLink>
-        <a
-          href="https://github.com/notationlabs/lightbox"
-          className={`${button} border-ink/20 bg-card text-ink hover:border-ink/45`}
-        >
-          <GitHubIcon className="w-4 h-4" />
-          View on GitHub
-        </a>
-      </div>
-    </section>
+      </section>
+    </Glow>
   );
 }
 
@@ -410,43 +451,57 @@ const footerColumns = [
 
 function Footer() {
   return (
-    <footer className="mt-28 md:mt-36 border-t border-rule bg-ink/[0.02]">
-      <div className="page-wrap grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
-        {footerColumns.map((column) => (
-          <div key={column.heading}>
-            <p className={`${overline} text-ink-3`}>{column.heading}</p>
-            <ul className="mt-4 flex flex-col gap-2.5 text-[15px] text-ink-2">
-              {column.links.map((item) => (
-                <li key={item.slug}>
-                  <DocLink slug={item.slug} className="hover:text-ink transition-colors">
-                    {item.label}
-                  </DocLink>
-                </li>
-              ))}
+    <footer className="dark bg-paper text-ink">
+      <div className="mx-auto max-w-[90rem] border-x border-rule">
+        <div className="grid gap-10 px-6 py-16 sm:grid-cols-2 sm:px-12 md:px-20 lg:grid-cols-4">
+          {footerColumns.map((column) => (
+            <div key={column.heading}>
+              <p className={`${overline} text-ink-3`}>{column.heading}</p>
+              <ul className="mt-5 flex flex-col gap-3 text-[16px]">
+                {column.links.map((item) => (
+                  <li key={item.slug}>
+                    <DocLink slug={item.slug} className="hover:text-accent-ink transition-colors">
+                      {item.label}
+                    </DocLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <div>
+            <p className={`${overline} text-ink-3`}>Project</p>
+            <ul className="mt-5 flex flex-col gap-3 text-[16px]">
+              <li>
+                <a
+                  href="https://github.com/notationlabs/lightbox"
+                  className="inline-flex items-center gap-2 hover:text-accent-ink transition-colors"
+                >
+                  <GitHubIcon className="w-4 h-4" />
+                  GitHub
+                </a>
+              </li>
             </ul>
           </div>
-        ))}
-        <div>
-          <p className={`${overline} text-ink-3`}>Project</p>
-          <ul className="mt-4 flex flex-col gap-2.5 text-[15px] text-ink-2">
-            <li>
-              <a
-                href="https://github.com/notationlabs/lightbox"
-                className="hover:text-ink transition-colors"
-              >
-                GitHub
-              </a>
-            </li>
-            <li>Notation Labs Ltd</li>
-          </ul>
         </div>
+        <p className="border-t border-rule px-6 py-6 text-sm text-ink-3 sm:px-12 md:px-20">
+          © 2026 Notation Labs Ltd.
+        </p>
       </div>
     </footer>
   );
 }
 
-const textLink =
-  "inline-flex items-center gap-1.5 font-semibold text-accent-ink decoration-accent-soft underline-offset-[5px] hover:underline";
+const button =
+  "inline-flex h-11 items-center justify-center rounded-md border px-5 text-base font-medium transition-colors";
+
+// The gradient border is a second background, clipped to the border box,
+// behind the button's own background clipped to its padding box.
+const primaryButton = `${button} border-[1.5px] border-transparent text-ink [background:linear-gradient(var(--color-paper),var(--color-paper))_padding-box,linear-gradient(120deg,#ffc078,#fe5537_45%,#a3200b)_border-box] shadow-[0_0_24px_-6px_rgb(254_85_55/0.6)] hover:shadow-[0_0_28px_-4px_rgb(254_85_55/0.8)]`;
+
+const secondaryButton = `${button} border-ink/20 text-ink hover:border-ink/45`;
+
+const pill =
+  "inline-flex items-center gap-2 rounded-md bg-ink/[0.07] px-3 py-1.5 font-mono text-sm tracking-[0.04em] text-ink transition-colors hover:bg-ink/[0.12]";
 
 function DocLink({
   slug,
@@ -464,26 +519,19 @@ function DocLink({
   );
 }
 
-// A noun in the value proposition, led by its icon on a block of colour.
-// The tile clips its overflow so its baseline is its bottom edge, which the
-// offset then centres on the capitals.
-function Term({ icon, color, children }: { icon: ReactNode; color: string; children: ReactNode }) {
+// A tick between brackets, for the lists of what a feature does.
+function Check() {
   return (
-    <span className="whitespace-nowrap text-ink font-medium">
-      <span
-        className={`inline-block overflow-hidden w-[1.3em] h-[1.3em] p-[0.2em] ml-[0.15em] mr-[0.3em] rounded-[0.32em] align-[-0.3em] text-white ${color}`}
-      >
-        {icon}
-      </span>
-      {children}
-    </span>
+    <svg viewBox="0 0 22 14" className="w-[22px] h-[14px] shrink-0 text-ink-2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3.5 1.5c-2.4 3-2.4 8 0 11M18.5 1.5c2.4 3 2.4 8 0 11M7.5 7.2l2.3 2.3 4.7-4.8" />
+    </svg>
   );
 }
 
-function Arrow() {
+function NorthEast() {
   return (
-    <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-      <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <path d="M5 11 11 5M6 5h5v5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

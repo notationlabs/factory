@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
-import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
+import { ArrowRight, BookOpen, Check, Copy, GitHub } from "@notation/docs/ui/icon";
 import { Flow } from "#/views/flow";
 import { Dispatch, HubStatus, Providers, Routing, TriggerRule, Worktrees } from "#/views/scenes";
 import { TypedTerminal } from "#/views/terminal";
@@ -20,353 +20,295 @@ export const Route = createFileRoute("/")({
   component: LandingPage,
 });
 
-const overline = "font-mono text-xs uppercase tracking-[0.14em]";
+const github = "https://github.com/notationlabs/lightbox";
+const install = "npm install -g @lightbox/cli";
+
+const frame = "page-wrap";
+const lead = "text-[18px] md:text-[20px] leading-[1.6] text-ink-2";
+const heading = "text-[1.75rem] md:text-[2.25rem] font-semibold tracking-[-0.03em] leading-tight";
+const hero = "inline-flex items-center gap-3 rounded-xl px-6 py-3.5 text-[17px] font-medium transition-colors cursor-pointer";
+const button =
+  "inline-flex items-center gap-2.5 rounded-lg px-5 py-3 text-[16px] font-medium transition-colors cursor-pointer";
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen [--page-max-width:1240px]">
-      <div className="dark bg-paper text-ink border-b border-rule">
-        <SiteHeader />
-      </div>
-      <main className="flex-1">
-        <Frame dark>
-          <Hero />
-        </Frame>
-        <Frame dark>
-          <Agents />
-        </Frame>
-        <Frame>
-          <Outposts />
-        </Frame>
-        <Frame dark>
-          <Closing />
-        </Frame>
+    // Narrows the header and the page content to the same width.
+    <div className="flex flex-col min-h-screen bg-surface text-ink font-sans [--page-max-width:1240px]">
+      <SiteHeader />
+      <main className="flex-1 pb-24">
+        <Hero />
+        <HowItWorks />
+        <Features />
+        <Install />
       </main>
       <Footer />
     </div>
   );
 }
 
-// A band of the page with a hairline below it, as wide as the header's content.
-function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
-  return (
-    <div className={`${dark ? "dark" : ""} bg-paper text-ink`}>
-      <div className="page-wrap">
-        <div className="border-b border-rule">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 function Hero() {
   return (
-    <section className="grid grid-cols-1 lg:grid-cols-2">
-      <div className="flex flex-col justify-center py-16 md:py-28 lg:pr-12">
-        <h1 className="text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
-          Ask in a thread.
-          <br />
-          Run in a lightbox.
-        </h1>
-        <p className="mt-7 max-w-md text-lg md:text-xl leading-relaxed text-ink-2">
-          lightbox is a hub, a CLI and a set of packages that run coding agents in remote containers
-          on your cloud.
-        </p>
-        <div className="mt-10 flex flex-wrap gap-4">
-          <DocLink slug="manual/quickstart" className={primaryButton}>
-            Quick start
-          </DocLink>
-          <a href="https://github.com/notationlabs/lightbox" className={secondaryButton}>
-            View on GitHub
-          </a>
-          <DocLink slug="manual/introduction" className={secondaryButton}>
-            Read the manual
-          </DocLink>
-        </div>
-      </div>
-      <div className="flex items-center justify-end pb-16 lg:py-16 lg:pl-12">
-        <div className="w-full lg:max-w-[460px]">
-          <Dispatch />
-        </div>
-      </div>
+    <section className={`${frame} pt-20 md:pt-28 pb-8`}>
+      <Row
+        text={
+          <>
+            <h1 className="text-[2.5rem] md:text-[3.75rem] font-extrabold tracking-[-0.04em] leading-[1.05] text-balance">
+              Ask in a thread. Run in a lightbox.
+            </h1>
+            <p className={`${lead} mt-6`}>
+              lightbox is a hub, a CLI and a set of packages that run coding agents in remote containers on your
+              cloud.
+            </p>
+            <div className="mt-10 flex flex-wrap gap-3">
+              <DocLink slug="manual/quickstart" className={`${hero} bg-ink text-surface hover:bg-ink/85`}>
+                Quick start
+              </DocLink>
+              <DocLink slug="manual/introduction" className={`${hero} bg-card text-ink hover:bg-rule`}>
+                <BookOpen className="w-[18px] h-[18px]" /> Documentation
+              </DocLink>
+            </div>
+            <CopyButton
+              text={install}
+              className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-rule bg-surface px-5 py-3.5 text-left font-mono text-[15px] text-ink-2 hover:border-ink-3 transition-colors cursor-pointer"
+            >
+              <span>
+                <span className="select-none text-ink-3">$ </span>
+                {install}
+              </span>
+            </CopyButton>
+          </>
+        }
+        art={
+          <Picture>
+            <Dispatch />
+          </Picture>
+        }
+      />
     </section>
   );
 }
 
-function Agents() {
+function HowItWorks() {
   return (
-    <section>
-      <div className="py-16 md:py-24 border-b border-rule">
+    <section className={`${frame} pt-20 md:pt-28`}>
+      <h2 className={heading}>From a thread to a container</h2>
+      <p className={`${lead} mt-3 max-w-3xl`}>
+        The hub receives events from GitHub and Slack. It routes each one to an agent in a container, and the agent
+        replies in the same thread.
+      </p>
+      <div className="mt-12">
         <Flow />
       </div>
-      <Row
-        text={
-          <Feature
-            icon={<HubIcon />}
-            title="Listens on your channels"
-            description="The hub receives issues, issue comments and Slack mentions, and routes each one to a trigger in the repo's outpost. Triggers can filter by label, mention and author, so only people you trust can start a run."
-            link={{ label: "Connect a channel", slug: "manual/connections" }}
-          />
-        }
-        art={
-          <Picture>
-            <Routing />
-          </Picture>
-        }
-      />
-      <Row
-        flip
-        text={
-          <Feature
-            icon={<AgentIcon />}
-            title="One branch per conversation"
-            description="Every issue gets a worktree in the container. When you mention the agent on issue #42, it starts work on the branch issue-42. When you comment on #42 later, it picks up the same Claude session, with the same files."
-            link={{ label: "Worktrees and sessions", slug: "manual/worktrees" }}
-          />
-        }
-        art={
-          <Picture>
-            <Worktrees />
-          </Picture>
-        }
-      />
-      <Row
-        last
-        text={
-          <Feature
-            icon={<ContainerIcon />}
-            title="Runs on your cloud"
-            description="lightbox deploys the hub and the containers to your Cloudflare or Railway account. The containers are built from a Dockerfile in your repo. Which provider you use is set in one file, and you can change it later."
-            link={{ label: "Container providers", slug: "manual/providers" }}
-          />
-        }
-        art={
-          <Picture>
-            <Providers />
-          </Picture>
-        }
-      />
     </section>
   );
 }
 
-function Outposts() {
+// Two columns, the text narrower than the art.
+function Row({ text, art }: { text: ReactNode; art: ReactNode }) {
   return (
-    <section>
-      <Row
-        text={
-          <Feature
-            icon={<HubIcon />}
-            title="One hub for the organisation"
-            description="lightbox deploys the router, the deployer and the vault from your infra repo. All of your repos share them, along with one GitHub App and one Slack bot. Installing the App on a repo makes the deployer create that repo's containers. Only the router and the deployer can read the vault."
-            link={{ label: "Declaring infra", slug: "manual/infra" }}
-          />
-        }
-        art={
-          <Picture>
-            <HubStatus />
-          </Picture>
-        }
-      />
-      <Row
-        flip
-        text={
-          <Feature
-            icon={<GitHubIcon />}
-            title="Triggers in TypeScript"
-            description="Triggers are declared in TypeScript in the repo's outpost. A trigger has an event selector, such as gh.issueComment(...), the people it accepts events from, an agent and a container. The router matches selectors as data. TypeScript infers the event type from the selector."
-            link={{ label: "Declaring outposts", slug: "manual/outposts" }}
-          />
-        }
-        art={
-          <Picture>
-            <TriggerRule />
-          </Picture>
-        }
-      />
-      <Row
-        last
-        text={
-          <Feature
-            icon={<TerminalIcon />}
-            title="Pick up where the agent left off"
-            description="Run lightbox container resume 42 and your terminal attaches to the agent's Claude session, in its worktree. The agent still knows what it did. You can give it the next instruction, or edit the branch and push it yourself."
-            link={{ label: "Using lightbox on GitHub", slug: "manual/github-usage" }}
-          />
-        }
-        art={
-          <Picture>
-            <TypedTerminal
-            lines={[
-              { prompt: "~/acme/webapp $", text: "lightbox container resume 42" },
-              { text: "Attached to coder on branch issue-42", pause: 900 },
-              {
-                text: "⏺ Discount codes now apply before tax. I opened #43.",
-                pause: 700,
-              },
-              { prompt: ">", text: "Round the total to two decimal places too" },
-              { text: "⏺ Done. I pushed the change to #43.", pause: 1800 },
-            ]}
-          />
-          </Picture>
-        }
-      />
-    </section>
-  );
-}
-
-// Two cells side by side, split by a hairline. `flip` puts the art first.
-function Row({
-  text,
-  art,
-  flip,
-  last,
-}: {
-  text: ReactNode;
-  art: ReactNode;
-  flip?: boolean;
-  last?: boolean;
-}) {
-  return (
-    <div className={`grid grid-cols-1 md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
-      <div className={flip ? "md:order-2 md:pl-12" : "md:pr-12"}>{text}</div>
-      <div className={`${flip ? "md:order-1 md:pr-12" : "md:pl-12"} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
+    <div className="grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-8 lg:gap-20">
+      <div>{text}</div>
+      <div className="self-center min-w-0">{art}</div>
     </div>
   );
 }
 
-// A cell for an illustration.
+// The scenes are drawn with the dark tokens, so they read as dark code panels
+// on the light page.
 function Picture({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full min-h-80 items-center justify-center py-12">
-      {children}
-    </div>
-  );
+  return <div className="dark w-full max-w-[36rem] mx-auto text-ink">{children}</div>;
 }
 
-function Feature({
-  icon,
-  title,
-  description,
-  link,
-}: {
-  icon: ReactNode;
+type Feature = {
+  id: string;
   title: string;
-  description: string;
-  link: { label: string; slug: string };
-}) {
-  return (
-    <div className="flex h-full flex-col py-12 md:min-h-[30rem]">
-      <span className="block w-5 h-5 text-accent-ink">{icon}</span>
-      <h3 className="mt-5 text-[1.75rem] md:text-[2rem] leading-tight font-medium tracking-[-0.03em]">
-        {title}
-      </h3>
-      <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-2">{description}</p>
-      <div className="mt-auto pt-10">
-        <DocLink slug={link.slug} className={pill}>
-          {link.label} <NorthEast />
-        </DocLink>
-      </div>
-    </div>
-  );
-}
+  text: string;
+  doc: string;
+  link: string;
+  panel: ReactNode;
+};
 
-function Closing() {
-  return (
-    <section className="flex flex-col items-center py-24 md:py-32 text-center">
-        <h2 className="text-[2.2rem] md:text-[3.2rem] leading-[1.05] font-medium tracking-[-0.04em]">
-          Ask in a thread. Run in a lightbox.
-        </h2>
-        <p className="mt-5 max-w-md text-lg md:text-xl leading-relaxed text-ink-2">
-          Channels, containers and agents, declared in TypeScript and deployed to your cloud.
-        </p>
-        <DocLink slug="manual/quickstart" className={`mt-9 ${primaryButton}`}>
-          Quick start
-        </DocLink>
-    </section>
-  );
-}
-
-const footerColumns = [
+const features: Feature[] = [
   {
-    heading: "Manual",
-    links: [
-      { label: "Introduction", slug: "manual/introduction" },
-      { label: "Installation", slug: "manual/installation" },
-      { label: "Quick start", slug: "manual/quickstart" },
-      { label: "CLI reference", slug: "manual/cli" },
-    ],
+    id: "channels",
+    title: "Listens on your channels",
+    text: "The hub receives issues, issue comments and Slack mentions, and routes each one to a trigger in the repo's outpost. Triggers can filter by label, mention and author, so only people you trust can start a run.",
+    doc: "manual/connections",
+    link: "Read the manual: Connections",
+    panel: <Routing />,
   },
   {
-    heading: "Concepts",
-    links: [
-      { label: "Declaring infra", slug: "manual/infra" },
-      { label: "Declaring outposts", slug: "manual/outposts" },
-      { label: "Agents & triggers", slug: "manual/agents-and-triggers" },
-      { label: "Secrets & vaults", slug: "manual/secrets" },
-    ],
+    id: "worktrees",
+    title: "One branch per conversation",
+    text: "Every issue gets a worktree in the container. When you mention the agent on issue #42, it starts work on the branch issue-42. When you comment on #42 later, it picks up the same Claude session, with the same files.",
+    doc: "manual/worktrees",
+    link: "Read the manual: Worktrees and sessions",
+    panel: <Worktrees />,
   },
   {
-    heading: "Packages",
-    links: [
-      { label: "lightbox", slug: "packages/core" },
-      { label: "@lightbox/github", slug: "packages/github" },
-      { label: "@lightbox/slack", slug: "packages/slack" },
-      { label: "@lightbox/cloudflare", slug: "packages/cloudflare" },
-    ],
+    id: "providers",
+    title: "Runs on your cloud",
+    text: "lightbox deploys the hub and the containers to your Cloudflare or Railway account. The containers are built from a Dockerfile in your repo. Which provider you use is set in one file, and you can change it later.",
+    doc: "manual/providers",
+    link: "Read the manual: Container providers",
+    panel: <Providers />,
+  },
+  {
+    id: "hub",
+    title: "One hub for the organisation",
+    text: "lightbox deploys the router, the deployer and the vault from your infra repo. All of your repos share them, along with one GitHub App and one Slack bot. Installing the App on a repo makes the deployer create that repo's containers. Only the router and the deployer can read the vault.",
+    doc: "manual/infra",
+    link: "Read the manual: Declaring infra",
+    panel: <HubStatus />,
+  },
+  {
+    id: "triggers",
+    title: "Triggers in TypeScript",
+    text: "Triggers are declared in TypeScript in the repo's outpost. A trigger has an event selector, such as gh.issueComment(...), the people it accepts events from, an agent and a container. The router matches selectors as data. TypeScript infers the event type from the selector.",
+    doc: "manual/outposts",
+    link: "Read the manual: Declaring outposts",
+    panel: <TriggerRule />,
+  },
+  {
+    id: "resume",
+    title: "Pick up where the agent left off",
+    text: "Run lightbox container resume 42 and your terminal attaches to the agent's Claude session, in its worktree. The agent still knows what it did. You can give it the next instruction, or edit the branch and push it yourself.",
+    doc: "manual/github-usage",
+    link: "Read the manual: Using lightbox on GitHub",
+    panel: (
+      <TypedTerminal
+        lines={[
+          { prompt: "~/acme/webapp $", text: "lightbox container resume 42" },
+          { text: "Attached to coder on branch issue-42", pause: 900 },
+          { text: "⏺ Discount codes now apply before tax. I opened #43.", pause: 700 },
+          { prompt: ">", text: "Round the total to two decimal places too" },
+          { text: "⏺ Done. I pushed the change to #43.", pause: 1800 },
+        ]}
+      />
+    ),
   },
 ];
 
-function Footer() {
+function Features() {
+  const [active, setActive] = useState(features[0]!.id);
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) if (entry.isIntersecting) setActive(entry.target.id);
+      },
+      { rootMargin: "-40% 0px -55% 0px" },
+    );
+    for (const feature of features) {
+      const element = document.getElementById(feature.id);
+      if (element) observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, []);
   return (
-    <footer className="dark bg-paper text-ink">
-      <div className="page-wrap">
-        <div className="grid gap-10 py-16 sm:grid-cols-2 lg:grid-cols-4">
-          {footerColumns.map((column) => (
-            <div key={column.heading}>
-              <p className={`${overline} text-ink-3`}>{column.heading}</p>
-              <ul className="mt-5 flex flex-col gap-3 text-[16px]">
-                {column.links.map((item) => (
-                  <li key={item.slug}>
-                    <DocLink slug={item.slug} className="hover:text-accent-ink transition-colors">
-                      {item.label}
-                    </DocLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          <div>
-            <p className={`${overline} text-ink-3`}>Project</p>
-            <ul className="mt-5 flex flex-col gap-3 text-[16px]">
-              <li>
-                <a
-                  href="https://github.com/notationlabs/lightbox"
-                  className="inline-flex items-center gap-2 hover:text-accent-ink transition-colors"
-                >
-                  <GitHubIcon className="w-4 h-4" />
-                  GitHub
-                </a>
-              </li>
-            </ul>
+    <section className="pt-20 md:pt-28">
+      <h2 className={`${frame} ${heading}`}>Agents for the whole organisation</h2>
+      <nav className="sticky top-[var(--header-height)] z-20 mt-6 bg-surface border-b border-rule">
+        <div className={`${frame} py-3`}>
+          <div className="flex flex-wrap gap-6 font-mono text-[14px]">
+            {features.map((feature) => (
+              <a
+                key={feature.id}
+                href={`#${feature.id}`}
+                className={active === feature.id ? "text-ink" : "text-ink-3 hover:text-ink"}
+              >
+                {feature.id}
+              </a>
+            ))}
           </div>
         </div>
-        <p className="border-t border-rule py-6 text-sm text-ink-3">
-          © 2026 Notation Labs Ltd.
-        </p>
+      </nav>
+      <div className={frame}>
+        {features.map((feature) => (
+          <article
+            key={feature.id}
+            id={feature.id}
+            className="scroll-mt-[calc(var(--header-height)+5rem)] py-12 md:py-14 border-b border-rule last:border-b-0"
+          >
+            <Row
+              text={
+                <>
+                  <h3 className="text-[1.375rem] font-semibold tracking-[-0.02em] text-ink">{feature.title}</h3>
+                  <p className="mt-3 text-[16px] leading-[1.7] text-ink-2">{feature.text}</p>
+                  <div className="mt-8">
+                    <DocLink slug={feature.doc} className={pill}>
+                      {feature.link} <ArrowRight className="w-3.5 h-3.5 text-accent-ink" />
+                    </DocLink>
+                  </div>
+                </>
+              }
+              art={<Picture>{feature.panel}</Picture>}
+            />
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Install() {
+  return (
+    <section id="install" className={`${frame} pt-20 md:pt-28 scroll-mt-20`}>
+      <h2 className={heading}>Install</h2>
+      <div className="mt-8 flex flex-wrap gap-3">
+        <CopyButton text={install} className={`${button} bg-ink text-surface font-mono text-[15px] hover:bg-ink/85`}>
+          {install}
+        </CopyButton>
+        <DocLink slug="manual/installation" className={`${button} bg-card text-ink hover:bg-rule`}>
+          Installation guide
+        </DocLink>
+        <DocLink slug="manual/quickstart" className={`${button} bg-card text-ink hover:bg-rule`}>
+          Quick start
+        </DocLink>
+      </div>
+    </section>
+  );
+}
+
+function CopyButton({ text, className, children }: { text: string; className: string; children: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const Icon = copied ? Check : Copy;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className={className}
+    >
+      {children}
+      <Icon className="w-4 h-4 opacity-60" />
+    </button>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-rule">
+      <div className={`${frame} py-8 flex flex-wrap items-center justify-between gap-4 text-[14px] text-ink-3`}>
+        <p>© 2026 Notation Labs Ltd · Scotland SC765604</p>
+        <div className="flex items-center gap-6">
+          <DocLink slug="manual/introduction" className="hover:text-ink">
+            Docs
+          </DocLink>
+          <a href={github} className="inline-flex items-center gap-2 hover:text-ink">
+            <GitHub className="w-4 h-4" /> GitHub
+          </a>
+        </div>
       </div>
     </footer>
   );
 }
 
-const button =
-  "inline-flex h-11 items-center justify-center rounded-md border px-5 text-base font-medium transition-colors";
-
-const primaryButton = `${button} border-ink bg-ink text-paper hover:bg-ink/85`;
-
-const secondaryButton = `${button} border-ink/20 text-ink hover:border-ink/45`;
-
 const pill =
-  "inline-flex items-center gap-2 rounded-md bg-ink/[0.07] px-3 py-1.5 font-mono text-sm tracking-[0.04em] text-ink transition-colors hover:bg-ink/[0.12]";
+  "inline-flex items-center gap-2 rounded-md bg-card px-3 py-2 text-[14px] text-ink hover:bg-rule transition-colors";
 
 function DocLink({
   slug,
@@ -381,14 +323,5 @@ function DocLink({
     <Link to="/docs/$" params={{ _splat: slug }} className={className}>
       {children}
     </Link>
-  );
-}
-
-
-function NorthEast() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-      <path d="M5 11 11 5M6 5h5v5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }

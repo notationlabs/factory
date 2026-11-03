@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
-import { Glow } from "#/views/glow";
-import { Issue } from "#/views/issue";
 import { Dispatch, HubStatus, Providers, Routing, Worktrees } from "#/views/scenes";
 import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
@@ -155,15 +153,6 @@ function Wordmark({ children }: { children: string }) {
 function Agents() {
   return (
     <section>
-      <SectionHead label="agents" title="Answer Issues from a Container">
-        Mention the agent on an issue or in a Slack thread. It works on its own branch and replies
-        in place.
-      </SectionHead>
-      <Glow focus={[0.5, -0.15]} seed={3} className="border-b border-rule">
-        <div className="mx-auto max-w-3xl px-4 py-16 sm:px-8 md:py-24">
-          <Issue />
-        </div>
-      </Glow>
       <Row
         text={
           <Feature
@@ -273,16 +262,14 @@ function Outposts() {
           />
         }
         art={
-          <Glow focus={[1.1, 0.2]} seed={11} className="h-full">
-            <div className="dark px-4 py-12 sm:px-8 md:py-16">
-              <CodeTabs
-                files={[
-                  { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
-                  { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
-                ]}
-              />
-            </div>
-          </Glow>
+          <Picture>
+            <CodeTabs
+              files={[
+                { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
+                { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
+              ]}
+            />
+          </Picture>
         }
       />
       <Row
@@ -301,24 +288,20 @@ function Outposts() {
           />
         }
         art={
-          <Glow focus={[-0.1, 0.9]} seed={5} className="h-full">
-            <div className="dark flex h-full items-center px-4 py-12 sm:px-8 md:py-16">
-              <div className="w-full">
-                <TypedTerminal
-                  lines={[
-                    { prompt: "~/acme/webapp $", text: "lightbox container resume 42" },
-                    { text: "Attached to coder on branch issue-42", pause: 900 },
-                    {
-                      text: "⏺ Discount codes now apply before tax. I opened #43.",
-                      pause: 700,
-                    },
-                    { prompt: ">", text: "Round the total to two decimal places too" },
-                    { text: "⏺ Done. I pushed the change to #43.", pause: 1800 },
-                  ]}
-                />
-              </div>
-            </div>
-          </Glow>
+          <Picture>
+            <TypedTerminal
+            lines={[
+              { prompt: "~/acme/webapp $", text: "lightbox container resume 42" },
+              { text: "Attached to coder on branch issue-42", pause: 900 },
+              {
+                text: "⏺ Discount codes now apply before tax. I opened #43.",
+                pause: 700,
+              },
+              { prompt: ">", text: "Round the total to two decimal places too" },
+              { text: "⏺ Done. I pushed the change to #43.", pause: 1800 },
+            ]}
+          />
+          </Picture>
         }
       />
     </section>
@@ -345,10 +328,10 @@ function Row({
   );
 }
 
-// A cell for an illustration, on a grid of dots.
+// A cell for an illustration.
 function Picture({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12 bg-[radial-gradient(var(--color-rule)_1px,transparent_1px)] [background-size:18px_18px]">
+    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12">
       <div className="w-full max-w-[540px]">{children}</div>
     </div>
   );
@@ -393,22 +376,17 @@ function Feature({
 
 function Closing() {
   return (
-    <Glow focus={[0.5, -0.35]} seed={19}>
-      <section className="flex flex-col items-center px-6 py-24 md:py-32 text-center text-white">
-        <h2 className="text-[2.2rem] md:text-[3.2rem] leading-[1.05] font-medium tracking-[-0.04em] [text-shadow:0_2px_24px_rgb(0_0_0/0.35)]">
+    <section className="flex flex-col items-center px-6 py-24 md:py-32 text-center">
+        <h2 className="text-[2.2rem] md:text-[3.2rem] leading-[1.05] font-medium tracking-[-0.04em]">
           Ask in a thread. Run in a lightbox.
         </h2>
-        <p className="mt-5 max-w-md text-lg md:text-xl leading-relaxed text-white/85">
+        <p className="mt-5 max-w-md text-lg md:text-xl leading-relaxed text-ink-2">
           Channels, containers and agents, declared in TypeScript and deployed to your cloud.
         </p>
-        <DocLink
-          slug="manual/quickstart"
-          className="mt-9 inline-flex h-11 items-center rounded-md bg-white px-5 text-base font-medium text-neutral-950 shadow-[0_4px_20px_rgb(0_0_0/0.25)] hover:bg-white/90"
-        >
+        <DocLink slug="manual/quickstart" className={`mt-9 ${primaryButton}`}>
           Quick start
         </DocLink>
-      </section>
-    </Glow>
+    </section>
   );
 }
 

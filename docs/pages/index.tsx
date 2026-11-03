@@ -102,13 +102,8 @@ function Agents() {
         text={
           <Feature
             icon={<HubIcon />}
-            title="Listens on Your Channels"
-            description="The hub receives events from GitHub and Slack, and routes each one to a trigger in the repo's outpost."
-            checks={[
-              "Issues, issue comments and Slack mentions",
-              "Filters by label, mention and author",
-              "Only people you trust can start a run",
-            ]}
+            title="Listens on your channels"
+            description="The hub receives issues, issue comments and Slack mentions, and routes each one to a trigger in the repo's outpost. Triggers can filter by label, mention and author, so only people you trust can start a run."
             link={{ label: "Connect a channel", slug: "manual/connections" }}
           />
         }
@@ -123,13 +118,8 @@ function Agents() {
         text={
           <Feature
             icon={<AgentIcon />}
-            title="One Branch per Conversation"
-            description="Each issue gets its own persistent worktree, so agents never overwrite each other's work."
-            checks={[
-              "Issue #42 works on the branch issue-42",
-              "Follow-up comments resume the same session",
-              "Agents push with short-lived tokens",
-            ]}
+            title="One branch per conversation"
+            description="Every issue gets a worktree in the container. When you mention the agent on issue #42, it starts work on the branch issue-42. When you comment on #42 later, it picks up the same Claude session, with the same files."
             link={{ label: "Worktrees and sessions", slug: "manual/worktrees" }}
           />
         }
@@ -144,13 +134,8 @@ function Agents() {
         text={
           <Feature
             icon={<ContainerIcon />}
-            title="Runs on Your Cloud"
-            description="Run the hub and every container on Cloudflare or Railway. Switch providers in one file."
-            checks={[
-              "Cloudflare Containers or Railway services",
-              "Bring your own Dockerfile",
-              "Secrets stay in the hub's vault",
-            ]}
+            title="Runs on your cloud"
+            description="lightbox deploys the hub and the containers to your Cloudflare or Railway account. The containers are built from a Dockerfile in your repo. Which provider you use is set in one file, and you can change it later."
             link={{ label: "Container providers", slug: "manual/providers" }}
           />
         }
@@ -171,13 +156,8 @@ function Outposts() {
         text={
           <Feature
             icon={<HubIcon />}
-            title="One Hub for the Organisation"
-            description="Stand up the router, deployer and vault in your infra repo. Every outpost shares them."
-            checks={[
-              "One GitHub App and one Slack bot for every repo",
-              "Containers are provisioned when a repo installs the App",
-              "Only the router and deployer can read the vault",
-            ]}
+            title="One hub for the organisation"
+            description="lightbox deploys the router, the deployer and the vault from your infra repo. All of your repos share them, along with one GitHub App and one Slack bot. Installing the App on a repo makes the deployer create that repo's containers. Only the router and the deployer can read the vault."
             link={{ label: "Declaring infra", slug: "manual/infra" }}
           />
         }
@@ -193,12 +173,7 @@ function Outposts() {
           <Feature
             icon={<GitHubIcon />}
             title="Triggers in TypeScript"
-            description="A trigger is the whole dispatch rule: this event, from these authors, to this agent, in this container."
-            checks={[
-              "The event's type follows from its selector",
-              "The router matches events as data",
-              "Switch providers without touching the repo",
-            ]}
+            description="Triggers are declared in TypeScript in the repo's outpost. A trigger has an event selector, such as gh.issueComment(...), the people it accepts events from, an agent and a container. The router matches selectors as data. TypeScript infers the event type from the selector."
             link={{ label: "Declaring outposts", slug: "manual/outposts" }}
           />
         }
@@ -213,13 +188,8 @@ function Outposts() {
         text={
           <Feature
             icon={<TerminalIcon />}
-            title="Pick Up Where the Agent Left Off"
-            description="Attach your terminal to the agent's Claude session, in its worktree, and carry on the conversation."
-            checks={[
-              "The agent remembers what it did",
-              "Give it the next instruction yourself",
-              "Or edit and push the branch by hand",
-            ]}
+            title="Pick up where the agent left off"
+            description="Run lightbox container resume 42 and your terminal attaches to the agent's Claude session, in its worktree. The agent still knows what it did. You can give it the next instruction, or edit the branch and push it yourself."
             link={{ label: "Using lightbox on GitHub", slug: "manual/github-usage" }}
           />
         }
@@ -277,13 +247,11 @@ function Feature({
   icon,
   title,
   description,
-  checks,
   link,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
-  checks: string[];
   link: { label: string; slug: string };
 }) {
   return (
@@ -293,14 +261,6 @@ function Feature({
         {title}
       </h3>
       <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-2">{description}</p>
-      <ul className="mt-5 flex flex-col gap-2.5 text-[17px]">
-        {checks.map((check) => (
-          <li key={check} className="flex items-center gap-3">
-            <Check />
-            {check}
-          </li>
-        ))}
-      </ul>
       <div className="mt-auto pt-10">
         <DocLink slug={link.slug} className={pill}>
           {link.label} <NorthEast />
@@ -424,14 +384,6 @@ function DocLink({
   );
 }
 
-// A tick between brackets, for the lists of what a feature does.
-function Check() {
-  return (
-    <svg viewBox="0 0 22 14" className="w-[22px] h-[14px] shrink-0 text-ink-2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3.5 1.5c-2.4 3-2.4 8 0 11M18.5 1.5c2.4 3 2.4 8 0 11M7.5 7.2l2.3 2.3 4.7-4.8" />
-    </svg>
-  );
-}
 
 function NorthEast() {
   return (

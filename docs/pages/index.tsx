@@ -59,13 +59,14 @@ const outpost = `export default outpost(() => {
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-paper text-ink">
+    <div className="flex flex-col min-h-screen bg-paper text-ink [--color-surface:var(--color-paper)] [--page-max-width:72rem]">
       <SiteHeader />
       <main className="page-wrap flex-1 pt-12 md:pt-20">
-        <div className="relative mx-auto max-w-6xl">
+        <div className="relative">
           <section className="relative">
             <h1 className="sr-only">lightbox</h1>
-            <p className="max-w-4xl text-lg md:text-xl leading-[2.1] text-ink-2">
+            <Issue />
+            <p className="mt-12 md:mt-16 max-w-4xl text-lg md:text-xl leading-[2.1] text-ink-2">
               Listens to{" "}
               <Term
                 icon={<GitHubIcon />}
@@ -109,9 +110,6 @@ function LandingPage() {
               >
                 Read the manual
               </Link>
-            </div>
-            <div className="mt-14 md:mt-20">
-              <Issue />
             </div>
           </section>
 
@@ -218,7 +216,7 @@ function Section({
 function Footer() {
   return (
     <footer className="page-wrap mt-28">
-      <div className="mx-auto max-w-6xl border-t border-rule py-7 flex flex-col gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="border-t border-rule py-7 flex flex-col gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 sm:flex-row sm:items-center sm:justify-between">
         <p>Notation Labs Ltd</p>
         <p className="flex gap-6">
           <Link

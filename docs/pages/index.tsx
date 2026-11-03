@@ -59,7 +59,7 @@ const outpost = `export default outpost(() => {
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-paper text-ink [--color-surface:var(--color-paper)] [--page-max-width:72rem]">
+    <div className="flex flex-col min-h-screen bg-paper text-ink [--page-max-width:72rem]">
       <SiteHeader />
       <main className="page-wrap flex-1 pt-12 md:pt-20">
         <div className="relative">

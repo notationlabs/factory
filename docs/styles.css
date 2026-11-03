@@ -1,9 +1,9 @@
 @import "@notation/docs/styles.css";
 
-/* Warm paper and near-black ink, with one signal: the bulb's orange-red
-   #fe5537 for the call to action and for what is live. Pure accent is for
-   fills and graphics; accent-ink is the same hue legible as small text, and
-   on-accent is the text set on an accent fill. */
+/* The docs site's white and neutral greys, with one signal: the bulb's
+   orange-red #fe5537 for the call to action and for what is live. Pure
+   accent is for fills and graphics; accent-ink is the same hue legible as
+   small text, and on-accent is the text set on an accent fill. */
 @theme {
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   --color-accent: #fe5537;
@@ -11,35 +11,34 @@
   --color-on-accent: #ffffff;
   --color-link: #2563eb;
 
-  --color-paper: #fbf6ef;
+  --color-paper: var(--color-surface);
   --color-card: #ffffff;
-  --color-ink: #1a1512;
-  --color-ink-2: #5c534c;
-  --color-ink-3: #9a9089;
-  --color-rule: rgb(26 21 18 / 0.12);
+  --color-ink: var(--color-gray-950);
+  --color-ink-2: var(--color-neutral-600);
+  --color-ink-3: var(--color-neutral-400);
+  --color-rule: var(--color-line);
   --color-accent-soft: #ffc9bd;
   --color-term: #ffffff;
 
   --shadow-window:
-    0 0 0 1px rgb(26 21 18 / 0.08), 0 2px 6px rgb(26 21 18 / 0.05),
-    0 24px 48px -16px rgb(26 21 18 / 0.22);
+    0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 6px rgb(0 0 0 / 0.04),
+    0 24px 48px -16px rgb(0 0 0 / 0.16);
 }
 
 .dark {
   --color-accent-ink: #ff7a61;
   --color-link: #60a5fa;
 
-  --color-paper: #14110f;
-  --color-card: #1f1a17;
-  --color-ink: #f2ece6;
-  --color-ink-2: #a69c94;
-  --color-ink-3: #6b625b;
-  --color-rule: #332c27;
+  --color-card: var(--color-neutral-800);
+  --color-ink: var(--color-gray-50);
+  --color-ink-2: var(--color-neutral-400);
+  --color-ink-3: var(--color-neutral-500);
+  --color-rule: var(--color-neutral-700);
   --color-accent-soft: #5c2216;
-  --color-term: #0d0b0a;
+  --color-term: var(--color-neutral-950);
 
   --shadow-window:
-    0 0 0 1px #332c27, 0 2px 6px rgb(0 0 0 / 0.3),
+    0 0 0 1px var(--color-neutral-700), 0 2px 6px rgb(0 0 0 / 0.3),
     0 24px 48px -16px rgb(0 0 0 / 0.6);
 }
 

@@ -78,7 +78,7 @@ export function TypedTerminal({ title, lines }: { title?: string; lines: TermLin
 
   const done = line >= lines.length;
   return (
-    <div ref={ref}>
+    <div ref={ref} className="w-full">
       <Window title={title}>
         {lines.map((item, index) => {
           const shown = index < line ? item.text.length : index === line ? chars : 0;

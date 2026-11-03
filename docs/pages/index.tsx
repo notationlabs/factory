@@ -24,7 +24,7 @@ const overline = "font-mono text-xs uppercase tracking-[0.14em]";
 
 function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen [--page-max-width:72rem]">
       <div className="dark bg-paper text-ink border-b border-rule">
         <SiteHeader />
       </div>
@@ -47,12 +47,12 @@ function LandingPage() {
   );
 }
 
-// A band of the page with a hairline below it.
+// A band of the page with a hairline below it, as wide as the header's content.
 function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
   return (
     <div className={`${dark ? "dark" : ""} bg-paper text-ink`}>
-      <div className="mx-auto max-w-[90rem] border-b border-rule">
-        {children}
+      <div className="page-wrap">
+        <div className="border-b border-rule">{children}</div>
       </div>
     </div>
   );
@@ -61,7 +61,7 @@ function Frame({ dark, children }: { dark?: boolean; children: ReactNode }) {
 function Hero() {
   return (
     <section className="grid grid-cols-1 lg:grid-cols-2">
-      <div className="flex flex-col justify-center px-6 py-16 sm:px-12 md:px-20 md:py-28">
+      <div className="flex flex-col justify-center py-16 md:py-28 lg:pr-12">
         <h1 className="text-[2.9rem] sm:text-[4rem] leading-[1.02] font-medium tracking-[-0.045em]">
           Ask in a thread.
           <br />
@@ -83,8 +83,8 @@ function Hero() {
           </DocLink>
         </div>
       </div>
-      <div className="flex items-center justify-center px-10 pb-16 lg:py-16">
-        <div className="w-full max-w-[460px]">
+      <div className="flex items-center justify-end pb-16 lg:py-16 lg:pl-12">
+        <div className="w-full lg:max-w-[460px]">
           <Dispatch />
         </div>
       </div>
@@ -95,10 +95,8 @@ function Hero() {
 function Agents() {
   return (
     <section>
-      <div className="px-4 py-16 sm:px-10 md:py-24 border-b border-rule">
-        <div className="mx-auto max-w-5xl">
-          <Flow />
-        </div>
+      <div className="py-16 md:py-24 border-b border-rule">
+        <Flow />
       </div>
       <Row
         text={
@@ -260,8 +258,8 @@ function Row({
 }) {
   return (
     <div className={`grid grid-cols-1 md:grid-cols-2 ${last ? "" : "border-b border-rule"}`}>
-      <div className={flip ? "md:order-2" : ""}>{text}</div>
-      <div className={`${flip ? "md:order-1" : ""} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
+      <div className={flip ? "md:order-2 md:pl-12" : "md:pr-12"}>{text}</div>
+      <div className={`${flip ? "md:order-1 md:pr-12" : "md:pl-12"} min-w-0 border-t md:border-t-0 border-rule`}>{art}</div>
     </div>
   );
 }
@@ -269,8 +267,8 @@ function Row({
 // A cell for an illustration.
 function Picture({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-80 items-center justify-center px-6 py-12 md:px-12">
-      <div className="w-full max-w-[540px]">{children}</div>
+    <div className="flex h-full min-h-80 items-center justify-center py-12">
+      {children}
     </div>
   );
 }
@@ -289,7 +287,7 @@ function Feature({
   link: { label: string; slug: string };
 }) {
   return (
-    <div className="flex h-full flex-col px-6 py-12 sm:px-10 md:min-h-[30rem]">
+    <div className="flex h-full flex-col py-12 md:min-h-[30rem]">
       <span className="block w-5 h-5 text-accent-ink">{icon}</span>
       <h3 className="mt-5 text-[1.75rem] md:text-[2rem] leading-tight font-medium tracking-[-0.03em]">
         {title}
@@ -314,7 +312,7 @@ function Feature({
 
 function Closing() {
   return (
-    <section className="flex flex-col items-center px-6 py-24 md:py-32 text-center">
+    <section className="flex flex-col items-center py-24 md:py-32 text-center">
         <h2 className="text-[2.2rem] md:text-[3.2rem] leading-[1.05] font-medium tracking-[-0.04em]">
           Ask in a thread. Run in a lightbox.
         </h2>
@@ -361,8 +359,8 @@ const footerColumns = [
 function Footer() {
   return (
     <footer className="dark bg-paper text-ink">
-      <div className="mx-auto max-w-[90rem]">
-        <div className="grid gap-10 px-6 py-16 sm:grid-cols-2 sm:px-12 md:px-20 lg:grid-cols-4">
+      <div className="page-wrap">
+        <div className="grid gap-10 py-16 sm:grid-cols-2 lg:grid-cols-4">
           {footerColumns.map((column) => (
             <div key={column.heading}>
               <p className={`${overline} text-ink-3`}>{column.heading}</p>
@@ -392,7 +390,7 @@ function Footer() {
             </ul>
           </div>
         </div>
-        <p className="border-t border-rule px-6 py-6 text-sm text-ink-3 sm:px-12 md:px-20">
+        <p className="border-t border-rule py-6 text-sm text-ink-3">
           © 2026 Notation Labs Ltd.
         </p>
       </div>

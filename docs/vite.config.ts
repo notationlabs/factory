@@ -9,7 +9,7 @@ export default defineConfig({
       title: "lightbox",
       github: "https://github.com/notationlabs/lightbox",
       favicon:
-        "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>",
+        "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💡</text></svg>",
       categories: ["manual", "packages"], // slugs, in top-nav order; must match index.ts
       contentDirectory: ".", // the site lives inside the content it publishes
       pagesDirectory: "pages",

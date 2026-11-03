@@ -126,31 +126,6 @@ function Hero() {
   );
 }
 
-function SectionHead({ label, title, children }: { label: string; title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col items-center px-6 py-20 md:py-28 text-center border-b border-rule">
-      <Wordmark>{label}</Wordmark>
-      <h2 className="mt-5 max-w-3xl text-[2.2rem] md:text-[3rem] leading-[1.08] font-medium tracking-[-0.04em] text-balance">
-        {title}
-      </h2>
-      <p className="mt-5 max-w-lg text-lg md:text-xl leading-relaxed text-ink-2">{children}</p>
-    </div>
-  );
-}
-
-// The logo's word with a part of lightbox in brackets after it, as a label
-// for a section.
-function Wordmark({ children }: { children: string }) {
-  return (
-    <p className="text-lg leading-none tracking-tight">
-      <span className="font-black">lightbox</span>
-      <span className="font-light text-ink-3">(</span>
-      <span className="font-black uppercase text-[0.8em] tracking-[0.06em]">{children}</span>
-      <span className="font-light text-ink-3">)</span>
-    </p>
-  );
-}
-
 function Agents() {
   return (
     <section>
@@ -228,10 +203,6 @@ function Agents() {
 function Outposts() {
   return (
     <section>
-      <SectionHead label="outposts" title="Declare the Hub Once. Add an Outpost per Repo.">
-        The hub holds your connections, accounts and secrets. Each repo declares its own
-        containers, agents and triggers in TypeScript.
-      </SectionHead>
       <Row
         text={
           <Feature

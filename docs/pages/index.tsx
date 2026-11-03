@@ -65,8 +65,7 @@ function LandingPage() {
         <div className="relative">
           <section className="relative">
             <h1 className="sr-only">lightbox</h1>
-            <Issue />
-            <p className="mt-12 md:mt-16 max-w-4xl text-lg md:text-xl leading-[2.1] text-ink-2">
+            <p className="max-w-4xl text-lg md:text-xl leading-[2.1] text-ink-2">
               Listens to{" "}
               <Term
                 icon={<GitHubIcon />}
@@ -92,7 +91,10 @@ function LandingPage() {
               </Term>
               .
             </p>
-            <div className="mt-8 md:mt-10 flex flex-wrap gap-3">
+            <div className="mt-10 md:mt-12">
+              <Issue />
+            </div>
+            <div className="mt-10 md:mt-12 flex flex-wrap gap-3">
               <Link
                 to="/docs/$"
                 params={{ _splat: "manual/quickstart" }}

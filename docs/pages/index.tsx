@@ -80,7 +80,7 @@ function LandingPage() {
         <Hero />
         <Integrations />
         <Platform />
-        <Panel />
+        <Events />
         <Cards />
         <Closing />
       </main>
@@ -93,18 +93,10 @@ function Hero() {
   return (
     <section className="grid gap-12 xl:grid-cols-2 xl:items-center">
       <div className="flex flex-col items-start">
-        <DocLink
-          slug="manual/github-usage"
-          className={`${overline} inline-flex items-center gap-1.5 rounded-full border border-accent-soft px-5 py-3 transition-colors hover:border-accent`}
-        >
-          <span className="text-accent-ink">Guide:</span>
-          <span className="text-ink-2">Mention @claude on an issue</span>
-          <Chevron />
-        </DocLink>
-        <h1 className="mt-8 text-[2.6rem] md:text-[3.6rem] leading-[1.05] font-semibold tracking-[-0.03em]">
-          <span className="text-accent-ink">Coding agents</span>
+        <h1 className="text-[2.6rem] md:text-[3.6rem] leading-[1.05] font-semibold tracking-[-0.03em]">
+          <span className="text-accent-ink">Coding agents.</span>
           <br />
-          in remote containers.
+          Out of the box.
         </h1>
         <p className="mt-6 max-w-xl text-lg md:text-xl leading-[1.9] text-ink-2">
           Listens to{" "}
@@ -126,11 +118,7 @@ function Hero() {
           <Term icon={<ContainerIcon />} color="bg-accent">
             containers
           </Term>{" "}
-          on your cloud, and hands each session to your{" "}
-          <Term icon={<TerminalIcon />} color="bg-[#334155]">
-            terminal
-          </Term>
-          .
+          on your cloud.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <DocLink
@@ -177,26 +165,42 @@ function Integrations() {
 
 function Platform() {
   return (
+    <section className="max-w-3xl text-xl md:text-2xl leading-relaxed text-ink-2">
+      <p className="font-semibold text-ink">
+        lightbox runs coding agents in remote containers and connects them to the places your team
+        talks.
+      </p>
+      <p className="mt-4">
+        Mention an agent on an issue or in a thread. It works in its own container and replies in
+        place.
+      </p>
+      <DocLink slug="manual/introduction" className={`mt-6 text-lg ${textLink}`}>
+        Read the introduction <Arrow />
+      </DocLink>
+    </section>
+  );
+}
+
+function Events() {
+  return (
     <section>
-      <div className="flex flex-col gap-6 xl:flex-row xl:gap-20">
-        <h2 className="xl:w-2/5 shrink-0 text-[1.9rem] md:text-[2.4rem] leading-tight font-semibold tracking-[-0.03em] text-balance">
-          The <span className="text-accent-ink">agent platform</span> that runs on your own cloud
-        </h2>
-        <div className="flex-1 text-lg md:text-xl leading-relaxed text-ink-2">
-          <p className="font-semibold text-ink">
-            lightbox runs coding agents in remote containers and connects them to the places your
-            team talks.
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:gap-12">
+        <div className="max-w-2xl">
+          <p className={`${overline} text-accent-ink`}>Agents & triggers</p>
+          <h2 className="mt-3 text-[1.9rem] md:text-[2.4rem] leading-tight font-semibold tracking-[-0.03em]">
+            Events in, agents out.
+          </h2>
+          <p className="mt-3 text-lg leading-relaxed text-ink-2">
+            Each conversation gets its own agent and its own branch. The reply goes back to the
+            thread it came from.
           </p>
-          <p className="mt-4">
-            You stand up one <strong className="font-semibold text-ink">hub</strong> for your
-            organisation. Each repo declares an{" "}
-            <strong className="font-semibold text-ink">outpost</strong>: the container its agents
-            run in, and the events that wake them.
-          </p>
-          <DocLink slug="manual/introduction" className={`mt-6 ${textLink}`}>
-            Read the introduction <Arrow />
-          </DocLink>
         </div>
+        <DocLink slug="manual/agents-and-triggers" className={`shrink-0 ${textLink}`}>
+          Learn more about triggers <Arrow />
+        </DocLink>
+      </div>
+      <div className="mt-10">
+        <Flow />
       </div>
       <div className="mt-16 md:mt-24 grid gap-12 md:grid-cols-3 md:gap-16">
         <Feature
@@ -269,31 +273,6 @@ function Feature({
   );
 }
 
-function Panel() {
-  return (
-    <section className="rounded-2xl bg-accent/[0.06] dark:bg-accent/[0.08] px-5 py-10 sm:px-10 md:px-14 md:py-14">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:gap-12">
-        <div className="max-w-2xl">
-          <p className={`${overline} text-accent-ink`}>Agents & triggers</p>
-          <h2 className="mt-3 text-[1.9rem] md:text-[2.4rem] leading-tight font-semibold tracking-[-0.03em]">
-            Events in, agents out.
-          </h2>
-          <p className="mt-3 text-lg leading-relaxed text-ink-2">
-            Each conversation gets its own agent and its own branch. The reply goes back to the
-            thread it came from.
-          </p>
-        </div>
-        <DocLink slug="manual/agents-and-triggers" className={`shrink-0 ${textLink}`}>
-          Learn more about triggers <Arrow />
-        </DocLink>
-      </div>
-      <div className="mt-10">
-        <Flow />
-      </div>
-    </section>
-  );
-}
-
 function Cards() {
   return (
     <section className="flex flex-col gap-8">
@@ -303,12 +282,12 @@ function Cards() {
           { label: "Learn more about the hub", slug: "manual/infra" },
           { label: "Learn more about outposts", slug: "manual/outposts" },
         ]}
-        description="The hub declares the connections, the vault and the deployer once for your organisation. Each repo's outpost declares its container and the triggers that start agents in it. Both are TypeScript."
+        description="Declare the hub once, in your infra repo. Then give each repo an outpost."
       >
         <CodeTabs
           files={[
-            { name: "lightbox.infra.ts", source: hub },
-            { name: ".lightbox/config.ts", source: outpost },
+            { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
+            { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
           ]}
         />
       </Card>
@@ -505,14 +484,6 @@ function Arrow() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
       <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 text-ink-3" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-      <path d="m6 3.5 4.5 4.5L6 12.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

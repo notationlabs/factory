@@ -63,7 +63,8 @@ export function Code({ title, source }: { title?: string; source: string }) {
   );
 }
 
-export type CodeFile = { name: string; source: string };
+// `repo` is shown before the file name, dimmed, when files come from different repos.
+export type CodeFile = { name: string; repo?: string; source: string };
 
 // Files shown one at a time, with a tab for each file in the title bar.
 // Every file is laid out in the same grid cell, so the window takes the
@@ -83,6 +84,7 @@ export function CodeTabs({ files }: { files: CodeFile[] }) {
             index === active ? "bg-ink/6 text-ink" : "text-ink-3 hover:text-ink-2"
           }`}
         >
+          {file.repo && <span className="text-ink-3">{file.repo}/</span>}
           {file.name}
         </button>
       ))}

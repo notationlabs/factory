@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { prefersReducedMotion, useInView } from "#/views/in-view";
 
 // A window with traffic lights and an optional title, such as a file name.
@@ -30,81 +30,6 @@ export function Window({
         <code>{children}</code>
       </pre>
     </div>
-  );
-}
-
-// Enough highlighting for the short TypeScript samples on the landing page:
-// comments, strings and a few keywords.
-const tokens = /(\/\/.*$)|("[^"]*"|`[^`]*`)|\b(export|default|const|new|import|from)\b/gm;
-
-function highlight(source: string) {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  for (const match of source.matchAll(tokens)) {
-    const index = match.index ?? 0;
-    parts.push(source.slice(last, index));
-    const className = match[1] ? "text-ink-3" : match[2] ? "text-accent-ink" : "text-ink-2";
-    parts.push(
-      <span key={index} className={className}>
-        {match[0]}
-      </span>,
-    );
-    last = index + match[0].length;
-  }
-  parts.push(source.slice(last));
-  return parts.map((part, index) => <Fragment key={index}>{part}</Fragment>);
-}
-
-export function Code({ title, source }: { title?: string; source: string }) {
-  return (
-    <Window title={title} scroll>
-      {highlight(source)}
-    </Window>
-  );
-}
-
-// `repo` is shown before the file name, dimmed, when files come from different repos.
-export type CodeFile = { name: string; repo?: string; source: string };
-
-// Files shown one at a time, with a tab for each file in the title bar.
-// Every file is laid out in the same grid cell, so the window takes the
-// height of the longest one and does not resize when the tab changes.
-export function CodeTabs({ files }: { files: CodeFile[] }) {
-  const [active, setActive] = useState(0);
-  const tabs = (
-    <span role="tablist" className="ml-3 flex gap-1 min-w-0 overflow-x-auto">
-      {files.map((file, index) => (
-        <button
-          key={file.name}
-          type="button"
-          role="tab"
-          aria-selected={index === active}
-          onClick={() => setActive(index)}
-          className={`rounded-md px-2.5 py-1 font-mono text-xs whitespace-nowrap transition-colors ${
-            index === active ? "bg-ink/6 text-ink" : "text-ink-3 hover:text-ink-2"
-          }`}
-        >
-          {file.repo && <span className="text-ink-3">{file.repo}/</span>}
-          {file.name}
-        </button>
-      ))}
-    </span>
-  );
-  return (
-    <Window title={tabs} scroll>
-      <span className="grid">
-        {files.map((file, index) => (
-          <span
-            key={file.name}
-            role="tabpanel"
-            aria-hidden={index !== active}
-            className={`[grid-area:1/1] ${index === active ? "" : "invisible"}`}
-          >
-            {highlight(file.source)}
-          </span>
-        ))}
-      </span>
-    </Window>
   );
 }
 

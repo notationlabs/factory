@@ -3,8 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
 import { Flow } from "#/views/flow";
-import { Dispatch, HubStatus, Providers, Routing, Worktrees } from "#/views/scenes";
-import { CodeTabs, TypedTerminal } from "#/views/terminal";
+import { Dispatch, HubStatus, Providers, Routing, TriggerRule, Worktrees } from "#/views/scenes";
+import { TypedTerminal } from "#/views/terminal";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,37 +19,6 @@ export const Route = createFileRoute("/")({
   }),
   component: LandingPage,
 });
-
-const hub = `export default lightbox(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
-
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-
-  const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"),
-  });
-
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
-});`;
-
-const outpost = `export default outpost(() => {
-  const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
-
-  const dev = new Container("dev", {
-    image: "./Dockerfile",
-    runtimes: [claude.runtime],
-    policies: [code],
-  });
-
-  new Trigger("mention", {
-    event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
-    worktree: (event) => \`issue-\${event.issue.number}\`,
-    agent: new claude.Agent("coder", { model: "claude-opus-5-5" }),
-    container: dev,
-  });
-});`;
 
 const overline = "font-mono text-xs uppercase tracking-[0.14em]";
 
@@ -240,12 +209,7 @@ function Outposts() {
         }
         art={
           <Picture>
-            <CodeTabs
-              files={[
-                { repo: "acme/infra", name: "lightbox.infra.ts", source: hub },
-                { repo: "acme/webapp", name: ".lightbox/config.ts", source: outpost },
-              ]}
-            />
+            <TriggerRule />
           </Picture>
         }
       />

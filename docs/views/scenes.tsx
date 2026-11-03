@@ -320,3 +320,61 @@ export function HubStatus() {
     </div>
   );
 }
+
+type Part = "mention" | "from" | "worktree" | "agent" | "container";
+
+const rule: { text: string; part?: Part }[] = [
+  { text: 'new Trigger("mention", {' },
+  { text: "  event: gh.issueComment({" },
+  { text: '    mention: "@claude",', part: "mention" },
+  { text: "    from: github.collaborators(),", part: "from" },
+  { text: "  })," },
+  { text: "  worktree: (event) => `issue-${event.issue.number}`,", part: "worktree" },
+  { text: "  agent: coder,", part: "agent" },
+  { text: "  container: dev,", part: "container" },
+  { text: "});" },
+];
+
+const parts: Part[] = ["mention", "from", "worktree", "agent", "container"];
+
+const ruleDurations = parts.map(() => 1800);
+
+// A trigger above a comment it matches. Each part of the trigger lights up
+// in turn together with the part of the comment or the run it decides.
+export function TriggerRule() {
+  const [ref, step] = useSteps(ruleDurations, 0);
+  const active = parts[step];
+  const mark = (part: Part) =>
+    `transition-colors duration-300 ${part === active ? "text-accent-ink" : ""}`;
+  return (
+    <div ref={ref} className="w-full flex flex-col gap-4">
+      <Panel title=".lightbox/config.ts">
+        <pre className="px-4 py-3 font-mono text-[12.5px] leading-[1.8] text-ink-2 overflow-hidden">
+          <code>
+            {rule.map((line) => (
+              <span
+                key={line.text}
+                className={`block ${line.part === active ? "text-accent-ink" : ""} transition-colors duration-300`}
+              >
+                {line.text}
+              </span>
+            ))}
+          </code>
+        </pre>
+      </Panel>
+      <Panel title="acme/webapp #42">
+        <div className="px-4 py-3 border-b border-rule">
+          <p className={`text-xs font-medium ${mark("from")}`}>alice</p>
+          <p className="mt-0.5 text-[14px]">
+            <b className={`font-semibold ${mark("mention")}`}>@claude</b> can you take this one?
+          </p>
+        </div>
+        <p className="px-4 py-3 text-[13.5px] text-ink-2">
+          Runs <span className={`font-mono ${mark("agent")}`}>coder</span> in{" "}
+          <span className={`font-mono ${mark("container")}`}>dev</span> on branch{" "}
+          <span className={`font-mono ${mark("worktree")}`}>issue-42</span>
+        </p>
+      </Panel>
+    </div>
+  );
+}

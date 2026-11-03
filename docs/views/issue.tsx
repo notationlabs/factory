@@ -81,9 +81,9 @@ function Comment({
   children: ReactNode;
 }) {
   return (
-    <div className={`flex gap-3 ${arriving ? "lightbox-arrive rounded-lg" : ""}`}>
+    <div className={`flex gap-3 ${arriving ? "lightbox-arrive" : ""}`}>
       <span className={`mt-0.5 w-8 h-8 shrink-0 rounded-full ${avatar}`} />
-      <div className="flex-1 min-w-0 rounded-lg border border-rule">
+      <div className={`flex-1 min-w-0 rounded-lg border border-rule ${arriving ? "lightbox-flash" : ""}`}>
         <div className="px-4 py-2 border-b border-rule text-sm text-ink-2">
           <span className="font-medium text-ink">{author}</span>
           {bot && (

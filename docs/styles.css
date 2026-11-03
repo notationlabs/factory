@@ -19,6 +19,7 @@
   --color-rule: var(--color-line);
   --color-accent-soft: #ffc9bd;
   --color-term: #ffffff;
+  --color-flash: rgb(37 99 235 / 0.08);
 
   --shadow-window:
     0 0 0 1px rgb(0 0 0 / 0.08), 0 2px 6px rgb(0 0 0 / 0.04),
@@ -36,6 +37,7 @@
   --color-rule: var(--color-neutral-700);
   --color-accent-soft: #5c2216;
   --color-term: var(--color-neutral-950);
+  --color-flash: rgb(96 165 250 / 0.12);
 
   --shadow-window:
     0 0 0 1px var(--color-neutral-700), 0 2px 6px rgb(0 0 0 / 0.3),
@@ -59,7 +61,7 @@
 
 @keyframes lightbox-flash {
   from {
-    background-color: rgb(254 85 55 / 0.14);
+    background-color: var(--color-flash);
   }
 }
 
@@ -76,9 +78,11 @@
 }
 
 .lightbox-arrive {
-  animation:
-    lightbox-arrive 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
-    lightbox-flash 1800ms ease-out both;
+  animation: lightbox-arrive 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.lightbox-flash {
+  animation: lightbox-flash 1800ms ease-out both;
 }
 
 .lightbox-caret {
@@ -113,6 +117,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lightbox-arrive,
+  .lightbox-flash,
   .lightbox-caret,
   .lightbox-pulse,
   .lightbox-travel {

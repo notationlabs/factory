@@ -93,26 +93,20 @@
   animation: lightbox-pulse 1.4s ease-in-out infinite;
 }
 
-/* A message travelling along one leg of the path, left to right. */
-@keyframes lightbox-travel {
-  0% {
-    left: 0%;
-    opacity: 0;
+/* A dot travelling along an offset-path set inline. */
+@keyframes lightbox-along {
+  from {
+    offset-distance: 0%;
   }
-  15%,
-  85% {
-    opacity: 1;
-  }
-  100% {
-    left: 100%;
-    opacity: 0;
+  to {
+    offset-distance: 100%;
   }
 }
 
-.lightbox-travel {
-  left: 0;
-  opacity: 0;
-  animation: lightbox-travel 3.3s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+.lightbox-along {
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  animation: lightbox-along 1.7s cubic-bezier(0.45, 0, 0.55, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -120,7 +114,7 @@
   .lightbox-flash,
   .lightbox-caret,
   .lightbox-pulse,
-  .lightbox-travel {
+  .lightbox-along {
     animation: none;
   }
 }

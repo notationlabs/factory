@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, SlackIcon, TerminalIcon } from "#/views/icons";
+import { Flow } from "#/views/flow";
 import { Issue } from "#/views/issue";
-import { Path } from "#/views/path";
 import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
 export const Route = createFileRoute("/")({
@@ -115,8 +115,15 @@ function LandingPage() {
             </div>
           </section>
 
-          <Section side title="Events in, agents out.">
-            <Path />
+          <Section
+            title="Events in, agents out."
+            fact={
+              <Link to="/docs/$" params={{ _splat: "manual/agents-and-triggers" }} className={link}>
+                Agents&nbsp;&amp;&nbsp;triggers&nbsp;→
+              </Link>
+            }
+          >
+            <Flow />
           </Section>
 
           <Section

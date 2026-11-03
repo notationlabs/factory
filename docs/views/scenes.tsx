@@ -27,7 +27,7 @@ function useSteps(durations: number[], still = durations.length - 1) {
   return [ref, reduced ? still : step] as const;
 }
 
-function SlackMark({ className = "w-4 h-4" }: { className?: string }) {
+export function SlackMark({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
       <rect x="2" y="8.5" width="12" height="3.6" rx="1.8" fill="#36c5f0" />
@@ -91,7 +91,7 @@ export function Dispatch() {
       />
       <Wire lit={awake} />
       <div
-        className={`rounded-xl border border-transparent overflow-hidden transition-shadow duration-700 [background:linear-gradient(var(--color-term),var(--color-term))_padding-box,linear-gradient(140deg,#ffc078,#fe5537_40%,#5c1004)_border-box] ${awake ? "shadow-[0_0_48px_-8px_rgb(254_85_55/0.55)]" : "shadow-window"}`}
+        className={`rounded-xl border bg-term overflow-hidden transition-colors duration-500 ${awake ? "border-accent" : "border-rule"}`}
       >
         <div className="h-10 px-4 flex items-center border-b border-rule font-mono text-xs text-ink-2">
           container
@@ -134,7 +134,7 @@ function Thread({ author, avatar, text }: { author: string; avatar: string; text
 function Wire({ lit }: { lit: boolean }) {
   return (
     <span
-      className={`block w-px h-8 ml-[29px] transition-colors duration-500 ${lit ? "bg-accent shadow-[0_0_8px_#fe5537]" : "bg-rule"}`}
+      className={`block w-px h-8 ml-[29px] transition-colors duration-500 ${lit ? "bg-accent" : "bg-rule"}`}
     />
   );
 }

@@ -19,6 +19,7 @@
   --color-rule: var(--color-line);
   --color-accent-soft: #ffc9bd;
   --color-term: #ffffff;
+  --color-flash: rgb(37 99 235 / 0.08);
 
 
   --shadow-window:
@@ -41,6 +42,7 @@
   --color-rule: var(--color-neutral-700);
   --color-accent-soft: #5c2216;
   --color-term: var(--color-neutral-950);
+  --color-flash: rgb(96 165 250 / 0.12);
 
 
   --shadow-window:
@@ -77,9 +79,48 @@
   animation: lightbox-blink 1.1s steps(1) infinite;
 }
 
+@keyframes lightbox-flash {
+  from {
+    background-color: var(--color-flash);
+  }
+}
+
+@keyframes lightbox-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A dot travelling along an offset-path set inline. */
+@keyframes lightbox-along {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+.lightbox-flash {
+  animation: lightbox-flash 1800ms ease-out both;
+}
+
+.lightbox-pulse {
+  animation: lightbox-pulse 1.4s ease-in-out infinite;
+}
+
+.lightbox-along {
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  animation: lightbox-along 1.7s cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lightbox-arrive,
-  .lightbox-caret {
+  .lightbox-caret,
+  .lightbox-flash,
+  .lightbox-pulse,
+  .lightbox-along {
     animation: none;
   }
 }

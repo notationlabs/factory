@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader } from "@notation/docs/ui";
 import { AgentIcon, ContainerIcon, GitHubIcon, HubIcon, TerminalIcon } from "#/views/icons";
+import { Flow } from "#/views/flow";
 import { Dispatch, HubStatus, Providers, Routing, Worktrees } from "#/views/scenes";
 import { CodeTabs, TypedTerminal } from "#/views/terminal";
 
@@ -153,6 +154,11 @@ function Wordmark({ children }: { children: string }) {
 function Agents() {
   return (
     <section>
+      <div className="px-4 py-16 sm:px-10 md:py-24 border-b border-rule">
+        <div className="mx-auto max-w-5xl">
+          <Flow />
+        </div>
+      </div>
       <Row
         text={
           <Feature
@@ -465,9 +471,7 @@ function Footer() {
 const button =
   "inline-flex h-11 items-center justify-center rounded-md border px-5 text-base font-medium transition-colors";
 
-// The gradient border is a second background, clipped to the border box,
-// behind the button's own background clipped to its padding box.
-const primaryButton = `${button} border-[1.5px] border-transparent text-ink [background:linear-gradient(var(--color-paper),var(--color-paper))_padding-box,linear-gradient(120deg,#ffc078,#fe5537_45%,#a3200b)_border-box] shadow-[0_0_24px_-6px_rgb(254_85_55/0.6)] hover:shadow-[0_0_28px_-4px_rgb(254_85_55/0.8)]`;
+const primaryButton = `${button} border-ink bg-ink text-paper hover:bg-ink/85`;
 
 const secondaryButton = `${button} border-ink/20 text-ink hover:border-ink/45`;
 

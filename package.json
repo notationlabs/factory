@@ -12,7 +12,6 @@
     "@pokit/core": "^1.0.1",
     "@pokit/terminal": "^1.0.1",
     "@types/node": "^24.19.2",
-    "pok-plugins": "github:djgrant/pok-plugins",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "valibot": "^1.1.0"

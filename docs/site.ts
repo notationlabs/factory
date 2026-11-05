@@ -1,0 +1,79 @@
+import type { DocsSite } from "@notation/docs";
+
+export default {
+  slug: "factory",
+  label: "Factory",
+  root: new URL(".", import.meta.url),
+  version: { packageJson: "packages/lightbox/package.json" },
+  categories: [
+    {
+      label: "User Manual",
+      slug: "manual",
+      sections: [
+        {
+          heading: "Getting Started",
+          icon: "rocket",
+          links: [
+            { label: "Introduction", slug: "manual/introduction" },
+            { label: "Installation", slug: "manual/installation" },
+            { label: "Quick Start", slug: "manual/quickstart" },
+          ],
+        },
+        {
+          heading: "The Hub",
+          icon: "cloud",
+          links: [
+            { label: "Declaring Infra", slug: "manual/infra" },
+            { label: "Connections & Channels", slug: "manual/connections" },
+            { label: "Container Providers", slug: "manual/providers" },
+            { label: "Secrets & Vaults", slug: "manual/secrets" },
+            { label: "Writing Plugins", slug: "manual/plugins" },
+          ],
+        },
+        {
+          heading: "Outposts",
+          icon: "layers",
+          links: [
+            { label: "Declaring Outposts", slug: "manual/outposts" },
+            { label: "Agents & Triggers", slug: "manual/agents-and-triggers" },
+            { label: "Worktrees & Sessions", slug: "manual/worktrees" },
+            { label: "Containers & Policies", slug: "manual/containers" },
+          ],
+        },
+        {
+          heading: "Working with Agents",
+          icon: "terminal",
+          links: [
+            { label: "Conversations & Sessions", slug: "manual/github-usage" },
+            { label: "CLI Reference", slug: "manual/cli" },
+          ],
+        },
+      ],
+    },
+    {
+      label: "Packages",
+      slug: "packages",
+      sections: [
+        {
+          heading: "Entrypoints",
+          icon: "terminal",
+          links: [
+            { label: "@lightbox/cli", slug: "packages/cli" },
+            { label: "lightbox", slug: "packages/core" },
+          ],
+        },
+        {
+          heading: "Plugins",
+          icon: "cpu",
+          links: [
+            { label: "@lightbox/github", slug: "packages/github" },
+            { label: "@lightbox/slack", slug: "packages/slack" },
+            { label: "@lightbox/claude", slug: "packages/claude" },
+            { label: "@lightbox/cloudflare", slug: "packages/cloudflare" },
+            { label: "@lightbox/railway", slug: "packages/railway" },
+          ],
+        },
+      ],
+    },
+  ],
+} satisfies DocsSite;

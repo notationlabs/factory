@@ -1,0 +1,11 @@
+{
+  "name": "@factory/docs-site",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@notation/docs": "github:djgrant/docs#main&path:/packages/docs"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

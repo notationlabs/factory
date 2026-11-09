@@ -1,6 +1,14 @@
 # Notation Factory
 
-Notation Factory's resource model, built on Notation's `@notation/resource`.
+Notation Factory runs coding agents in remote containers and connects them to the places your team talks:
+
+- **Listens** to messages on your communication channels (GitHub issues, Slack)
+- **Dispatches** agents into remote outposts (Cloudflare Containers, Railway)
+- **Connects** you directly to remote agents over SSH
+
+An organisation runs one hub: a router that receives events from GitHub and Slack, a deployer that provisions containers, and a vault for their secrets. Each repo that subscribes gets an outpost: the containers, agents and triggers declared in its `.factory/config.ts`.
+
+The infrastructure is declared in TypeScript and deployed with [Notation](https://github.com/notationlabs/notation).
 
 ## The model
 

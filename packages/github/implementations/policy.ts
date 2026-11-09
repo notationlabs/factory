@@ -1,4 +1,4 @@
-import { OutpostGroup, type PolicyContract } from "factory";
+import { OutpostGroup, type PolicyContract } from "@notation/factory";
 import * as v from "valibot";
 
 const level = v.optional(v.picklist(["read", "write"]));

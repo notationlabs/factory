@@ -1,6 +1,6 @@
 # Writing Plugins
 
-A plugin is an npm package that exports classes implementing `factory`'s contracts (see [`factory`](../packages/core.md#contracts)). Each class is a group: a plain class that extends Notation's `ResourceGroup`. Its constructor adds the concrete resources it owns, such as an App or a Worker, and contributes to configs that already exist, such as the router's.
+A plugin is an npm package that exports classes implementing `@notation/factory`'s contracts (see [`@notation/factory`](../packages/core.md#contracts)). Each class is a group: a plain class that extends Notation's `ResourceGroup`. Its constructor adds the concrete resources it owns, such as an App or a Worker, and contributes to configs that already exist, such as the router's.
 
 A group takes its id, then one object of options: its config and its dependencies side by side. The constructor:
 
@@ -11,7 +11,7 @@ A group takes its id, then one object of options: its config and its dependencie
 
 ```ts [src/connection.ts]
 import { ResourceGroup } from "@notation/resource";
-import { type Connection as ConnectionContract, type Router, secret } from "factory";
+import { type Connection as ConnectionContract, type Router, secret } from "@notation/factory";
 import * as v from "valibot";
 import { App, type AppInstance } from "./resources/app.ts";
 
@@ -48,4 +48,4 @@ export class Connection extends ResourceGroup implements ConnectionContract {
 
 A group declared in an outpost extends `OutpostGroup` instead of `ResourceGroup`. `OutpostGroup` finds the outpost being declared, so the group can contribute its entry with `this.outpost.store.contribute(...)` without the user passing the outpost. A connection's outpost side is a separate class returned by a static `get(name)`, whose `channel(...)` makes the provider's own channel. That channel builds the provider's selectors.
 
-Take `factory` as a peer dependency, so the plugin uses the copy of whatever installs it. Publish it, add it to the infrastructure repository, and declare its resources in `factory.infra.ts`.
+Take `@notation/factory` as a peer dependency, so the plugin uses the copy of whatever installs it. Publish it, add it to the infrastructure repository, and declare its resources in `factory.infra.ts`.

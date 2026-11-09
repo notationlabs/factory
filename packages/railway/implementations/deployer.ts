@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Account, type Deployer as DeployerContract } from "factory";
+import { type Account, type Deployer as DeployerContract } from "@notation/factory";
 import {
   ProjectToken,
   type ProjectTokenInstance,

@@ -1,5 +1,5 @@
 import { defineResource } from "@notation/resource";
-import type { RouterApi } from "factory";
+import type { RouterApi } from "@notation/factory";
 import {
   createApplication,
   deleteApplication,

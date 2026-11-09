@@ -3,7 +3,7 @@ import {
   type Account as AccountContract,
   isSecret,
   type Secret,
-} from "factory";
+} from "@notation/factory";
 import * as v from "valibot";
 
 const accountConfig = v.object({

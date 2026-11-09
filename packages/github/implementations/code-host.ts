@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import type { CodeHost as CodeHostContract, RepoPattern } from "factory";
+import type { CodeHost as CodeHostContract, RepoPattern } from "@notation/factory";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 

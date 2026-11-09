@@ -3,10 +3,10 @@
 Keep every secret the hub holds in one vault that only the hub can read:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
-import * as github from "@factory/github";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as github from "@notation/factory-github";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- 1. where the hub's secrets live

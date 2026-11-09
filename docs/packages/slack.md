@@ -1,9 +1,9 @@
-# `@factory/slack`
+# `@notation/factory-slack`
 
-`@factory/slack` lets agents listen and reply in Slack channels. The same entrypoint serves both config files:
+`@notation/factory-slack` lets agents listen and reply in Slack channels. The same entrypoint serves both config files:
 
 ```bash
-@pm.dev("@factory/slack")
+@pm.dev("@notation/factory-slack")
 ```
 
 | Used in | Exports |
@@ -18,9 +18,9 @@ Slack is a channel only. Code still lives on the infra's code host.
 Register a Slack app and point its events at your router:
 
 ```ts [factory.infra.ts]
-import { factory } from "factory";
-import * as cloudflare from "@factory/cloudflare";
-import * as slack from "@factory/slack";
+import { factory } from "@notation/factory";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as slack from "@notation/factory-slack";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
@@ -41,7 +41,7 @@ An app that doesn't exist yet is created from a manifest in your browser, with i
 Listen in one Slack channel:
 
 ```ts [.factory/config.ts]
-import * as slack from "@factory/slack";
+import * as slack from "@notation/factory-slack";
 
 const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#ops" }); // <-- `scope` is required and starts with `#`
 ```

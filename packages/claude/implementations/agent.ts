@@ -1,4 +1,4 @@
-import { type Agent as AgentContract, OutpostGroup } from "factory";
+import { type Agent as AgentContract, OutpostGroup } from "@notation/factory";
 import * as v from "valibot";
 import { runtime } from "./runtime.ts";
 

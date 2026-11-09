@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import type { OperatorAuth as OperatorAuthContract } from "factory";
+import type { OperatorAuth as OperatorAuthContract } from "@notation/factory";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 

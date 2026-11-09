@@ -7,16 +7,16 @@ Deploy a Notation Factory hub on Cloudflare, subscribe `acme/webapp`, trigger Cl
 In your infra repository, add the packages `factory.infra.ts` imports:
 
 ```bash
-@pm.dev("factory @factory/cloudflare @factory/github @factory/claude")
+@pm.dev("@notation/factory @notation/factory-cloudflare @notation/factory-github @notation/factory-claude")
 ```
 
 Declare the hub for the `acme` organization:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
-import * as github from "@factory/github";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as github from "@notation/factory-github";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
@@ -54,7 +54,7 @@ factory infra up
 In `acme/webapp`, add the packages `.factory/config.ts` imports:
 
 ```bash
-@pm.dev("factory @factory/github @factory/claude")
+@pm.dev("@notation/factory @notation/factory-github @notation/factory-claude")
 ```
 
 Define the container image where agents will run:
@@ -69,9 +69,9 @@ RUN --mount=type=bind,from=runtime,target=/runtime sh /runtime/setup.sh
 Wire `@claude` mentions from collaborators to that container:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "factory";
-import * as claude from "@factory/claude";
-import * as github from "@factory/github";
+import { Container, outpost, Trigger } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as github from "@notation/factory-github";
 
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" });

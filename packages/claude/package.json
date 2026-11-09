@@ -1,5 +1,5 @@
 {
-  "name": "@factory/claude",
+  "name": "@notation/factory-claude",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,5 +1,5 @@
 import { defineResource } from "@notation/resource";
-import type { RouterApi } from "factory";
+import type { RouterApi } from "@notation/factory";
 import { createApp, readApp, setRequestUrl } from "../lib/app.ts";
 
 /** One Slack app, which backs a connection. Its Events API request URL is the router's webhook. */

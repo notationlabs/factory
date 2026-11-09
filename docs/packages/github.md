@@ -1,9 +1,9 @@
-# `@factory/github`
+# `@notation/factory-github`
 
-`@factory/github` connects GitHub repositories and issues to Notation Factory. The same entrypoint serves both config files:
+`@notation/factory-github` connects GitHub repositories and issues to Notation Factory. The same entrypoint serves both config files:
 
 ```bash
-@pm.dev("@factory/github")
+@pm.dev("@notation/factory-github")
 ```
 
 | Used in | Exports |
@@ -18,9 +18,9 @@ On GitHub, one App is both the connection and the code host's token issuer.
 Register a GitHub App and wire its webhooks to your router:
 
 ```ts [factory.infra.ts]
-import { factory } from "factory";
-import * as cloudflare from "@factory/cloudflare";
-import * as github from "@factory/github";
+import { factory } from "@notation/factory";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as github from "@notation/factory-github";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
@@ -83,7 +83,7 @@ The CLI signs you in through the connection's App as a user-to-server token, and
 Listen on this repo's issues:
 
 ```ts [.factory/config.ts]
-import * as github from "@factory/github";
+import * as github from "@notation/factory-github";
 
 const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- scope defaults to the outpost's repo
 ```
@@ -124,7 +124,7 @@ A conversation is an issue. Replies are posted as issue comments by the App, thr
 Grant an outpost container scoped installation tokens for a repository:
 
 ```ts [.factory/config.ts]
-import * as github from "@factory/github";
+import * as github from "@notation/factory-github";
 
 const code = new github.Policy("code", {
   repo: "acme/webapp", // <-- omit to scope to the current repository

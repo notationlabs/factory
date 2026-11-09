@@ -1,9 +1,9 @@
-# `@factory/cloudflare`
+# `@notation/factory-cloudflare`
 
-`@factory/cloudflare` runs the Notation Factory hub (`Vault`, `Router` and `Deployer`) and repository outposts on Cloudflare Workers and Durable Object Containers. Imported in `factory.infra.ts` from `@factory/cloudflare`.
+`@notation/factory-cloudflare` runs the Notation Factory hub (`Vault`, `Router` and `Deployer`) and repository outposts on Cloudflare Workers and Durable Object Containers. Imported in `factory.infra.ts` from `@notation/factory-cloudflare`.
 
 ```bash
-@pm.dev("@factory/cloudflare")
+@pm.dev("@notation/factory-cloudflare")
 ```
 
 ## Vault, Router & Deployer
@@ -11,9 +11,9 @@
 Provision the hub and outpost builder on Cloudflare:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- Secrets Store; left by `factory infra down`

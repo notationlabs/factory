@@ -38,7 +38,7 @@ RUN --mount=type=bind,from=runtime,target=/runtime sh /runtime/setup.sh
 | Requirement | Reason |
 | --- | --- |
 | **Debian/Ubuntu base** | `install.sh` uses `apt-get` to install `git`, `gh`, `curl`, and process tools |
-| **Global `bun`** | `/usr/local/bin/factory-runner` runs `@factory/runner` with `bunx`, at the version the deployer gives the container, and installs the infrastructure's plugins under `/data/plugins` |
+| **Global `bun`** | `/usr/local/bin/factory-runner` runs `@notation/factory-runner` with `bunx`, at the version the deployer gives the container, and installs the infrastructure's plugins under `/data/plugins` |
 | **`runtime` mount** | The deployer builds the `runtime` context from the container's runtimes |
 | **System-wide paths** | Runner drops privileges to user `agent` (`HOME=/data/home`) |
 | **No `CMD` / `ENTRYPOINT`** | Container provider starts `/usr/local/bin/factory-runner` directly |

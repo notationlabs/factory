@@ -4,7 +4,7 @@ import {
   channelConfig,
   OutpostGroup,
   type Selector,
-} from "factory";
+} from "@notation/factory";
 import * as v from "valibot";
 import type { ConnectionRef } from "./connection-ref.ts";
 import {

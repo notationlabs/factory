@@ -3,11 +3,11 @@
 Stand up a central hub to serve all of your repositories:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
-import * as github from "@factory/github";
-import * as slack from "@factory/slack";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as github from "@notation/factory-github";
+import * as slack from "@notation/factory-slack";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live

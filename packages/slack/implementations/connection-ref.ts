@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import type { ConnectionRef as ConnectionRefContract } from "factory";
+import type { ConnectionRef as ConnectionRefContract } from "@notation/factory";
 import { Channel, type ChannelOptions } from "./channel.ts";
 
 type ConnectionRefConfig = { name: string };

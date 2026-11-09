@@ -1,4 +1,4 @@
-import type { Runtime } from "factory";
+import type { Runtime } from "@notation/factory";
 
 /** Installs Claude Code at image build, through the Dockerfile's `runtime` mount. */
 export const runtime: Runtime = {

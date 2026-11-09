@@ -1,5 +1,5 @@
 {
-  "name": "@factory/github",
+  "name": "@notation/factory-github",
   "private": true,
   "type": "module",
   "exports": {

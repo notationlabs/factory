@@ -1,9 +1,9 @@
-# `@factory/claude`
+# `@notation/factory-claude`
 
-`@factory/claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the adapter that executes `claude` inside outpost containers.
+`@notation/factory-claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the adapter that executes `claude` inside outpost containers.
 
 ```bash
-@pm.dev("@factory/claude")
+@pm.dev("@notation/factory-claude")
 ```
 
 ## Account
@@ -11,9 +11,9 @@
 Give the hub the credentials Claude Code runs on:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
@@ -34,8 +34,8 @@ export default factory(() => {
 Install Claude Code in a container's image:
 
 ```ts [.factory/config.ts]
-import { Container, outpost } from "factory";
-import * as claude from "@factory/claude";
+import { Container, outpost } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
 
 export default outpost(() => {
   const dev = new Container("dev", {

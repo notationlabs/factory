@@ -1,5 +1,5 @@
 import { defineResource, mergeContributions } from "@notation/resource";
-import { type RouterConfig as Config, single } from "factory";
+import { type RouterConfig as Config, single } from "@notation/factory";
 import {
   deleteRouterConfig,
   readRouterConfig,

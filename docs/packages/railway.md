@@ -1,9 +1,9 @@
-# `@factory/railway`
+# `@notation/factory-railway`
 
-`@factory/railway` runs the Notation Factory hub (`Vault`, `Router` and `Deployer`) and repository outposts inside a shared Railway project with persistent `/data` volumes and private networking. Imported in `factory.infra.ts` from `@factory/railway`.
+`@notation/factory-railway` runs the Notation Factory hub (`Vault`, `Router` and `Deployer`) and repository outposts inside a shared Railway project with persistent `/data` volumes and private networking. Imported in `factory.infra.ts` from `@notation/factory-railway`.
 
 ```bash
-@pm.dev("@factory/railway")
+@pm.dev("@notation/factory-railway")
 ```
 
 ## Vault, Router & Deployer
@@ -11,9 +11,9 @@
 Provision the hub and outpost builder in a Railway project:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as railway from "@factory/railway";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as railway from "@notation/factory-railway";
 
 export default factory(() => {
   const vault = new railway.Vault("vault"); // <-- sealed variables; left by `factory infra down`

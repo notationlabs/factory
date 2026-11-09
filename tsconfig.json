@@ -8,14 +8,14 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "paths": {
-      "factory": ["./packages/factory/index.ts"],
-      "@factory/cloudflare": [
+      "@notation/factory": ["./packages/factory/index.ts"],
+      "@notation/factory-cloudflare": [
         "./packages/cloudflare/implementations/index.ts"
       ],
-      "@factory/github": ["./packages/github/implementations/index.ts"],
-      "@factory/slack": ["./packages/slack/implementations/index.ts"],
-      "@factory/claude": ["./packages/claude/implementations/index.ts"],
-      "@factory/railway": ["./packages/railway/implementations/index.ts"]
+      "@notation/factory-github": ["./packages/github/implementations/index.ts"],
+      "@notation/factory-slack": ["./packages/slack/implementations/index.ts"],
+      "@notation/factory-claude": ["./packages/claude/implementations/index.ts"],
+      "@notation/factory-railway": ["./packages/railway/implementations/index.ts"]
     }
   },
   "include": [

@@ -1,7 +1,7 @@
-import { Container, outpost, Policy, Trigger } from "factory";
-import * as claude from "@factory/claude";
-import * as github from "@factory/github";
-import * as slack from "@factory/slack";
+import { Container, outpost, Policy, Trigger } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as github from "@notation/factory-github";
+import * as slack from "@notation/factory-slack";
 
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" });

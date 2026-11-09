@@ -10,14 +10,14 @@ Each repository defines its own outpost in `.factory/`:
     └── system.md      # prompt files referenced by Agents
 ```
 
-The deployer evaluates `config.ts` in a sandbox that allows only `factory`, the plugins the infrastructure installs in containers (its connections', policies' and runtimes'), and files inside `.factory/`.
+The deployer evaluates `config.ts` in a sandbox that allows only `@notation/factory`, the plugins the infrastructure installs in containers (its connections', policies' and runtimes'), and files inside `.factory/`.
 
 `config.ts` default-exports `outpost(() => { … })`:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "factory";
-import * as claude from "@factory/claude";
-import * as github from "@factory/github";
+import { Container, outpost, Trigger } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as github from "@notation/factory-github";
 
 export default outpost(() => {
   // channels, containers, policies, agents and triggers

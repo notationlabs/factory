@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Account, type Deployer as DeployerContract } from "factory";
+import { type Account, type Deployer as DeployerContract } from "@notation/factory";
 import * as v from "valibot";
 import { ApiToken, type ApiTokenInstance } from "../resources/api-token.ts";
 import { Worker, type WorkerInstance } from "../resources/worker.ts";

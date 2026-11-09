@@ -1,9 +1,9 @@
-# `factory`
+# `@notation/factory`
 
-`factory` holds what both the infrastructure config (`factory.infra.ts`) and repository outpost configs (`.factory/config.ts`) declare, and the contracts every plugin implements.
+`@notation/factory` holds what both the infrastructure config (`factory.infra.ts`) and repository outpost configs (`.factory/config.ts`) declare, and the contracts every plugin implements.
 
 ```bash
-@pm.dev("factory")
+@pm.dev("@notation/factory")
 ```
 
 | Used in | Exports |
@@ -16,11 +16,11 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 
 | Package | In `factory.infra.ts` | In `.factory/config.ts` |
 | --- | --- | --- |
-| [`@factory/github`](./github.md) | `Connection`, `CodeHost`, `OperatorAuth` | `Connection.get`, `Policy`, selectors, author sets |
-| [`@factory/slack`](./slack.md) | `Connection` | `Connection.get`, selectors, author sets |
-| [`@factory/claude`](./claude.md) | `Account` | `Agent`, `runtime` |
-| [`@factory/cloudflare`](./cloudflare.md) | `Vault`, `Router`, `Deployer`, `OperatorAuth` | |
-| [`@factory/railway`](./railway.md) | `Vault`, `Router`, `Deployer` | |
+| [`@notation/factory-github`](./github.md) | `Connection`, `CodeHost`, `OperatorAuth` | `Connection.get`, `Policy`, selectors, author sets |
+| [`@notation/factory-slack`](./slack.md) | `Connection` | `Connection.get`, selectors, author sets |
+| [`@notation/factory-claude`](./claude.md) | `Account` | `Agent`, `runtime` |
+| [`@notation/factory-cloudflare`](./cloudflare.md) | `Vault`, `Router`, `Deployer`, `OperatorAuth` | |
+| [`@notation/factory-railway`](./railway.md) | `Vault`, `Router`, `Deployer` | |
 
 ## Outpost primitives (`.factory/config.ts`)
 
@@ -29,7 +29,7 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 Declare a repo's outpost:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "factory";
+import { Container, outpost, Trigger } from "@notation/factory";
 
 export default outpost(() => {
   // channels, containers, policies, agents and triggers
@@ -100,10 +100,10 @@ A trigger throws when it's declared if its container doesn't list its agent's ru
 Declare the central hub graph:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as cloudflare from "@factory/cloudflare";
-import * as github from "@factory/github";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as cloudflare from "@notation/factory-cloudflare";
+import * as github from "@notation/factory-github";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");

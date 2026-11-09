@@ -1,8 +1,8 @@
 # Container Providers
 
-A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Container` on one provider plugin, such as `@factory/cloudflare`. `.factory/config.ts` stays provider-agnostic, so you can switch providers in `factory.infra.ts` without touching subscriber repositories.
+A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Container` on one provider plugin, such as `@notation/factory-cloudflare`. `.factory/config.ts` stays provider-agnostic, so you can switch providers in `factory.infra.ts` without touching subscriber repositories.
 
-| Capability | Cloudflare (`@factory/cloudflare`) | Railway (`@factory/railway`) |
+| Capability | Cloudflare (`@notation/factory-cloudflare`) | Railway (`@notation/factory-railway`) |
 | --- | --- | --- |
 | **Compute** | Worker + `standard-1` Durable Object container | Railway Service per router, deployer, and outpost |
 | **Private network** | Authenticated Worker routing (`*.factory.internal`) | Railway private network (`*.railway.internal`) |

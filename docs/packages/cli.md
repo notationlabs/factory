@@ -1,9 +1,9 @@
-# `@factory/cli`
+# `@notation/factory-cli`
 
-`@factory/cli` provides the `factory` executable. It runs on [Bun](https://bun.sh):
+`@notation/factory-cli` provides the `factory` executable. It runs on [Bun](https://bun.sh):
 
 ```bash
-@pm.add("-g @factory/cli")
+@pm.add("-g @notation/factory-cli")
 ```
 
 

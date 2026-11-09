@@ -3,7 +3,7 @@ import {
   type Connection as ConnectionContract,
   type Router,
   secret,
-} from "factory";
+} from "@notation/factory";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
 import { ConnectionRef } from "./connection-ref.ts";

@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Router as RouterContract, secret } from "factory";
+import { type Router as RouterContract, secret } from "@notation/factory";
 import * as v from "valibot";
 import { KvNamespace, type KvNamespaceInstance } from "../resources/kv.ts";
 import { R2Bucket, type R2BucketInstance } from "../resources/r2.ts";

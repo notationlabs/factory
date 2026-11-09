@@ -1,4 +1,4 @@
-import type { RouterApi } from "factory";
+import type { RouterApi } from "@notation/factory";
 import { defineResource } from "@notation/resource";
 import {
   createApp,

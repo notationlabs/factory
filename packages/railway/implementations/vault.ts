@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import type { Vault as VaultContract, VaultSecretOptions } from "factory";
+import type { Vault as VaultContract, VaultSecretOptions } from "@notation/factory";
 import type { ProjectInstance } from "../resources/project.ts";
 import {
   SealedVariable,

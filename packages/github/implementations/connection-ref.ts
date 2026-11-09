@@ -2,7 +2,7 @@ import { ResourceGroup } from "@notation/resource";
 import type {
   ChannelOptions,
   ConnectionRef as ConnectionRefContract,
-} from "factory";
+} from "@notation/factory";
 import { Channel } from "./channel.ts";
 
 type ConnectionRefConfig = { name: string };

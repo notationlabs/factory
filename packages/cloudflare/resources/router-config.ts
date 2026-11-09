@@ -1,5 +1,5 @@
 import { defineResource, mergeContributions } from "@notation/resource";
-import { type RouterConfig as Config, single } from "factory";
+import { type RouterConfig as Config, single } from "@notation/factory";
 import { deleteValue, getValue, putValue } from "../lib/kv.ts";
 import type { KvNamespaceInstance } from "./kv.ts";
 

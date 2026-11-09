@@ -1,7 +1,7 @@
-import { factory, secret } from "factory";
-import * as claude from "@factory/claude";
-import * as github from "@factory/github";
-import * as railway from "@factory/railway";
+import { factory, secret } from "@notation/factory";
+import * as claude from "@notation/factory-claude";
+import * as github from "@notation/factory-github";
+import * as railway from "@notation/factory-railway";
 
 export default factory(() => {
   const vault = new railway.Vault("vault");

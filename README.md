@@ -285,3 +285,7 @@ The API calls (`packages/*/lib/`) are stubs, so nothing deploys yet.
 - **Protected resources.** The vault, GitHub Apps and Slack apps throw on `delete`. `infra down` should leave them and open their settings instead.
 - **Minting secrets.** A vault item's create has no value to write: Notation has no way yet to give a create an input it never plans or stores. `vault.secret` takes `value`, and doesn't pass it on.
 - **Binding secrets.** Nothing says which of the router and deployer reads which item, so their Workers and services don't bind any. A binding should refer to its item, so the edge comes from the reference.
+
+## License
+
+[MIT](./LICENSE)

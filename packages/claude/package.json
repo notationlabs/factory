@@ -1,8 +1,32 @@
 {
   "name": "@notation/factory-claude",
-  "private": true,
+  "version": "0.0.0",
+  "author": "Daniel Grant",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notationlabs/factory.git",
+    "directory": "packages/claude"
+  },
   "type": "module",
   "exports": {
     ".": "./implementations/index.ts"
+  },
+  "files": [
+    "implementations",
+    "runtime"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@notation/resource": "0.16.0",
+    "valibot": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@notation/factory": "workspace:^"
+  },
+  "devDependencies": {
+    "@notation/factory": "workspace:*"
   }
 }

@@ -1,9 +1,29 @@
 {
   "name": "@notation/factory",
   "version": "0.0.0",
-  "private": true,
+  "author": "Daniel Grant",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notationlabs/factory.git",
+    "directory": "packages/factory"
+  },
   "type": "module",
   "exports": {
     ".": "./index.ts"
+  },
+  "files": [
+    "contracts",
+    "implementations",
+    "index.ts",
+    "lib",
+    "resources"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@notation/resource": "0.16.0",
+    "valibot": "^1.1.0"
   }
 }

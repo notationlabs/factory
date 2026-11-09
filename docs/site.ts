@@ -2,7 +2,7 @@ import type { DocsSite } from "@notation/docs";
 
 export default {
   slug: "factory",
-  label: "Software Factory",
+  label: "Factory",
   root: new URL(".", import.meta.url),
   version: { packageJson: "packages/factory/package.json" },
   categories: [

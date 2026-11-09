@@ -51,26 +51,26 @@ export default {
       ],
     },
     {
-      label: "Packages",
-      slug: "packages",
+      label: "Reference",
+      slug: "reference",
       sections: [
         {
           heading: "Entrypoints",
           icon: "terminal",
           links: [
-            { label: "@notation/factory-cli", slug: "packages/cli" },
-            { label: "@notation/factory", slug: "packages/core" },
+            { label: "@notation/factory-cli", slug: "reference/cli" },
+            { label: "@notation/factory", slug: "reference/core" },
           ],
         },
         {
           heading: "Plugins",
           icon: "cpu",
           links: [
-            { label: "@notation/factory-github", slug: "packages/github" },
-            { label: "@notation/factory-slack", slug: "packages/slack" },
-            { label: "@notation/factory-claude", slug: "packages/claude" },
-            { label: "@notation/factory-cloudflare", slug: "packages/cloudflare" },
-            { label: "@notation/factory-railway", slug: "packages/railway" },
+            { label: "@notation/factory-github", slug: "reference/github" },
+            { label: "@notation/factory-slack", slug: "reference/slack" },
+            { label: "@notation/factory-claude", slug: "reference/claude" },
+            { label: "@notation/factory-cloudflare", slug: "reference/cloudflare" },
+            { label: "@notation/factory-railway", slug: "reference/railway" },
           ],
         },
       ],

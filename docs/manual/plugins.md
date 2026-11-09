@@ -1,6 +1,6 @@
 # Writing Plugins
 
-A plugin is an npm package that exports classes implementing `@notation/factory`'s contracts (see [`@notation/factory`](../packages/core.md#contracts)). Each class is a group: a plain class that extends Notation's `ResourceGroup`. Its constructor adds the concrete resources it owns, such as an App or a Worker, and contributes to configs that already exist, such as the router's.
+A plugin is an npm package that exports classes implementing `@notation/factory`'s contracts (see [`@notation/factory`](../reference/core.md#contracts)). Each class is a group: a plain class that extends Notation's `ResourceGroup`. Its constructor adds the concrete resources it owns, such as an App or a Worker, and contributes to configs that already exist, such as the router's.
 
 A group takes its id, then one object of options: its config and its dependencies side by side. The constructor:
 

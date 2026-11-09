@@ -26,12 +26,12 @@ In each outpost repository, add `@notation/factory` and the plugins `.factory/co
 
 | Package | Used in |
 | --- | --- |
-| [`@notation/factory`](../packages/core.md) | Both |
-| [`@notation/factory-cloudflare`](../packages/cloudflare.md) | `factory.infra.ts` |
-| [`@notation/factory-railway`](../packages/railway.md) | `factory.infra.ts` |
-| [`@notation/factory-github`](../packages/github.md) | Both |
-| [`@notation/factory-slack`](../packages/slack.md) | Both |
-| [`@notation/factory-claude`](../packages/claude.md) | Both |
+| [`@notation/factory`](../reference/core.md) | Both |
+| [`@notation/factory-cloudflare`](../reference/cloudflare.md) | `factory.infra.ts` |
+| [`@notation/factory-railway`](../reference/railway.md) | `factory.infra.ts` |
+| [`@notation/factory-github`](../reference/github.md) | Both |
+| [`@notation/factory-slack`](../reference/slack.md) | Both |
+| [`@notation/factory-claude`](../reference/claude.md) | Both |
 
 ## Prerequisites
 

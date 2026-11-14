@@ -87,7 +87,7 @@ export class Deployer
     for (const account of accounts) {
       for (const [env, from] of Object.entries(account.secrets)) {
         vault.secret({
-          id: `${id}-${account.id}-${env}`,
+          id: `${id}-${account.id}-${env.toLowerCase().replaceAll("_", "-")}`,
           binding: env,
           consumers: ["deployer"],
           ...from,

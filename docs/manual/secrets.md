@@ -121,7 +121,7 @@ For the example at the top of this page, the vault holds these secrets:
 | `router-root-key` | `FACTORY_ROOT_KEY` | `Router` | `generated()` |
 | `gh-private-key` | `GITHUB_ACME_AGENTS_PRIVATE_KEY` | `github.Connection` | No source: set it with `notation secret set` |
 | `slack-bot-token`, `slack-signing-secret` | `SLACK_ACME_AGENTS_BOT_TOKEN`, `SLACK_ACME_AGENTS_SIGNING_SECRET` | `slack.Connection`, if the hub has one | No source: deploy asks for them, or set them with `notation secret set` |
-| `deployer-claude-CLAUDE_CODE_OAUTH_TOKEN` | `CLAUDE_CODE_OAUTH_TOKEN` | `Deployer`, for each of its `accounts` | The account's `auth`, here `env` |
+| `deployer-claude-claude-code-oauth-token` | `CLAUDE_CODE_OAUTH_TOKEN` | `Deployer`, for each of its `accounts` | The account's `auth`, here `env` |
 
 A connection's bindings are named after the connection's `name`, in upper case, with each character other than a letter or a digit replaced by `_`. So the router can hold the credentials of several connections at once.
 

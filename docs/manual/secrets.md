@@ -3,31 +3,28 @@
 Keep every secret the hub holds in one vault that only the hub can read:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault"); // <-- 1. where the hub's secrets live
+const vault = new cloudflare.Vault("vault"); // <-- 1. where the hub's secrets live
 
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
-
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-
-  new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] }); // <-- 2. who may run the CLI against the hub
-
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- 3. read from your environment at deploy
-  });
-
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
 });
+
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
+
+new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] }); // <-- 2. who may run the CLI against the hub
+
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- 3. read from your environment at deploy
+});
+
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 A Notation Factory instance has secrets in three places: your machine, the hub (`Router` and `Deployer`), and each outpost container. This page explains what each place holds, how each secret gets there, and who can read it.
@@ -203,10 +200,8 @@ Each `OperatorAuth` decides who you are differently:
 To use Cloudflare Access instead of GitHub:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  new cloudflare.OperatorAuth("operators", { router, emails: ["dj@acme.dev", "alice@acme.dev"] });
-});
+// …
+new cloudflare.OperatorAuth("operators", { router, emails: ["dj@acme.dev", "alice@acme.dev"] });
 ```
 
 Platform operations that need a connection's credentials run in the router, which has them: for GitHub, reading the App's settings, and reading and setting its webhook. `factory infra up` asks the router to do them.

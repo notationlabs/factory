@@ -12,22 +12,20 @@ Notation Factory runs coding agents in remote containers and connects them to th
 Stand up a central Notation Factory hub for your organisation to serve all of your outposts.
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
-
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
-  });
-
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
 });
+
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
+
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+});
+
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 The `Connection` (in this case, a GitHub App) is Notation Factory's presence on a platform. It sends events to the `Router`, which holds its credentials.

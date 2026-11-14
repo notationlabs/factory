@@ -9,7 +9,7 @@
 | Used in | Exports |
 | --- | --- |
 | `.factory/config.ts` | `outpost`, `Container`, `Policy`, `Trigger` |
-| `factory.infra.ts` | `factory`, `generated` |
+| `factory.infra.ts` | `generated` |
 | Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `bindingName` |
 
 Plugins add the vendor-specific resources alongside it. Each has one entrypoint, used in both config files:
@@ -100,31 +100,27 @@ A trigger throws when it's declared if its container doesn't list its agent's ru
 Declare the central hub graph:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-  new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
-  });
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
 });
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
+new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+});
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 | Export | Role |
 | --- | --- |
-| `factory(declare)` | Captures the resource graph for `factory infra up` and `factory infra down` |
 | `generated(bytes?)` | A Notation source of random values, such as the root key. Each secret that uses it gets its own value of `bytes` random bytes in hex, 32 by default. The value is written once, when the secret is created. The key is not used |
 | `bindingName(id)` | Makes a binding name from a secret's id: upper case, with each character other than a letter, a digit or `_` replaced by `_`, and `_` in front if it starts with a digit. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. `router.bind(secret)` uses it when it is given no name |
 

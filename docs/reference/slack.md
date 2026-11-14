@@ -18,22 +18,19 @@ Slack is a channel only. Code still lives on the infra's code host.
 Register a Slack app and point its events at your router:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as slack from "@notation/factory-slack";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
+});
 
-  new slack.Connection("slack", {
-    name: "acme-agents", // <-- Slack app name; repos look the connection up by it
-    workspace: "acme",   // <-- the Slack workspace it's installed in
-    router,
-  });
+new slack.Connection("slack", {
+  name: "acme-agents", // <-- Slack app name; repos look the connection up by it
+  workspace: "acme",   // <-- the Slack workspace it's installed in
+  router,
 });
 ```
 

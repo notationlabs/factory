@@ -11,28 +11,25 @@
 Provision the hub and outpost builder in a Railway project:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as railway from "@notation/factory-railway";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new railway.Vault("vault"); // <-- sealed shared variables in the router's project
+const vault = new railway.Vault("vault"); // <-- sealed shared variables in the router's project
 
-  const router = new railway.Router("router", {
-    project: "acme-agents", // <-- Railway project name
-    vault,                  // <-- only a railway.Vault
-  });
+const router = new railway.Router("router", {
+  project: "acme-agents", // <-- Railway project name
+  vault,                  // <-- only a railway.Vault
+});
 
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
-  });
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+});
 
-  new railway.Deployer("deployer", {
-    router,
-    vault,
-    accounts: [claudeAccount],
-  });
+new railway.Deployer("deployer", {
+  router,
+  vault,
+  accounts: [claudeAccount],
 });
 ```
 

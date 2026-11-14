@@ -11,24 +11,21 @@
 Give the hub the credentials Claude Code runs on:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
-
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- from `claude setup-token`
-  });
-
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
 });
+
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- from `claude setup-token`
+});
+
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 `auth` is a secret that you declare in the hub's vault with `vault.secret(...)`. You choose its id. Here, `factory infra up` reads `CLAUDE_CODE_OAUTH_TOKEN` from your environment and writes it to the vault on every deploy. Without a source, `vault.secret({ id: "claude-oauth-token" })` makes `factory infra up` ask for the token, and `notation secret set claude-oauth-token` sets it. See [Secrets](../manual/secrets.md#where-a-value-comes-from).

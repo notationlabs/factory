@@ -35,22 +35,20 @@ An outpost's `.factory/config.ts` does not name the hosting provider, so the hub
 For example, this hub runs on Cloudflare, receives events from GitHub, and runs Claude:
 
 ```ts
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
-
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
-  new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
-
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
-  });
-  new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
 });
+
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
+new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
+
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+});
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 Each class here is a group. A group creates real resources, such as a Worker or a GitHub App, and adds entries to shared ones. For example, `github.Connection` adds its App to the router's config declares the App's private key in the vault, and binds the key to the router.

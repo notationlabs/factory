@@ -18,22 +18,19 @@ On GitHub, one App is both the connection and the code host's token issuer.
 Register a GitHub App and wire its webhooks to your router:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
+const vault = new cloudflare.Vault("vault");
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
+});
 
-  new github.Connection("gh", {
-    name: "acme-agents", // <-- GitHub App name; repos look the connection up by it
-    org: "acme",         // <-- omit for a personal GitHub account
-    router,
-  });
+new github.Connection("gh", {
+  name: "acme-agents", // <-- GitHub App name; repos look the connection up by it
+  org: "acme",         // <-- omit for a personal GitHub account
+  router,
 });
 ```
 
@@ -54,12 +51,10 @@ The grant is the App's installation: installing it on a repo (`factory repo inst
 Every infrastructure declares one code host, where the repositories it serves live:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  new github.CodeHost("github", {
-    connection: gh,
-    allow: [{ owner: "acme" }], // <-- only installed repos that match get outposts
-  });
+// …
+new github.CodeHost("github", {
+  connection: gh,
+  allow: [{ owner: "acme" }], // <-- only installed repos that match get outposts
 });
 ```
 
@@ -72,12 +67,10 @@ GitHub installation tokens can be limited to one repo and a set of permissions, 
 Sign operators in with GitHub:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  new github.OperatorAuth("operators", {
-    connection: gh,
-    logins: ["djgrant", "alice"], // <-- GitHub logins allowed to run the CLI against the hub
-  });
+// …
+new github.OperatorAuth("operators", {
+  connection: gh,
+  logins: ["djgrant", "alice"], // <-- GitHub logins allowed to run the CLI against the hub
 });
 ```
 

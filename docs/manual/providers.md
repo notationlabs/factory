@@ -19,22 +19,20 @@ The vault is always on the hub's provider: `cloudflare.Router` and `cloudflare.D
 Run the hub and outposts on Cloudflare Workers and Durable Object Containers:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  const vault = new cloudflare.Vault("vault");
+// …
+const vault = new cloudflare.Vault("vault");
 
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
+});
 
-  new cloudflare.Deployer("deployer", {
-    router,
-    vault,
-    accounts: [claudeAccount],
-    accountId: "<account id>", // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
-    knownHosts: ["ssh-ed25519 AAAA... dev@acme"], // <-- written to outpost authorized_keys for `factory container ssh`
-  });
+new cloudflare.Deployer("deployer", {
+  router,
+  vault,
+  accounts: [claudeAccount],
+  accountId: "<account id>", // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
+  knownHosts: ["ssh-ed25519 AAAA... dev@acme"], // <-- written to outpost authorized_keys for `factory container ssh`
 });
 ```
 
@@ -56,20 +54,18 @@ The project's KV namespace holds the router's config and other non-secret values
 Run the hub and outposts as services inside a Railway project:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  const vault = new railway.Vault("vault");
+// …
+const vault = new railway.Vault("vault");
 
-  const router = new railway.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
+const router = new railway.Router("router", {
+  project: "acme-agents",
+  vault,
+});
 
-  new railway.Deployer("deployer", {
-    router,
-    vault,
-    accounts: [claudeAccount],
-  });
+new railway.Deployer("deployer", {
+  router,
+  vault,
+  accounts: [claudeAccount],
 });
 ```
 

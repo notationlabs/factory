@@ -3,40 +3,37 @@
 Stand up a central hub to serve all of your repositories:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import * as slack from "@notation/factory-slack";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents",
-    vault,
-  });
+const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
+const router = new cloudflare.Router("router", {
+  project: "acme-agents",
+  vault,
+});
 
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
 
-  new github.CodeHost("github", {
-    connection: gh,             // <-- GitHub mints narrow tokens through the App
-    allow: [{ owner: "acme" }], // <-- only repos owned by "acme" get outposts
-  });
+new github.CodeHost("github", {
+  connection: gh,             // <-- GitHub mints narrow tokens through the App
+  allow: [{ owner: "acme" }], // <-- only repos owned by "acme" get outposts
+});
 
-  new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
+new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
 
-  new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
+new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
 
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- what outposts' Claude agents run on
-  });
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- what outposts' Claude agents run on
+});
 
-  new cloudflare.Deployer("deployer", {
-    router,
-    vault,
-    accounts: [claudeAccount],
-  });
+new cloudflare.Deployer("deployer", {
+  router,
+  vault,
+  accounts: [claudeAccount],
 });
 ```
 
@@ -74,17 +71,15 @@ factory infra up --prune     # delete sleeping containers for unsubscribed repos
 Connect several GitHub organizations, personal accounts or platforms to the same hub:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  const org = new github.Connection("org", { name: "acme-agents", org: "acme", router });
+// …
+const org = new github.Connection("org", { name: "acme-agents", org: "acme", router });
 
-  new github.Connection("personal", {
-    name: "alice-agents", // <-- omit `org` for a personal GitHub App
-    router,
-  });
-
-  new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
+new github.Connection("personal", {
+  name: "alice-agents", // <-- omit `org` for a personal GitHub App
+  router,
 });
+
+new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
 ```
 
 All connections deliver events through the shared `Router`. Only one of them backs the `CodeHost`; the others are channels only. See [Connections & Channels](./connections.md).

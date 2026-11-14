@@ -3,13 +3,11 @@
 Connect the hub to a platform once, then let each repository pick the conversations it listens to:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
-  new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
+// …
+const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
-  new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
-});
+new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
 ```
 
 ```ts [.factory/config.ts]

@@ -11,30 +11,27 @@
 Provision the hub and outpost builder on Cloudflare:
 
 ```ts [factory.infra.ts]
-import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import { env } from "@notation/std/sources";
 
-export default factory(() => {
-  const vault = new cloudflare.Vault("vault"); // <-- secrets in the account's Secrets Store
+const vault = new cloudflare.Vault("vault"); // <-- secrets in the account's Secrets Store
 
-  const router = new cloudflare.Router("router", {
-    project: "acme-agents", // <-- names the KV namespace, R2 bucket and container application
-    vault,                  // <-- only a cloudflare.Vault
-  });
+const router = new cloudflare.Router("router", {
+  project: "acme-agents", // <-- names the KV namespace, R2 bucket and container application
+  vault,                  // <-- only a cloudflare.Vault
+});
 
-  const claudeAccount = new claude.Account("claude", {
-    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
-  });
+const claudeAccount = new claude.Account("claude", {
+  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+});
 
-  new cloudflare.Deployer("deployer", {
-    router,
-    vault,
-    accounts: [claudeAccount],
-    accountId: "<account id>",                     // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
-    knownHosts: ["ssh-ed25519 AAAA... me@laptop"], // <-- authorized_keys for outpost containers
-  });
+new cloudflare.Deployer("deployer", {
+  router,
+  vault,
+  accounts: [claudeAccount],
+  accountId: "<account id>",                     // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
+  knownHosts: ["ssh-ed25519 AAAA... me@laptop"], // <-- authorized_keys for outpost containers
 });
 ```
 
@@ -61,12 +58,10 @@ The router image is a placeholder, and the Worker bundles aren't shipped yet. Se
 Put Cloudflare Access in front of the router's admin routes:
 
 ```ts [factory.infra.ts]
-export default factory(() => {
-  // …
-  new cloudflare.OperatorAuth("operators", {
-    router,                                    // <-- the Access application sits in front of its admin routes
-    emails: ["dj@acme.dev", "alice@acme.dev"], // <-- who Access lets in
-  });
+// …
+new cloudflare.OperatorAuth("operators", {
+  router,                                    // <-- the Access application sits in front of its admin routes
+  emails: ["dj@acme.dev", "alice@acme.dev"], // <-- who Access lets in
 });
 ```
 

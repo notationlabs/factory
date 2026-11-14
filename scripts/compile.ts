@@ -12,6 +12,7 @@ import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type BaseResource,
+  collectResourceGraph,
   isOutputRef,
   type ResourceGraph,
   ResourceGroup,
@@ -135,15 +136,23 @@ const compileGraph = async (graph: ResourceGraph) => {
   return { groups, resources };
 };
 
+// A hub example declares its resources when it is imported, and Notation
+// collects them. An outpost example's default export is `outpost(…)`, a
+// function of the repo being deployed.
 const compileExample = async (file: string): Promise<CompiledExample> => {
   const name = basename(file, ".ts");
-  const mod = await import(pathToFileURL(file).href);
-  const declared = mod.default as (repo?: string) => Promise<ResourceGraph>;
-  // `outpost(…)` returns a function of the repo being deployed; `factory(…)` takes nothing.
-  const kind = declared.length > 0 ? "outpost" : "hub";
-  const repo = kind === "outpost" ? OUTPOST_REPO : undefined;
+  let kind: CompiledExample["kind"] = "hub";
+  let repo: string | undefined;
   try {
-    const graph = await declared(repo);
+    let mod: { default?: (repo: string) => Promise<ResourceGraph> } = {};
+    let graph = await collectResourceGraph(async () => {
+      mod = await import(pathToFileURL(file).href);
+    });
+    if (typeof mod.default === "function") {
+      kind = "outpost";
+      repo = OUTPOST_REPO;
+      graph = await mod.default(repo);
+    }
     return { name, kind, repo, ...(await compileGraph(graph)) };
   } catch (error) {
     return {

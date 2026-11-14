@@ -45,7 +45,7 @@ export class Deployer extends ResourceGroup implements DeployerContract {
     for (const account of accounts) {
       for (const [env, value] of Object.entries(account.secrets)) {
         vault.secret({
-          id: `${id}-${account.id}-${env.toLowerCase().replaceAll("_", "-")}`,
+          id: `${id}-${account.id}-${env}`,
           binding: env,
           consumers: ["deployer"],
           ...value,

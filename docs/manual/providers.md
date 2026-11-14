@@ -7,7 +7,7 @@ A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Contain
 | **Compute** | Worker + `standard-1` Durable Object container | Railway Service per router, deployer, and outpost |
 | **Private network** | Authenticated Worker routing (`*.factory.internal`) | Railway private network (`*.railway.internal`) |
 | **Service store** | Durable Object storage | JSON files on `/data` volume |
-| **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed variables) |
+| **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed shared variables) |
 | **Outpost `/data` disk** | DO disk snapshots + R2 archive across image rebuilds | Railway persistent volume at `/data` |
 | **Image builds** | Cloudflare Workers Builds | Railway GitHub builder |
 | **Container SSH** | `wrangler containers ssh` (`knownHosts` on `Deployer`) | `railway ssh` (`railway login`) |
@@ -25,6 +25,7 @@ export default factory(() => {
 
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>", // <-- the router's container image, pinned by digest
     vault,
   });
 
@@ -32,6 +33,7 @@ export default factory(() => {
     router,
     vault,
     accounts: [claudeAccount],
+    accountId: "<account id>", // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
     knownHosts: ["ssh-ed25519 AAAA... dev@acme"], // <-- written to outpost authorized_keys for `factory container ssh`
   });
 });
@@ -39,10 +41,10 @@ export default factory(() => {
 
 | Credential | Used by | Setup |
 | --- | --- | --- |
-| **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI) |
-| **Deployer token** | `cloudflare.Deployer` (Workers Scripts and Workers Builds) | An account API token of the deployer's own, created by `factory infra up` with your sign-in |
+| **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI) |
+| **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 
-The project's KV namespace holds only non-secret variables (URLs, plugin lists, project names) and fingerprints of secrets. Secrets are only in Secrets Store or Worker secrets.
+The project's KV namespace holds the router's config and the outposts' configs. They name the vault's secrets by their bindings, and hold no secret values. Secrets are only in the Secrets Store or in Worker secrets.
 
 | `/data` lifecycle event | Snapshot mechanism |
 | --- | --- |
@@ -87,3 +89,15 @@ Cloud providers build `.factory/Dockerfile` through their own GitHub App (**Clou
 3. Browser prompt      ──► Grant builder App access to `acme/webapp`
 4. Auto-retry          ──► Deployer builds `.factory/Dockerfile`
 ```
+
+## Known gaps
+
+The provider plugins don't yet do all that these pages describe:
+
+| Gap | Effect |
+| --- | --- |
+| The GitHub App's private key has to be set by hand | Generate a key on the App's settings page and run `notation secret set <connection id>-private-key`. Later, the App's create will write it, once Notation supports a resource writing a secret value |
+| The R2 bucket isn't bound to the router | `cloudflare.Router` creates the bucket, but Notation 0.20's `WorkerScript` has no `r2_bucket` binding, so the router Worker can't reach it |
+| Nothing builds the router image | `cloudflare.Router` takes an `image` pinned by digest, but nothing in Notation Factory builds or pushes that image yet |
+| The router and deployer Worker code doesn't exist yet | `@notation/factory-cloudflare` expects the bundles at `dist/router/index.mjs` and `dist/deployer/index.mjs`, and doesn't ship them yet |
+| A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

@@ -3,15 +3,20 @@
 Keep every secret the hub holds in one vault that only the hub can read:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- 1. where the hub's secrets live
 
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
 
   const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
   new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
@@ -19,7 +24,7 @@ export default factory(() => {
   new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] }); // <-- 2. who may run the CLI against the hub
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"), // <-- 3. copied from your environment into the vault
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }, // <-- 3. read from your environment at deploy
   });
 
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
@@ -33,14 +38,14 @@ A Notation Factory instance has secrets in three places: your machine, the hub (
 | Place | Holds | Who reads it |
 | --- | --- | --- |
 | **Local** | Your container provider sign-in, your `gh` login, account secrets such as `CLAUDE_CODE_OAUTH_TOKEN` | `factory` on your machine |
-| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | `Router` and `Deployer` only |
+| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Consumers](#consumers) |
 | **Outpost** | Its `FACTORY_CONTAINER_KEY`, the secrets of the accounts whose runtimes it lists, short-lived code host tokens the router mints | That container; agents get only the minted tokens and account secrets |
 
-**The hub vault is write-only from outside the hub.** `factory infra up` writes a secret to it when a resource is created or a local value changes, and never reads one back. Holding the container provider's credentials lets you replace the hub's secrets, not read them.
+**The hub vault is write-only from outside the hub.** `factory infra up` writes a secret's value to the vault's store, and never reads one back. Holding the container provider's credentials lets you replace the hub's secrets, not read them.
 
 ## The root key
 
-`FACTORY_ROOT_KEY` is a random key that `factory infra up` generates the first time it creates the router, writes to the vault, and then forgets. Every other secret Notation Factory makes is derived from it with HMAC, so the hub stores one key instead of many:
+`FACTORY_ROOT_KEY` is a random key. The router declares it with the `generated()` source from `@notation/factory`, so `factory infra up` generates it when it creates the secret, writes it to the vault, and then forgets it. Every other secret Notation Factory makes is derived from it with HMAC, so the hub stores one key instead of many:
 
 ```text
 FACTORY_ROOT_KEY
@@ -58,30 +63,103 @@ Platforms that issue their own signing secret, such as Slack, keep it in the vau
 
 ## The hub vault
 
-`Router` and `Deployer` both take the vault. Both read secrets from it through the provider's binding; nothing else does. Each hub provider backs its vault with its own write-only store:
+The vault is a `Vault` from the hub's provider plugin. Groups declare secrets in it with `vault.secret(...)`. For example, `github.Connection` declares its App's private key:
 
-| Provider | `Vault` | Backed by |
-| --- | --- | --- |
-| Cloudflare | `cloudflare.Vault` | Secrets Store: values can't be read back through the API; Workers read them through a binding |
-| Railway | `railway.Vault` | Sealed variables: values are never shown in the dashboard or returned by the API |
+```ts
+router.vault.secret({
+  id: "gh-private-key",                       // <-- the secret's id in state; `notation secret set` takes it
+  binding: "GITHUB_ACME_AGENTS_PRIVATE_KEY",  // <-- the env var name the router reads it as
+  consumers: ["router"],                      // <-- only the router binds it
+});
+```
+
+Each secret has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Keys the secret in Notation's state. `notation secret set <id>` takes it |
+| `binding` | The env var name that a Worker or service reads the secret as |
+| `consumers` | `"router"`, `"deployer"`, or both. Each one binds only the secrets that list it |
+| `source`, `key` | Where the value comes from, such as `{ source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }`. Optional |
+
+The factory doesn't choose the secret's name in the store. The vault's provider makes a name scoped to the Notation app and stage, so two stages of one hub keep separate secrets:
+
+| Provider | `Vault` | Each secret is | Name in the store |
+| --- | --- | --- | --- |
+| Cloudflare | `cloudflare.Vault` | A secret in the account's Secrets Store. Values can't be read back through the API. Workers read it through a `secrets_store_secret` binding | `<app>--<stage>--<id>` |
+| Railway | `railway.Vault` | A sealed shared variable in the router's project. Values are never shown in the dashboard or returned by the API. A service reads it through a variable named after the binding, whose value is `${{shared.<name>}}` | `<app>__<stage>__<id>`, with characters other than letters, digits and `_` replaced by `_` |
 
 **The vault and the hub are always on the same provider.** `cloudflare.Router` and `cloudflare.Deployer` take only a `cloudflare.Vault`. A vault elsewhere would need its own access credential, and that credential would have to live in the hub provider's store anyway.
 
-The vault holds three kinds of secret:
+### Where a value comes from
 
-| Secret | Written by | When |
+A secret follows Notation's secret model. It takes its value from a source and a key, or, with no source, from you:
+
+| Secret declared with | `factory infra up` |
+| --- | --- |
+| `{ source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }` | Reads `CLAUDE_CODE_OAUTH_TOKEN` from the environment it runs in, and writes it on every deploy |
+| `{ source: dotenv(".env.local"), key: "CLAUDE_CODE_OAUTH_TOKEN" }` | Reads the key from that `.env` file, and writes it on every deploy |
+| `{ source: generated(), key: "FACTORY_ROOT_KEY" }` | Generates a random value once, when it creates the secret |
+| No source | Asks for the value with a hidden prompt when it creates the secret, on a terminal. Without a terminal, the deploy fails |
+
+`env` and `dotenv` come from `@notation/std/sources`. Notation records each secret's source, key and version, and never the value or anything derived from it. See Notation's [Secrets](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md) page for the sources, when each one writes, and how to write your own.
+
+To set a secret that has no source, for example before a deploy in CI, run `notation secret set` with its id. It reads the value from a hidden prompt, or from stdin:
+
+```sh
+notation secret set gh-private-key --stage prod < acme-agents.private-key.pem
+```
+
+See [notation secret](https://github.com/notationlabs/notation/blob/main/docs/cli/secret.md).
+
+### The secrets in the vault
+
+For the example at the top of this page, the vault holds these secrets:
+
+| Secret `id` | `binding` | Declared by | Value from |
+| --- | --- | --- | --- |
+| `router-root-key` | `FACTORY_ROOT_KEY` | `Router` | `generated()` |
+| `gh-private-key` | `GITHUB_ACME_AGENTS_PRIVATE_KEY` | `github.Connection` | No source: set it with `notation secret set` |
+| `slack-bot-token`, `slack-signing-secret` | `SLACK_ACME_AGENTS_BOT_TOKEN`, `SLACK_ACME_AGENTS_SIGNING_SECRET` | `slack.Connection`, if the hub has one | No source: deploy asks for them, or set them with `notation secret set` |
+| `deployer-claude-CLAUDE_CODE_OAUTH_TOKEN` | `CLAUDE_CODE_OAUTH_TOKEN` | `Deployer`, for each of its `accounts` | The account's `auth`, here `env` |
+
+A connection's bindings are named after the connection's `name`, in upper case, with each character other than a letter or a digit replaced by `_`. So the router can hold the credentials of several connections at once.
+
+The GitHub App's private key has to be set by hand for now. Generate a private key on the App's settings page, then run `notation secret set gh-private-key`. Later, the App's create will write the key, once Notation supports a resource writing a secret value. See [Known gaps](./providers.md#known-gaps).
+
+### Consumers
+
+Each consumer binds only its own secrets:
+
+| Secret | Router | Deployer |
 | --- | --- | --- |
-| `FACTORY_ROOT_KEY` | `factory infra up` | Once, when it creates the router |
-| Connection credentials | `factory infra up` | Once, when it creates the connection: a GitHub App's private key, or the Slack app's bot token and signing secret you paste. One item per connection |
-| Account secrets, e.g. `secret.env("CLAUDE_CODE_OAUTH_TOKEN")` | `factory infra up`, from your environment | When the local value changes |
+| `FACTORY_ROOT_KEY` | Bound | Bound |
+| Connection credentials | Bound | Not bound |
+| Account secrets | Not bound | Bound |
 
-Notation Factory treats secrets differently from variables. A secret is write-only: `factory infra up` plans it by whether it exists or by a fingerprint of the local value, never by reading the value. It keeps the fingerprint, never the value, so it can tell a changed local token from an unchanged one without reading the vault. A generated secret, such as the root key, is written once and never read by the CLI again.
+**The router never binds an account's secrets, and the deployer never binds a connection's credentials.** A leak of one Worker or service therefore exposes only the secrets it binds, plus the root key.
 
-The deployer's own provider token isn't a vault item. It's a resource the deployer owns: a Cloudflare account API token, or a Railway project token. `factory infra up` creates it with your provider sign-in and gives its value to the deployer. Its value is only returned when it's created, and is never shown.
+Connections and the deployer's accounts are declared after the router, so the list of secrets is complete only when the infra's evaluation ends. Each consumer adds its bindings then: on Cloudflare, to the Worker's `Bindings`; on Railway, to the service's variables.
 
-`factory infra down` leaves the vault in place, like the GitHub Apps it can't delete. A hub re-created in the same account finds its root key and connection credentials.
+### The deployer's provider token
 
-If you lose the vault (for example, by moving to another provider), the root key is generated again and the router re-derives every webhook secret and container key. The GitHub Apps survive, but their private keys don't: generate a new private key on each App's page and `factory infra up` writes it to the new vault. For a Slack app, paste its bot token and signing secret again.
+The deployer's own provider token isn't a vault secret. It's a resource the deployer owns:
+
+| Provider | Token | How the deployer gets it |
+| --- | --- | --- |
+| Cloudflare | An account API token, with Workers Scripts Write, Workers CI Write and Containers Write in the deployer's account | Cloudflare returns its value only when it creates the token. Notation writes the value to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
+| Railway | A project token | `factory infra up` creates it with your sign-in and gives its value to the deployer |
+
+`notation secret set` can't set the Cloudflare token, because only the token's create can write its value.
+
+### Losing the vault
+
+The vault's secrets belong to the hub's Notation stage, so `factory infra down` deletes them along with the router and deployer. When you bring the hub up again, or move it to another provider:
+
+- `factory infra up` generates a new root key, and the router re-derives every webhook secret and container key.
+- The GitHub Apps survive, but their private keys don't. Generate a new private key on each App's page, and set it with `notation secret set`.
+- For a Slack app, enter its bot token and signing secret again.
+- Account secrets with a source are written again from the source.
 
 ## Local credentials
 
@@ -89,11 +167,12 @@ If you lose the vault (for example, by moving to another provider), the root key
 
 | Step | Credential |
 | --- | --- |
-| Create and deploy the hub on Cloudflare | `npx wrangler login`, or `CLOUDFLARE_API_TOKEN` (e.g. in CI) |
+| Create and deploy the hub on Cloudflare | `npx wrangler login`, or `CLOUDFLARE_API_TOKEN` (e.g. in CI). Creating the deployer's token needs the Account API Tokens: Edit permission |
+| Choose the deployer's Cloudflare account | `CLOUDFLARE_ACCOUNT_ID`, or `accountId` on `cloudflare.Deployer` |
 | Create and deploy the hub on Railway | `RAILWAY_API_TOKEN` |
 | Create a GitHub App or Slack app | Your browser, through the platform's manifest flow |
 | Calls to GitHub as you, e.g. `factory repo install` | Your `gh` login |
-| Copy account secrets into the vault | e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment |
+| Write account secrets to the vault | The account's source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `env` |
 
 The `infra` commands check each one before they start, and their messages name the credential that's missing or refused.
 
@@ -149,7 +228,7 @@ Containers get no channel credential. They read and reply on a conversation thro
 Outposts declare no secrets of their own. The deployer gives each container two things when it deploys it, stored as the provider's own secrets (Worker secrets on Cloudflare, sealed variables on Railway):
 
 - its `FACTORY_CONTAINER_KEY`
-- the `env()` of every account whose runtime the container lists, read from the vault
+- the secrets of every account whose runtime the container lists, which the deployer reads through its own bindings
 
 A container that lists only `claude.runtime` gets the Claude account's token and nothing else.
 
@@ -163,17 +242,18 @@ Taken together, secrets flow one way, from your machine into the vault and from 
  LOCAL                               HUB                                        OUTPOST
  ─────                               ───                                        ───────
  provider sign-in ──infra up──▶ creates and deploys Router, Deployer, Vault
- browser ───────────infra up──▶ creates GitHub App, Slack app ──┐
- CLAUDE_CODE_OAUTH_TOKEN ─────────── copied ────────────────────┤ written, never read back
-                                                                ▼
+ browser ───────────infra up──▶ creates GitHub App, Slack app
+ CLAUDE_CODE_OAUTH_TOKEN ──── from its source ──┐
+ App key, Slack values ── prompt or secret set ─┤ written, never read back
+                                                ▼
                                ┌─────────────────────────────┐
                                │ Vault                       │
-                               │   FACTORY_ROOT_KEY         │
+                               │   FACTORY_ROOT_KEY          │
                                │   connection credentials    │
                                │   account secrets           │
                                └──────┬───────────────┬──────┘
-                                bound │               │ bound
-                                      ▼               ▼
+                        root key and  │               │ root key and
+                        connections   ▼               ▼ accounts
  GitHub, Slack ──events────────▶ Router ◀─admin key─▶ Deployer ──deploys──▶ Container
         (signed)                  ▲   │                                       FACTORY_CONTAINER_KEY
                                   │   │                                       account secrets

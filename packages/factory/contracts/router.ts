@@ -64,8 +64,10 @@ export interface Router extends ResourceGroup {
   readonly vault: Vault;
   readonly rootKey: VaultSecret;
   /**
-   * Binds a secret from the router's vault to the router, which reads it as
-   * `name`. A connection binds its credentials this way.
+   * Binds a secret from the router's vault to the router, and returns the
+   * name the router reads it as. The name is made from the secret's id,
+   * unless `name` is given. A connection binds its credentials this way, and
+   * records the names in its entry.
    */
-  bind(name: string, secret: VaultSecret): void;
+  bind(secret: VaultSecret, name?: string): string;
 }

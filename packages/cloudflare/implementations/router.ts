@@ -1,5 +1,6 @@
 import { ResourceGroup, scopedPhysicalName } from "@notation/resource";
 import {
+  bindingName,
   generated,
   type Router as RouterContract,
   type RouterApi,
@@ -109,7 +110,7 @@ export class Router
         dependencies: { code: this.code },
       }),
     );
-    this.bind("FACTORY_ROOT_KEY", this.rootKey);
+    this.bind(this.rootKey, "FACTORY_ROOT_KEY");
 
     this.subdomain = this.add(
       new workers.WorkerSubdomain(`${id}-subdomain`, {
@@ -141,8 +142,9 @@ export class Router
     );
   }
 
-  bind(name: string, secret: VaultSecret): void {
+  bind(secret: VaultSecret, name = bindingName(secret.id)): string {
     assertCloudflareSecret(secret);
     this.script.contribute({ Bindings: [secretBinding(name, secret)] });
+    return name;
   }
 }

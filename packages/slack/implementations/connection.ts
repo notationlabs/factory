@@ -16,10 +16,6 @@ export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ConnectionConfig & { router: Router };
 
-/** The names the router reads the app's credentials as. A hub has one Slack connection. */
-const BOT_TOKEN_BINDING = "SLACK_BOT_TOKEN";
-const SIGNING_SECRET_BINDING = "SLACK_SIGNING_SECRET";
-
 /**
  * `new slack.Connection(...)`: Notation Factory on Slack, as one app whose events go
  * to the router. Deploy asks for its bot token and signing secret, and
@@ -45,12 +41,10 @@ export class Connection
         dependencies: { router: router.api },
       }),
     );
-    this.router.bind(
-      BOT_TOKEN_BINDING,
+    const botToken = this.router.bind(
       this.router.vault.secret({ id: `${id}-bot-token` }),
     );
-    this.router.bind(
-      SIGNING_SECRET_BINDING,
+    const signingSecret = this.router.bind(
       this.router.vault.secret({ id: `${id}-signing-secret` }),
     );
     this.router.store.contribute({
@@ -59,8 +53,8 @@ export class Connection
           provider: "slack",
           source: this.app.outputRef("appId"),
           credentials: {
-            botToken: BOT_TOKEN_BINDING,
-            signingSecret: SIGNING_SECRET_BINDING,
+            botToken,
+            signingSecret,
           },
         },
       },

@@ -1,5 +1,6 @@
 import { ResourceGroup } from "@notation/resource";
 import {
+  bindingName,
   generated,
   type Router as RouterContract,
   type VaultSecret,
@@ -54,7 +55,7 @@ export class Router
         dependencies: { project: this.project },
       }),
     );
-    this.bind("FACTORY_ROOT_KEY", this.rootKey);
+    this.bind(this.rootKey, "FACTORY_ROOT_KEY");
     this.store = this.add(
       new RouterConfig(`${id}-config`, {
         config: { path: "/data/config.json" },
@@ -63,7 +64,8 @@ export class Router
     );
   }
 
-  bind(name: string, secret: VaultSecret): void {
+  bind(secret: VaultSecret, name = bindingName(secret.id)): string {
     bindSecret(this.api, name, secret);
+    return name;
   }
 }

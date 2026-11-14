@@ -2,6 +2,7 @@ import { collectResourceGraph } from "@notation/resource";
 
 export * from "./contracts/index.ts";
 export { single } from "./lib/collect.ts";
+export { bindingName } from "./lib/binding-name.ts";
 export { generated } from "./lib/generated.ts";
 export {
   Container,

@@ -18,3 +18,10 @@ export const workerCode = (id: string, worker: "router" | "deployer") =>
       ),
     },
   });
+
+/**
+ * The build context of the router's container image, which this package
+ * ships at `router-image/`, relative to the project root.
+ */
+export const routerImageContext = () =>
+  toProjectRoot(fileURLToPath(new URL("../router-image", import.meta.url)));

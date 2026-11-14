@@ -1,5 +1,5 @@
 import type { BindableSecret } from "@notation/cloudflare/secrets-store";
-import type { kv, workers } from "@notation/cloudflare/resources";
+import type { kv, r2, workers } from "@notation/cloudflare/resources";
 
 type WorkerBinding = workers.WorkerBinding;
 
@@ -10,6 +10,16 @@ export const kvBinding = (namespace: kv.KVNamespaceInstance): WorkerBinding => (
   type: "kv_namespace",
   name: KV_BINDING,
   namespace_id: namespace.outputRef("NamespaceId"),
+});
+
+/** The name that the router reads the project's R2 bucket as. */
+export const R2_BINDING = "FACTORY_BUCKET";
+
+// The output ref makes the Worker depend on the bucket.
+export const r2Binding = (bucket: r2.R2BucketInstance): WorkerBinding => ({
+  type: "r2_bucket",
+  name: R2_BINDING,
+  bucket_name: bucket.outputRef("BucketName"),
 });
 
 // The output refs make the Worker depend on the secret, so the secret exists
@@ -27,11 +37,5 @@ export const secretBinding = (
   };
 };
 
-// WorkerScript has no JSON binding, so each var is a plain text binding that
-// holds JSON. The Worker parses it.
-export const varBindings = (vars: Record<string, unknown>): WorkerBinding[] =>
-  Object.entries(vars).map(([name, value]) => ({
-    type: "plain_text",
-    name,
-    text: JSON.stringify(value),
-  }));
+export const jsonBindings = (vars: Record<string, unknown>): WorkerBinding[] =>
+  Object.entries(vars).map(([name, json]) => ({ type: "json", name, json }));

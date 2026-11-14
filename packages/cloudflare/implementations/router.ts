@@ -14,8 +14,8 @@ import {
   RouterConfig,
   type RouterConfigInstance,
 } from "../resources/router-config.ts";
-import { kvBinding, secretBinding } from "./bindings.ts";
-import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
+import { kvBinding, r2Binding, secretBinding } from "./bindings.ts";
+import { COMPATIBILITY_DATE, routerImageContext, workerCode } from "./code.ts";
 import { assertCloudflareSecret, type Vault } from "./vault.ts";
 
 const CONTAINER_NAMESPACE = "router-container";
@@ -23,15 +23,6 @@ const CONTAINER_CLASS = "RouterContainer";
 
 const routerConfig = v.object({
   project: v.string(),
-  /**
-   * The router's container image, pinned by its digest, such as
-   * `registry.cloudflare.com/<account>/router@sha256:<digest>`. A new image
-   * under the same tag starts no rollout.
-   */
-  image: v.pipe(
-    v.string(),
-    v.regex(/@sha256:[0-9a-f]{64}$/, "Pin the router's image by its digest"),
-  ),
 });
 export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
@@ -39,7 +30,8 @@ export type RouterOptions = RouterGroupConfig & { vault: Vault };
 
 /**
  * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
- * container, the project's KV namespace and R2 bucket, and the KV entry its
+ * container built from the image this package ships, the project's KV
+ * namespace and R2 bucket, and the KV entry its
  * config is contributed to. Creating it generates the root key into the vault.
  */
 export class Router
@@ -54,12 +46,13 @@ export class Router
   readonly code: fs.FileInstance;
   readonly script: workers.WorkerScriptInstance;
   readonly subdomain: workers.WorkerSubdomainInstance;
+  readonly image: containers.ContainerImageInstance;
   readonly container: containers.ContainerApplicationInstance;
   readonly api: RouterApi;
   readonly store: RouterConfigInstance;
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
-    const { project, image } = v.parse(routerConfig, config);
+    const { project } = v.parse(routerConfig, config);
     super("cloudflare/Router", id, config);
     this.project = project;
     this.vault = vault;
@@ -90,9 +83,9 @@ export class Router
       new workers.WorkerScript(`${id}-worker`, {
         config: {
           CompatibilityDate: COMPATIBILITY_DATE,
-          // WorkerScript has no R2 binding yet, so the bucket is unbound.
           Bindings: [
             kvBinding(this.kv),
+            r2Binding(this.bucket),
             {
               type: "durable_object_namespace",
               name: "ROUTER_CONTAINER",
@@ -119,6 +112,14 @@ export class Router
     );
     this.api = this.subdomain;
 
+    // The tag is a hash of the build context, so every project shares one
+    // repository.
+    this.image = this.add(
+      new containers.ContainerImage(`${id}-image`, {
+        config: { Repository: "factory-router", Context: routerImageContext() },
+      }),
+    );
+
     this.container = this.add(
       new containers.ContainerApplication(`${id}-container`, {
         config: {
@@ -128,7 +129,10 @@ export class Router
           }).replace(/-{2,}/g, "-"),
           HostedNamespaceId: CONTAINER_NAMESPACE,
           MaxInstances: 1,
-          Configuration: { image, instance_type: "standard-1" },
+          Configuration: {
+            image: this.image.outputRef("Image"),
+            instance_type: "standard-1",
+          },
         },
         dependencies: { script: this.script },
       }),

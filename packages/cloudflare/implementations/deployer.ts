@@ -10,7 +10,7 @@ import {
 } from "@notation/cloudflare/tokens";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
-import { kvBinding, secretBinding, varBindings } from "./bindings.ts";
+import { kvBinding, secretBinding, jsonBindings } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
 import type { Router } from "./router.ts";
 import { assertCloudflareSecret, type Vault } from "./vault.ts";
@@ -96,7 +96,7 @@ export class Deployer
             secretBinding("CLOUDFLARE_API_TOKEN", this.token),
             secretBinding("FACTORY_ROOT_KEY", router.rootKey),
             ...accountSecrets,
-            ...varBindings({
+            ...jsonBindings({
               CLOUDFLARE_ACCOUNT_ID: accountId,
               KNOWN_HOSTS: knownHosts,
               ACCOUNTS: Object.fromEntries(

@@ -16,7 +16,8 @@
     "dist",
     "implementations",
     "lib",
-    "resources"
+    "resources",
+    "router-image"
   ],
   "publishConfig": {
     "access": "public"

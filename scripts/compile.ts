@@ -12,7 +12,7 @@ import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type BaseResource,
-  isOutputValue,
+  isOutputRef,
   type ResourceGraph,
   ResourceGroup,
 } from "@notation/resource";
@@ -58,9 +58,9 @@ const isResource = (value: unknown): value is BaseResource =>
 const isGroup = (value: unknown): value is ResourceGroup =>
   value instanceof ResourceGroup;
 
-/** JSON-safe: resources and groups become their ids, functions are marked, output values become placeholders. */
+/** JSON-safe: resources and groups become their ids, functions are marked, output refs become placeholders. */
 const plain = (value: unknown): unknown => {
-  if (isOutputValue(value)) {
+  if (isOutputRef(value)) {
     return `<${value.resource.id}.${value.path.join(".")}>`;
   }
   if (isResource(value)) return `<resource ${value.id}>`;

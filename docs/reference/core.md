@@ -10,7 +10,7 @@
 | --- | --- |
 | `.factory/config.ts` | `outpost`, `Container`, `Policy`, `Trigger` |
 | `factory.infra.ts` | `factory`, `generated` |
-| Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `secretValueFrom`, `VaultSecrets` |
+| Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `bindingName` |
 
 Plugins add the vendor-specific resources alongside it. Each has one entrypoint, used in both config files:
 
@@ -117,7 +117,7 @@ export default factory(() => {
   new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
   new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
+    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
   });
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 });
@@ -127,8 +127,9 @@ export default factory(() => {
 | --- | --- |
 | `factory(declare)` | Captures the resource graph for `factory infra up` and `factory infra down` |
 | `generated(bytes?)` | A Notation source of random values, such as the root key. Each secret that uses it gets its own value of `bytes` random bytes in hex, 32 by default. The value is written once, when the secret is created. The key is not used |
+| `bindingName(id)` | Makes a binding name from a secret's id: upper case, with each character other than a letter, a digit or `_` replaced by `_`, and `_` in front if it starts with a digit. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. `router.bind(secret)` uses it when it is given no name |
 
-A secret's value comes from a Notation source and a key, `{ source, key }`, such as `env` or `dotenv(path)` from `@notation/std/sources`. With no source, `factory infra up` asks for the value on a terminal, and `notation secret set <id>` sets it. The provider holds the value, and the vault never reads it back. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
+`vault.secret({ id, source?, key? })` declares a secret in the hub's vault. A secret's value comes from a Notation source and a key, `{ source, key }`, such as `env` or `dotenv(path)` from `@notation/std/sources`. With no source, `factory infra up` asks for the value on a terminal, and `notation secret set <id>` sets it. The provider holds the value, and the vault never reads it back. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
 
 ## Contracts
 
@@ -138,33 +139,31 @@ Each plugin implements some of these, so that one provider can be swapped for an
 // Where a secret's value comes from. With no source, deploy asks for it.
 type SecretValueFrom = { source: Source; key: string } | { source?: undefined; key?: undefined };
 
-// The hub Workers or services that bind secrets from the vault.
-type SecretConsumer = "router" | "deployer";
-
 type VaultSecretOptions = SecretValueFrom & {
-  id: string;                  // keys the secret in state; `notation secret set <id>` takes it
-  binding: string;             // the env var name each consumer reads it as
-  consumers: SecretConsumer[]; // the router, the deployer, or both
+  id: string; // keys the secret in state; `notation secret set <id>` takes it
 };
 
-type VaultSecret = { id: string; binding: string; consumers: SecretConsumer[] };
+// A secret that a vault declares. On Cloudflare, Notation's SecretGroup.
+type VaultSecret = ResourceGroup;
 
-// The hub's write-only secret store. secret() declares a secret the vault
-// owns; bindings() lists the secrets a consumer binds, and is complete only
-// when evaluation ends.
-interface Vault {
+// The hub's write-only secret store. secret() only declares a secret. The
+// router or the deployer binds it where it is used.
+interface Vault<S extends VaultSecret = VaultSecret> {
   provider: string;
-  secret(opts: VaultSecretOptions): VaultSecret;
-  bindings(consumer: SecretConsumer): VaultSecret[];
+  secret(opts: VaultSecretOptions): S;
 }
 
 // Receives every connection's deliveries, matches triggers, relays channel
 // replies and mints code host tokens. `api` has the router's `Url`; `store`
-// is where its config is contributed to.
+// is where its config is contributed to. `rootKey` is the secret every other
+// key is derived from. bind() binds a secret from `vault` to the router, and
+// returns its binding name, made from the secret's id unless `name` is given.
 interface Router {
   api: RouterApi;
   store: RouterConfigStore;
   vault: Vault;
+  rootKey: VaultSecret;
+  bind(secret: VaultSecret, name?: string): string;
 }
 
 // In the infra: Notation Factory's presence on a platform.
@@ -196,10 +195,10 @@ interface OperatorAuth {
 }
 
 // Credentials an agent runtime runs on, keyed by the env var containers read
-// them as. The deployer declares each in the vault, bound to the deployer only.
+// them as. The deployer binds each under that name.
 interface Account {
   runtime: Runtime["id"];
-  secrets: Record<string, SecretValueFrom>;
+  secrets: Record<string, VaultSecret>;
 }
 
 interface Deployer {

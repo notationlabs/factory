@@ -1,8 +1,5 @@
-import { onEvaluationEnd } from "@notation/resource";
-import type { SecretConsumer } from "@notation/factory";
 import type { BindableSecret } from "@notation/cloudflare/secrets-store";
 import type { kv, workers } from "@notation/cloudflare/resources";
-import type { Vault } from "./vault.ts";
 
 type WorkerBinding = workers.WorkerBinding;
 
@@ -38,21 +35,3 @@ export const varBindings = (vars: Record<string, unknown>): WorkerBinding[] =>
     name,
     text: JSON.stringify(value),
   }));
-
-/**
- * Binds the vault's secrets for `consumer` to `script`. Groups made after the
- * Worker declare secrets too, so the list is read when evaluation ends, and
- * contributed to the script's `Bindings`.
- */
-export function bindVaultSecrets(
-  script: workers.WorkerScriptInstance,
-  vault: Vault,
-  consumer: SecretConsumer,
-): void {
-  onEvaluationEnd(() => {
-    const bindings = vault
-      .bindings(consumer)
-      .map((s) => secretBinding(s.binding, s.secret));
-    if (bindings.length > 0) script.contribute({ Bindings: bindings });
-  });
-}

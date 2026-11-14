@@ -10,15 +10,10 @@ import {
 } from "@notation/cloudflare/tokens";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
-import {
-  bindVaultSecrets,
-  kvBinding,
-  secretBinding,
-  varBindings,
-} from "./bindings.ts";
+import { kvBinding, secretBinding, varBindings } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
 import type { Router } from "./router.ts";
-import type { Vault } from "./vault.ts";
+import { assertCloudflareSecret, type Vault } from "./vault.ts";
 
 const deployerConfig = v.object({
   /** Written to outposts' authorized_keys, for `container ssh` and `resume`. */
@@ -39,8 +34,8 @@ export type DeployerOptions = DeployerConfig & {
 
 /**
  * `new cloudflare.Deployer(...)`: a Worker that builds outposts' containers
- * with Workers Builds, with an API token of its own. The accounts' secrets
- * go into the vault, bound to the deployer only.
+ * with Workers Builds, with an API token of its own. It binds the root key
+ * and the accounts' secrets.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
@@ -84,16 +79,12 @@ export class Deployer
       ],
     });
 
-    for (const account of accounts) {
-      for (const [env, from] of Object.entries(account.secrets)) {
-        vault.secret({
-          id: `${id}-${account.id}-${env}`,
-          binding: env,
-          consumers: ["deployer"],
-          ...from,
-        });
-      }
-    }
+    const accountSecrets = accounts.flatMap((account) =>
+      Object.entries(account.secrets).map(([name, secret]) => {
+        assertCloudflareSecret(secret);
+        return secretBinding(name, secret);
+      }),
+    );
 
     this.code = this.add(workerCode(`${id}-worker`, "deployer"));
     this.script = this.add(
@@ -103,6 +94,8 @@ export class Deployer
           Bindings: [
             kvBinding(router.kv),
             secretBinding("CLOUDFLARE_API_TOKEN", this.token),
+            secretBinding("FACTORY_ROOT_KEY", router.rootKey),
+            ...accountSecrets,
             ...varBindings({
               CLOUDFLARE_ACCOUNT_ID: accountId,
               KNOWN_HOSTS: knownHosts,
@@ -115,6 +108,5 @@ export class Deployer
         dependencies: { code: this.code },
       }),
     );
-    bindVaultSecrets(this.script, vault, "deployer");
   }
 }

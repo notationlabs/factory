@@ -1,41 +1,35 @@
 import { ResourceGroup } from "@notation/resource";
 import {
-  type SecretConsumer,
   type Vault as VaultContract,
-  type VaultSecret as VaultSecretContract,
+  type VaultSecret,
   type VaultSecretOptions,
-  VaultSecrets,
 } from "@notation/factory";
-import { type SecretGroup, secret } from "@notation/cloudflare/secrets-store";
-
-/** A secret in the Cloudflare vault: the Secrets Store secret that Workers bind. */
-export type VaultSecret = VaultSecretContract & { readonly secret: SecretGroup };
+import { SecretGroup, secret } from "@notation/cloudflare/secrets-store";
 
 /**
  * `new cloudflare.Vault(id)`: the hub's secrets, in the account's Secrets
  * Store. Each secret's name in the store is `<app>--<stage>--<id>`. Values
  * can't be read back through the API.
  */
-export class Vault extends ResourceGroup implements VaultContract<VaultSecret> {
+export class Vault extends ResourceGroup implements VaultContract<SecretGroup> {
   readonly provider = "cloudflare";
-  readonly #secrets = new VaultSecrets<VaultSecret>();
 
   constructor(id: string) {
     super("cloudflare/Vault", id);
   }
 
-  secret({ id, binding, consumers, ...from }: VaultSecretOptions): VaultSecret {
-    return this.#secrets.add({
-      id,
-      binding,
-      consumers: [...consumers],
-      secret: secret(
-        from.source ? { id, source: from.source, key: from.key } : { id },
-      ),
-    });
+  secret({ id, source, key }: VaultSecretOptions): SecretGroup {
+    return secret(source ? { id, source, key } : { id });
   }
+}
 
-  bindings(consumer: SecretConsumer): VaultSecret[] {
-    return this.#secrets.for(consumer);
+/** Throws unless `secret` came from a `cloudflare.Vault`. */
+export function assertCloudflareSecret(
+  secret: VaultSecret,
+): asserts secret is SecretGroup {
+  if (!(secret instanceof SecretGroup)) {
+    throw new Error(
+      `${secret.id} is not a secret from a cloudflare.Vault, so a Cloudflare Worker can't bind it.`,
+    );
   }
 }

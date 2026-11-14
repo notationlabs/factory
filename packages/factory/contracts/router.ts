@@ -3,7 +3,7 @@ import type {
   DeepPartial,
   ResourceGroup,
 } from "@notation/resource";
-import type { Vault } from "./vault.ts";
+import type { Vault, VaultSecret } from "./vault.ts";
 
 /**
  * In the router's config: how to verify a connection's deliveries (`source`,
@@ -55,10 +55,17 @@ export type RouterConfigStore = Omit<BaseResource, "contribute"> & {
  * channel replies and mints code host tokens. A provider decides where each
  * part lives (a Worker and a KV entry, …). The config is `store`, not
  * `config`, which ResourceGroup already uses for the group's own options.
- * `vault` is on the router's own provider.
+ * `vault` is on the router's own provider. `rootKey` is the secret that the
+ * router and the deployer derive every other key from.
  */
 export interface Router extends ResourceGroup {
   readonly api: RouterApi;
   readonly store: RouterConfigStore;
   readonly vault: Vault;
+  readonly rootKey: VaultSecret;
+  /**
+   * Binds a secret from the router's vault to the router, which reads it as
+   * `name`. A connection binds its credentials this way.
+   */
+  bind(name: string, secret: VaultSecret): void;
 }

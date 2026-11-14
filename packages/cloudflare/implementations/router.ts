@@ -3,7 +3,9 @@ import {
   generated,
   type Router as RouterContract,
   type RouterApi,
+  type VaultSecret,
 } from "@notation/factory";
+import type { SecretGroup } from "@notation/cloudflare/secrets-store";
 import { containers, kv, r2, workers } from "@notation/cloudflare/resources";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
@@ -11,9 +13,9 @@ import {
   RouterConfig,
   type RouterConfigInstance,
 } from "../resources/router-config.ts";
-import { bindVaultSecrets, kvBinding } from "./bindings.ts";
+import { kvBinding, secretBinding } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
-import type { Vault, VaultSecret } from "./vault.ts";
+import { assertCloudflareSecret, type Vault } from "./vault.ts";
 
 const CONTAINER_NAMESPACE = "router-container";
 const CONTAINER_CLASS = "RouterContainer";
@@ -45,7 +47,7 @@ export class Router
 {
   readonly project: string;
   readonly vault: Vault;
-  readonly rootKey: VaultSecret;
+  readonly rootKey: SecretGroup;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
   readonly code: fs.FileInstance;
@@ -65,8 +67,6 @@ export class Router
       id: `${id}-root-key`,
       source: generated(),
       key: "FACTORY_ROOT_KEY",
-      binding: "FACTORY_ROOT_KEY",
-      consumers: ["router", "deployer"],
     });
 
     this.kv = this.add(
@@ -109,7 +109,7 @@ export class Router
         dependencies: { code: this.code },
       }),
     );
-    bindVaultSecrets(this.script, vault, "router");
+    this.bind("FACTORY_ROOT_KEY", this.rootKey);
 
     this.subdomain = this.add(
       new workers.WorkerSubdomain(`${id}-subdomain`, {
@@ -139,5 +139,10 @@ export class Router
         dependencies: { kv: this.kv },
       }),
     );
+  }
+
+  bind(name: string, secret: VaultSecret): void {
+    assertCloudflareSecret(secret);
+    this.script.contribute({ Bindings: [secretBinding(name, secret)] });
   }
 }

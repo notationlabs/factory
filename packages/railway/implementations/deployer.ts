@@ -6,7 +6,7 @@ import {
 } from "../resources/project-token.ts";
 import { Service, type ServiceInstance } from "../resources/service.ts";
 import type { Router } from "./router.ts";
-import { bindSecrets } from "./bind-secrets.ts";
+import { bindSecret } from "./bind-secrets.ts";
 import type { Vault } from "./vault.ts";
 
 export type DeployerOptions = {
@@ -18,9 +18,7 @@ export type DeployerOptions = {
 /**
  * `new railway.Deployer(...)`: a private, scale-to-zero service that builds
  * outposts as services in the hub's project. It manages them with a project
- * token of its own. The accounts' secrets go into the vault, bound to the
- * deployer only, and the deployer service binds the vault's `deployer`
- * secrets, which include the root key.
+ * token of its own. It binds the root key and the accounts' secrets.
  */
 export class Deployer extends ResourceGroup implements DeployerContract {
   readonly router: Router;
@@ -42,17 +40,6 @@ export class Deployer extends ResourceGroup implements DeployerContract {
       }),
     );
 
-    for (const account of accounts) {
-      for (const [env, value] of Object.entries(account.secrets)) {
-        vault.secret({
-          id: `${id}-${account.id}-${env}`,
-          binding: env,
-          consumers: ["deployer"],
-          ...value,
-        });
-      }
-    }
-
     this.service = this.add(
       new Service(`${id}-service`, {
         config: {
@@ -69,6 +56,11 @@ export class Deployer extends ResourceGroup implements DeployerContract {
         dependencies: { project: router.project },
       }),
     );
-    bindSecrets(this.service, vault, "deployer");
+    bindSecret(this.service, "FACTORY_ROOT_KEY", router.rootKey);
+    for (const account of accounts) {
+      for (const [name, secret] of Object.entries(account.secrets)) {
+        bindSecret(this.service, name, secret);
+      }
+    }
   }
 }

@@ -28,11 +28,9 @@ export type {
   RouterConfig,
   RouterConfigStore,
 } from "./router.ts";
-export {
-  type SecretConsumer,
-  type SecretValueFrom,
-  secretValueFrom,
-  type Vault,
-  type VaultSecret,
-  type VaultSecretOptions,
+export type {
+  SecretValueFrom,
+  Vault,
+  VaultSecret,
+  VaultSecretOptions,
 } from "./vault.ts";

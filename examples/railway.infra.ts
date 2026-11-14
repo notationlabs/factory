@@ -29,7 +29,11 @@ export default factory(() => {
   });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
+    auth: vault.secret({
+      id: "claude-oauth-token",
+      source: env,
+      key: "CLAUDE_CODE_OAUTH_TOKEN",
+    }),
   });
 
   new railway.Deployer("deployer", {

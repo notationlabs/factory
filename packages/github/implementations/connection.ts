@@ -15,8 +15,8 @@ export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ConnectionConfig & { router: Router };
 
-/** Turns a connection name into the part of an env var name, such as `my-app` into `MY_APP`. */
-const envName = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+/** The name the router reads the App's private key as. A hub has one GitHub connection. */
+const PRIVATE_KEY_BINDING = "GITHUB_PRIVATE_KEY";
 
 /**
  * `new github.Connection(...)`: Notation Factory on GitHub, as one App whose webhook
@@ -54,17 +54,14 @@ export class Connection
     });
     // The App's create will write this once Notation supports a resource
     // writing a secret value.
-    const privateKey = this.router.vault.secret({
-      id: `${id}-private-key`,
-      binding: `GITHUB_${envName(name)}_PRIVATE_KEY`,
-      consumers: ["router"],
-    });
+    const privateKey = this.router.vault.secret({ id: `${id}-private-key` });
+    this.router.bind(PRIVATE_KEY_BINDING, privateKey);
     this.router.store.contribute({
       connections: {
         [`github/${name}`]: {
           provider: "github",
           source: this.app.outputRef("id"),
-          credentials: { privateKey: privateKey.binding },
+          credentials: { privateKey: PRIVATE_KEY_BINDING },
         },
       },
     });

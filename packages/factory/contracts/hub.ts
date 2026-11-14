@@ -2,7 +2,7 @@ import type { ResourceGroup } from "@notation/resource";
 import type { Connection } from "./connection.ts";
 import type { Runtime } from "./outpost.ts";
 import type { RepoPattern, Router } from "./router.ts";
-import type { SecretValueFrom, Vault } from "./vault.ts";
+import type { Vault, VaultSecret } from "./vault.ts";
 
 /** Where the repos live, which of them get outposts (`allow`), and what mints containers' code credentials. An infra has one. */
 export interface CodeHost extends ResourceGroup {
@@ -16,14 +16,13 @@ export interface OperatorAuth extends ResourceGroup {
 }
 
 /**
- * Credentials an agent runtime runs on. The deployer declares each of
- * `secrets` in the vault, bound to the deployer only, and injects it into
- * containers that list `runtime`.
+ * Credentials an agent runtime runs on. The deployer binds each of `secrets`
+ * and injects it into containers that list `runtime`.
  */
 export interface Account extends ResourceGroup {
   readonly runtime: Runtime["id"];
   /** Keyed by the env var name that containers read the secret as, such as `CLAUDE_CODE_OAUTH_TOKEN`. */
-  readonly secrets: Record<string, SecretValueFrom>;
+  readonly secrets: Record<string, VaultSecret>;
 }
 
 /** Checks and builds outposts' containers, and gives them `accounts`' credentials. */

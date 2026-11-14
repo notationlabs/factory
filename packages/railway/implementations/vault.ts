@@ -1,11 +1,9 @@
 import { declareSecret, PROMPT_SOURCE } from "@notation/core";
 import { ResourceGroup, scopedPhysicalName } from "@notation/resource";
 import {
-  type SecretConsumer,
   type Vault as VaultContract,
   type VaultSecret,
   type VaultSecretOptions,
-  VaultSecrets,
 } from "@notation/factory";
 import * as std from "@notation/std/resources";
 import {
@@ -40,9 +38,7 @@ type ProjectRef = { resource: ProjectInstance; name: string };
  * One vault secret: a sealed shared variable, and a `SourceValue` when the
  * value comes from a source.
  */
-export class RailwaySecret extends ResourceGroup implements VaultSecret {
-  readonly binding: string;
-  readonly consumers: readonly SecretConsumer[];
+export class RailwaySecret extends ResourceGroup {
   /** The sealed variable's name in the project's environment. */
   readonly name: string;
   readonly variable: SealedVariableInstance;
@@ -50,10 +46,8 @@ export class RailwaySecret extends ResourceGroup implements VaultSecret {
   readonly value?: std.sources.SourceValueInstance;
 
   constructor(opts: VaultSecretOptions, project: ProjectRef) {
-    const { id, binding, consumers, source, key } = opts;
-    super("railway/Secret", id, { id, binding, consumers });
-    this.binding = binding;
-    this.consumers = [...consumers];
+    const { id, source, key } = opts;
+    super("railway/Secret", id, { id });
     this.name = variableName(id);
     const name = this.name;
 
@@ -113,7 +107,6 @@ export class RailwaySecret extends ResourceGroup implements VaultSecret {
 export class Vault extends ResourceGroup implements VaultContract<RailwaySecret> {
   readonly provider = "railway";
   #project?: ProjectRef;
-  readonly #secrets = new VaultSecrets<RailwaySecret>();
   readonly #names = new Map<string, string>();
 
   constructor(id: string) {
@@ -145,12 +138,21 @@ export class Vault extends ResourceGroup implements VaultContract<RailwaySecret>
         `Secrets ${other} and ${opts.id} would both be stored as ${name}.`,
       );
     }
-    const secret = this.#secrets.add(new RailwaySecret(opts, this.#project));
+    if (other !== undefined) {
+      throw new Error(`The vault already has a secret with the id ${opts.id}.`);
+    }
     this.#names.set(name, opts.id);
-    return secret;
+    return new RailwaySecret(opts, this.#project);
   }
+}
 
-  bindings(consumer: SecretConsumer): RailwaySecret[] {
-    return this.#secrets.for(consumer);
+/** Throws unless `secret` came from a `railway.Vault`. */
+export function assertRailwaySecret(
+  secret: VaultSecret,
+): asserts secret is RailwaySecret {
+  if (!(secret instanceof RailwaySecret)) {
+    throw new Error(
+      `${secret.id} is not a secret from a railway.Vault, so a Railway service can't bind it.`,
+    );
   }
 }

@@ -22,7 +22,6 @@ import { renderHtml } from "./viewer.ts";
 const root = resolve(import.meta.dirname, "..");
 const examplesDir = join(root, "examples");
 const outDir = join(root, "dist");
-const OUTPOST_REPO = "acme/webapp";
 
 export type CompiledResource = {
   id: string;
@@ -38,7 +37,6 @@ export type GroupRef = { type: string; id: string };
 export type CompiledExample = {
   name: string;
   kind: "hub" | "outpost";
-  repo?: string;
   groups: {
     type: string;
     id: string;
@@ -136,29 +134,20 @@ const compileGraph = async (graph: ResourceGraph) => {
   return { groups, resources };
 };
 
-// A hub example declares its resources when it is imported, and Notation
-// collects them. An outpost example's default export is `outpost(…)`, a
-// function of the repo being deployed.
+// Each example declares its resources when it is imported, and Notation
+// collects them. `outpost.config.ts` is an outpost's `.factory/config.ts`.
 const compileExample = async (file: string): Promise<CompiledExample> => {
   const name = basename(file, ".ts");
-  let kind: CompiledExample["kind"] = "hub";
-  let repo: string | undefined;
+  const kind = name.endsWith(".config") ? "outpost" : "hub";
   try {
-    let mod: { default?: (repo: string) => Promise<ResourceGraph> } = {};
-    let graph = await collectResourceGraph(async () => {
-      mod = await import(pathToFileURL(file).href);
+    const graph = await collectResourceGraph(async () => {
+      await import(pathToFileURL(file).href);
     });
-    if (typeof mod.default === "function") {
-      kind = "outpost";
-      repo = OUTPOST_REPO;
-      graph = await mod.default(repo);
-    }
-    return { name, kind, repo, ...(await compileGraph(graph)) };
+    return { name, kind, ...(await compileGraph(graph)) };
   } catch (error) {
     return {
       name,
       kind,
-      repo,
       groups: [],
       resources: [],
       error:

@@ -44,23 +44,21 @@ The `Vault` holds the hub's secrets. `vault.secret(...)` only declares a secret.
 Wake an agent when someone you trust mentions it on an issue:
 
 ```ts [.factory/config.ts]
-export default outpost(() => {
-  const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- this repo's issues
+const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- this repo's issues
 
-  const dev = new Container("dev", {
-    image: "./Dockerfile",
-    runtimes: [claude.runtime],
-    policies: [code],
-  });
+const dev = new Container("dev", {
+  image: "./Dockerfile",
+  runtimes: [claude.runtime],
+  policies: [code],
+});
 
-  const coder = new claude.Agent("coder", { model: "claude-opus-5-5" });
+const coder = new claude.Agent("coder", { model: "claude-opus-5-5" });
 
-  new Trigger("mention", {
-    event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
-    worktree: (event) => `issue-${event.issue.number}`, // <-- issue #42 works on branch `issue-42`
-    agent: coder,
-    container: dev,
-  });
+new Trigger("mention", {
+  event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
+  worktree: (event) => `issue-${event.issue.number}`, // <-- issue #42 works on branch `issue-42`
+  agent: coder,
+  container: dev,
 });
 ```
 

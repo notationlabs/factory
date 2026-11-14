@@ -79,36 +79,34 @@ RUN --mount=type=bind,from=runtime,target=/runtime sh /runtime/setup.sh
 Wire `@claude` mentions from collaborators to that container:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "@notation/factory";
+import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
 import { env } from "@notation/std/sources";
 
-export default outpost(() => {
-  const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
+const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
 
-  const code = new github.Policy("code", {
-    permissions: { contents: "write", pull_requests: "write" },
-  });
+const code = new github.Policy("code", {
+  permissions: { contents: "write", pull_requests: "write" },
+});
 
-  const dev = new Container("dev", {
-    image: "./Dockerfile",
-    runtimes: [claude.runtime],
-    policies: [code],
-  });
+const dev = new Container("dev", {
+  image: "./Dockerfile",
+  runtimes: [claude.runtime],
+  policies: [code],
+});
 
-  const coder = new claude.Agent("coder", { model: "claude-opus-5-5", effort: "high" });
+const coder = new claude.Agent("coder", { model: "claude-opus-5-5", effort: "high" });
 
-  new Trigger("mention", {
-    event: gh.issueComment({
-      actions: ["created", "edited"],
-      mention: "@claude",
-      from: github.collaborators(),
-    }),
-    worktree: (event) => `issue-${event.issue.number}`, // <-- issue #42 -> branch `issue-42`
-    agent: coder,
-    container: dev,
-  });
+new Trigger("mention", {
+  event: gh.issueComment({
+    actions: ["created", "edited"],
+    mention: "@claude",
+    from: github.collaborators(),
+  }),
+  worktree: (event) => `issue-${event.issue.number}`, // <-- issue #42 -> branch `issue-42`
+  agent: coder,
+  container: dev,
 });
 ```
 

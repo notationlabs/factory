@@ -11,10 +11,8 @@ new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router }
 ```
 
 ```ts [.factory/config.ts]
-export default outpost(() => {
-  const gh = github.Connection.get("acme-agents").channel({ id: "issues" });         // <-- this repo's issues
-  const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#ops" }); // <-- one Slack channel
-});
+const gh = github.Connection.get("acme-agents").channel({ id: "issues" });         // <-- this repo's issues
+const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#ops" }); // <-- one Slack channel
 ```
 
 ## The model

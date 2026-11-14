@@ -25,7 +25,8 @@ export class Channel
   extends OutpostGroup<ChannelConfig>
   implements ChannelContract
 {
-  readonly scope: string;
+  /** Unset means the outpost's repo. */
+  readonly scope: string | undefined;
   readonly connection: ConnectionRef;
 
   constructor(
@@ -34,7 +35,7 @@ export class Channel
   ) {
     super("github/Channel", id, config);
     const { outpost } = this;
-    const { scope = outpost.repo } = v.parse(channelConfig, config);
+    const { scope } = v.parse(channelConfig, config);
     this.scope = scope;
     this.connection = connection;
     outpost.store.contribute({
@@ -42,7 +43,7 @@ export class Channel
         [id]: {
           provider: "github",
           connection: this.connection.name,
-          scope,
+          ...(scope ? { scope } : {}),
         },
       },
     });

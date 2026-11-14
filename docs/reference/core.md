@@ -8,7 +8,7 @@
 
 | Used in | Exports |
 | --- | --- |
-| `.factory/config.ts` | `outpost`, `Container`, `Policy`, `Trigger` |
+| `.factory/config.ts` | `Container`, `Policy`, `Trigger` |
 | `factory.infra.ts` | `generated` |
 | Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `bindingName` |
 
@@ -29,14 +29,12 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 Declare a repo's outpost:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "@notation/factory";
+import { Container, Trigger } from "@notation/factory";
 
-export default outpost(() => {
-  // channels, containers, policies, agents and triggers
-});
+// channels, containers, policies, agents and triggers
 ```
 
-`outpost(declare)` returns a function the deployer calls with the repo it's deploying. Channels, containers, policies, agents and triggers must be declared inside `declare`: each adds its entry to that repo's outpost config, and throws if there's no outpost. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
+The deployer runs Notation on `.factory/config.ts` for one repo at a time. Each channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The first one declared creates the outpost's `Outpost` group. Declaring one outside a Notation evaluation throws. The outpost config doesn't contain the repo's name: the deployer stores the config under the repo, and the hub fills in the repo where a GitHub channel has no `scope` or a GitHub policy has no `repo`. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
 
 ### `Container` & `Policy`
 

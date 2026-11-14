@@ -12,19 +12,17 @@ Each repository defines its own outpost in `.factory/`:
 
 The deployer evaluates `config.ts` in a sandbox that allows only `@notation/factory`, the plugins the infrastructure installs in containers (its connections', policies' and runtimes'), and files inside `.factory/`.
 
-`config.ts` default-exports `outpost(() => { … })`:
+`config.ts` declares the outpost's resources at the top level:
 
 ```ts [.factory/config.ts]
-import { Container, outpost, Trigger } from "@notation/factory";
+import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
 
-export default outpost(() => {
-  // channels, containers, policies, agents and triggers
-});
+// channels, containers, policies, agents and triggers
 ```
 
-The deployer calls it with the repo it's deploying. Every channel, container, policy, agent and trigger declared inside it adds its entry to that repo's outpost config. Declaring one outside it throws. The snippets below are all inside the function.
+The deployer runs Notation on `config.ts` for the repo it's deploying. Every channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The snippets below all go in `config.ts`.
 
 Within `config.ts`, a trigger is the whole dispatch rule: which event, from whom, to which agent, in which container, on which branch:
 

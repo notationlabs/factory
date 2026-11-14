@@ -2,11 +2,15 @@ import type { ResourceGroup } from "@notation/resource";
 import * as v from "valibot";
 import type { ConnectionRef } from "./connection.ts";
 
-/** In an outpost's config: deliveries from `connection`, in `scope`, are this channel's. */
+/**
+ * In an outpost's config: deliveries from `connection`, in `scope`, are this
+ * channel's. Without `scope`, the hub uses the provider's default, such as
+ * the outpost's repo for GitHub.
+ */
 export type ChannelEntry = {
   provider: string;
   connection: string;
-  scope: string;
+  scope?: string;
 };
 
 /** A channel's config: `scope` is what it covers. Where a provider has a sensible default (GitHub: the outpost's repo), it's optional. */
@@ -21,7 +25,7 @@ export type ChannelOptions = { id: string } & ChannelConfig;
  * channel. Its `id` keys it in the outpost's config.
  */
 export interface Channel extends ResourceGroup {
-  readonly scope: string;
+  readonly scope: string | undefined;
   readonly connection: ConnectionRef;
 }
 

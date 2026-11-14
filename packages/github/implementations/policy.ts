@@ -31,9 +31,11 @@ export class Policy
   constructor(id: string, config: PolicyOptions) {
     super("github/Policy", id, config);
     const { outpost } = this;
-    const { repo = outpost.repo, permissions } = v.parse(policyConfig, config);
+    const { repo, permissions } = v.parse(policyConfig, config);
     outpost.store.contribute({
-      policies: { [id]: { provider: "github", repo, permissions } },
+      policies: {
+        [id]: { provider: "github", ...(repo ? { repo } : {}), permissions },
+      },
     });
   }
 }

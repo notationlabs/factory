@@ -58,25 +58,23 @@ Each class here is a group. A group creates real resources, such as a Worker or 
 Continuing the example, this outpost starts a Claude agent when a collaborator mentions `@claude` in an issue comment:
 
 ```ts
-export default outpost(() => {
-  const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
+const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
 
-  const code = new github.Policy("code", {
-    permissions: { contents: "write", pull_requests: "write" },
-  });
-  const dev = new Container("dev", {
-    image: "./Dockerfile",
-    runtimes: [claude.runtime],
-    policies: [code],
-  });
-  const coder = new claude.Agent("coder", { model: "claude-opus-5-5" });
+const code = new github.Policy("code", {
+  permissions: { contents: "write", pull_requests: "write" },
+});
+const dev = new Container("dev", {
+  image: "./Dockerfile",
+  runtimes: [claude.runtime],
+  policies: [code],
+});
+const coder = new claude.Agent("coder", { model: "claude-opus-5-5" });
 
-  new Trigger("mention", {
-    event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
-    worktree: (event) => `issue-${event.issue.number}`, // <-- `event` is typed by the selector
-    agent: coder,
-    container: dev,
-  });
+new Trigger("mention", {
+  event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
+  worktree: (event) => `issue-${event.issue.number}`, // <-- `event` is typed by the selector
+  agent: coder,
+  container: dev,
 });
 ```
 

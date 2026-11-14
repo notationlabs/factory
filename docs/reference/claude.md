@@ -37,14 +37,12 @@ The account's `secrets` holds the token under the env var name `CLAUDE_CODE_OAUT
 Install Claude Code in a container's image:
 
 ```ts [.factory/config.ts]
-import { Container, outpost } from "@notation/factory";
+import { Container } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 
-export default outpost(() => {
-  const dev = new Container("dev", {
-    image: "./Dockerfile",
-    runtimes: [claude.runtime], // <-- id "claude"; its setup.sh runs at image build
-  });
+const dev = new Container("dev", {
+  image: "./Dockerfile",
+  runtimes: [claude.runtime], // <-- id "claude"; its setup.sh runs at image build
 });
 ```
 

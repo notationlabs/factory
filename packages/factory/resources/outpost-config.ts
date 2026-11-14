@@ -4,9 +4,8 @@ import type { OutpostConfig as Config } from "../contracts/outpost.ts";
 import { deleteOutpost, putOutpost, readOutpost } from "../lib/outpost.ts";
 
 type OutpostConfigApi = {
-  Key: { repo: string };
+  Key: {};
   CreateParams: {
-    repo: string;
     channels?: Config["channels"];
     containers?: Config["containers"];
     policies?: Config["policies"];
@@ -20,7 +19,7 @@ type OutpostConfigApi = {
 const channelEntry = v.object({
   provider: v.string(),
   connection: v.string(),
-  scope: v.string(),
+  scope: v.optional(v.string()),
 });
 
 const containerEntry = v.object({
@@ -52,12 +51,6 @@ const outpostConfig = resource<OutpostConfigApi>({
 });
 
 const outpostConfigSchema = outpostConfig.defineSchema({
-  repo: {
-    propertyType: "param",
-    presence: "required",
-    primaryKey: true,
-    value: v.string(),
-  },
   channels: {
     propertyType: "param",
     presence: "optional",
@@ -92,14 +85,18 @@ const outpostConfigSchema = outpostConfig.defineSchema({
 
 /**
  * A repo's outpost, as the one entry the deployer applies. Its channels,
- * containers, policies, agents and triggers each contribute their part.
+ * containers, policies, agents and triggers each contribute their part. The
+ * deployer runs Notation for one repo at a time, and stores the entry under
+ * that repo.
  */
 export const OutpostConfig = outpostConfigSchema.defineOperations({
-  create: async ({ repo, ...config }) => putOutpost({ repo }, config),
-  read: async (key) => readOutpost(key) as Promise<{}>,
-  update: async (key, _patch, { repo: _repo, ...config }) =>
-    putOutpost(key, config),
-  delete: async (key) => deleteOutpost(key),
+  create: async (config) => putOutpost(config),
+  read: async () => {
+    await readOutpost();
+    return {};
+  },
+  update: async (_key, _patch, config) => putOutpost(config),
+  delete: async () => deleteOutpost(),
 });
 
 export type OutpostConfigInstance = InstanceType<typeof OutpostConfig>;

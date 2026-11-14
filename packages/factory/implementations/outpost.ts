@@ -1,54 +1,42 @@
-import { collectResourceGraph, ResourceGroup } from "@notation/resource";
+import { getActiveResourceCollection, ResourceGroup } from "@notation/resource";
 import {
   OutpostConfig,
   type OutpostConfigInstance,
 } from "../resources/outpost-config.ts";
 
-type OutpostGroupConfig = { repo: string };
-
 /** A repo's outpost. Its channels, containers, policies, agents and triggers contribute to `store`, the one entry the deployer applies. */
-export class Outpost extends ResourceGroup<OutpostGroupConfig> {
-  readonly repo: string;
+export class Outpost extends ResourceGroup {
   readonly store: OutpostConfigInstance;
 
-  constructor(id: string, config: OutpostGroupConfig) {
-    super("factory/Outpost", id, config);
-    this.repo = config.repo;
-    this.store = this.add(
-      new OutpostConfig(`${id}-config`, { config: { repo: config.repo } }),
-    );
+  constructor(id: string) {
+    super("factory/Outpost", id, {});
+    this.store = this.add(new OutpostConfig(`${id}-config`, { config: {} }));
   }
 }
 
-let active: Outpost | undefined;
+// One outpost for each collection, so a process can collect more than one
+// outpost's graph.
+const outposts = new WeakMap<object, Outpost>();
 
-/**
- * A repo's outpost config: `export default outpost(() => { … })`. The
- * deployer calls the result with the repo it's deploying, which collects the
- * outpost's graph. It's separate from the infra's graph: outposts find the
- * infra's connections by name.
- */
-export const outpost = (declare: () => void) => (repo: string) =>
-  collectResourceGraph(() => {
-    active = new Outpost("outpost", { repo });
-    try {
-      declare();
-    } finally {
-      active = undefined;
-    }
-  });
-
-/** The outpost being declared. Outpost resources contribute to it, so they can only be made inside `outpost(() => …)`. */
+/** The outpost of the graph being collected. The first outpost resource declared makes it. */
 const currentOutpost = (): Outpost => {
-  if (!active) {
-    throw new Error("Declare outpost resources inside outpost(() => { … })");
+  const collection = getActiveResourceCollection();
+  if (!collection) {
+    throw new Error(
+      "Declare outpost resources in .factory/config.ts, which the deployer evaluates with Notation",
+    );
   }
-  return active;
+  let outpost = outposts.get(collection);
+  if (!outpost) {
+    outpost = new Outpost("outpost");
+    outposts.set(collection, outpost);
+  }
+  return outpost;
 };
 
 /**
- * A group declared inside `outpost(() => …)`. It contributes to that
- * outpost, without the user passing it.
+ * A group declared in an outpost's config. It contributes to that outpost,
+ * without the user passing it.
  */
 export abstract class OutpostGroup<
   C extends Record<string, any> = Record<string, any>,

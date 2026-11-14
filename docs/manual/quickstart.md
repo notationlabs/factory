@@ -23,7 +23,6 @@ export default factory(() => {
   const vault = new cloudflare.Vault("vault");
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
-    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
     vault,
   });
 
@@ -53,7 +52,7 @@ export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 factory infra up
 ```
 
-`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook`, where `Url` is the router's `Url` output. `image` is the router's container image, pinned by its digest.
+`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook`, where `Url` is the router's `Url` output.
 
 The App's private key has to be set by hand for now. Generate a private key on the App's settings page, then write it to the vault:
 

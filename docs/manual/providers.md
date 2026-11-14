@@ -25,7 +25,6 @@ export default factory(() => {
 
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
-    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>", // <-- the router's container image, pinned by digest
     vault,
   });
 
@@ -41,7 +40,8 @@ export default factory(() => {
 
 | Credential | Used by | Setup |
 | --- | --- | --- |
-| **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI) |
+| **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI). Plan also needs the Containers: Edit permission, because it reads the router image from the registry |
+| **Docker** | `factory infra up`, to build and push the router image | Docker with buildx, installed and running on the machine that deploys |
 | **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 
 The project's KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. Secrets are only in the Secrets Store or in Worker secrets.
@@ -97,8 +97,7 @@ The provider plugins don't yet do all that these pages describe:
 | Gap | Effect |
 | --- | --- |
 | The GitHub App's private key has to be set by hand | Generate a key on the App's settings page and run `notation secret set <connection id>-private-key`. Later, the App's create will write it, once Notation supports a resource writing a secret value |
-| The R2 bucket isn't bound to the router | `cloudflare.Router` creates the bucket, but Notation 0.20's `WorkerScript` has no `r2_bucket` binding, so the router Worker can't reach it |
-| Nothing builds the router image | `cloudflare.Router` takes an `image` pinned by digest, but nothing in Notation Factory builds or pushes that image yet |
+| The router image is a placeholder | `cloudflare.Router` builds its image from `router-image/Dockerfile` in `@notation/factory-cloudflare`. That Dockerfile only runs `sleep`, because the router's container doesn't exist yet |
 | The router and deployer Worker code doesn't exist yet | `@notation/factory-cloudflare` expects the bundles at `dist/router/index.mjs` and `dist/deployer/index.mjs`, and doesn't ship them yet |
 | The Railway deployer doesn't receive its project token | `railway.Deployer` creates a project token, but doesn't give its value to the deployer service. Railway returns the value only when it creates the token, and Notation doesn't yet support a resource writing a secret value |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

@@ -14,7 +14,6 @@ export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
-    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>", // <-- the router's container image, pinned by digest
     vault,
   });
 

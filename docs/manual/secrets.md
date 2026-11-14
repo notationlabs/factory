@@ -14,7 +14,6 @@ export default factory(() => {
 
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
-    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
     vault,
   });
 

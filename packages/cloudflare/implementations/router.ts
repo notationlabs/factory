@@ -116,10 +116,7 @@ export class Router
         dependencies: { script: this.script },
       }),
     );
-    // TODO: RouterApi asks for a `url` output, and WorkerSubdomain's output
-    // is `Url`. Until the contract reads `Url`, readers of `output.url` get
-    // undefined.
-    this.api = this.subdomain as unknown as RouterApi;
+    this.api = this.subdomain;
 
     this.container = this.add(
       new containers.ContainerApplication(`${id}-container`, {

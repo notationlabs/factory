@@ -38,8 +38,8 @@ export type RouterConfig = {
   operators: OperatorsEntry;
 };
 
-/** Where the router is reached: any concrete resource with a `url` output. */
-export type RouterApi = BaseResource & { output: { url: string } };
+/** Where the router is reached: any concrete resource with a `Url` output. */
+export type RouterApi = BaseResource & { output: { Url: string } };
 
 /**
  * Where the router's config is kept: any concrete resource that takes

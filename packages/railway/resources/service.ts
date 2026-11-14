@@ -24,7 +24,7 @@ type ServiceApi = {
     sleep?: boolean;
     vars?: Record<string, string>;
   };
-  ReadResult: { id: string; url: string };
+  ReadResult: { id: string; Url: string };
 };
 
 const service = resource<ServiceApi>({
@@ -67,7 +67,7 @@ const serviceSchema = service.defineSchema({
     primaryKey: true,
     value: v.string(),
   },
-  url: { propertyType: "computed", presence: "required", value: v.string() },
+  Url: { propertyType: "computed", presence: "required", value: v.string() },
 } as const);
 
 /** A service in the hub's project, e.g. the router or the deployer. */

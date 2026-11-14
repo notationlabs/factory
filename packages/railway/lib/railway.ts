@@ -55,7 +55,7 @@ export const createService = async (
 
 export const getService = async (_key: {
   id: string;
-}): Promise<{ id: string; url: string }> => {
+}): Promise<{ id: string; Url: string }> => {
   throw new Error("not implemented: read a service and its URL");
 };
 

@@ -53,7 +53,7 @@ export const App = defineResource<AppApi>({
   })
   .requireDependencies<{ router: RouterApi }>()
   .deriveParams(({ deps }) => ({
-    requestUrl: `${deps.router.output.url}/webhook`,
+    requestUrl: `${deps.router.output.Url}/webhook`,
   }));
 
 export type AppInstance = InstanceType<typeof App>;

@@ -24,7 +24,11 @@ import * as slack from "@notation/factory-slack";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
 
   new slack.Connection("slack", {
     name: "acme-agents", // <-- Slack app name; repos look the connection up by it
@@ -34,7 +38,9 @@ export default factory(() => {
 });
 ```
 
-An app that doesn't exist yet is created from a manifest in your browser, with its Events API request URL set to `<router.url>/webhook`. Install it to the workspace, then paste its bot token and signing secret when asked (they aren't echoed). Both go straight into the hub vault, and only the router reads them. The app is protected: `factory infra down` leaves it.
+An app that doesn't exist yet is created from a manifest in your browser, with its Events API request URL set to `<Url>/webhook`, where `Url` is the router's `Url` output. The app is protected: `factory infra down` leaves it.
+
+The connection declares two secrets in the hub vault, `slack-bot-token` and `slack-signing-secret`. Only the router binds them, as `SLACK_ACME_AGENTS_BOT_TOKEN` and `SLACK_ACME_AGENTS_SIGNING_SECRET`. They have no source, so `factory infra up` asks for each value with a hidden prompt when it creates the secret, on a terminal. Install the app to the workspace first, so that you have the values. Without a terminal, such as in CI, set them first with `notation secret set slack-bot-token` and `notation secret set slack-signing-secret`. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
 
 ## Channel
 

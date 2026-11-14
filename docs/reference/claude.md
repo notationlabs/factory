@@ -11,23 +11,30 @@
 Give the hub the credentials Claude Code runs on:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"), // <-- from `claude setup-token`
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }, // <-- from `claude setup-token`
   });
 
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 });
 ```
 
-`factory infra up` copies `CLAUDE_CODE_OAUTH_TOKEN` from your environment into the hub vault when its value changes. The deployer injects it into every container that lists `claude.runtime`, and no other.
+`auth` is a secret in Notation's model: a source and a key. Here, `factory infra up` reads `CLAUDE_CODE_OAUTH_TOKEN` from your environment and writes it to the hub vault on every deploy. Without a source, `auth: {}` makes `factory infra up` ask for the token, and `notation secret set deployer-claude-CLAUDE_CODE_OAUTH_TOKEN` sets it. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
+
+Only the deployer binds the token. It injects it into every container that lists `claude.runtime`, and no other.
 
 ## Runtime
 

@@ -24,7 +24,11 @@ import * as github from "@notation/factory-github";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
 
   new github.Connection("gh", {
     name: "acme-agents", // <-- GitHub App name; repos look the connection up by it
@@ -34,11 +38,13 @@ export default factory(() => {
 });
 ```
 
-An App that doesn't exist yet is created through GitHub's manifest flow in your browser. Its private key goes straight into the hub vault, one item per App, and the router is the only thing that reads it. The App is protected: `factory infra down` leaves it.
+An App that doesn't exist yet is created through GitHub's manifest flow in your browser. The App is protected: `factory infra down` leaves it.
+
+The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`. Only the router binds it, as `GITHUB_<NAME>_PRIVATE_KEY`, here `GITHUB_ACME_AGENTS_PRIVATE_KEY`. The secret has no source, so for now you set it by hand: generate a private key on the App's settings page, then run `notation secret set gh-private-key`. Later, the App's create will write the key, once Notation supports a resource writing a secret value. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
 
 | GitHub App manifest | Value |
 | --- | --- |
-| **Webhook URL** | `<router.url>/webhook` |
+| **Webhook URL** | `<Url>/webhook`, where `Url` is the router's `Url` output |
 | **Events** | `issues`, `issue_comment`, `push` |
 | **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `metadata: "read"` |
 

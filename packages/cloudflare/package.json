@@ -13,6 +13,7 @@
     ".": "./implementations/index.ts"
   },
   "files": [
+    "dist",
     "implementations",
     "lib",
     "resources"

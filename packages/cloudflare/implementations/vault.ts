@@ -1,37 +1,41 @@
 import { ResourceGroup } from "@notation/resource";
-import type { Vault as VaultContract, VaultSecretOptions } from "@notation/factory";
-import * as v from "valibot";
 import {
-  SecretsStore,
-  type SecretsStoreInstance,
-  StoreSecret,
-  type StoreSecretInstance,
-} from "../resources/secrets-store.ts";
+  type SecretConsumer,
+  type Vault as VaultContract,
+  type VaultSecret as VaultSecretContract,
+  type VaultSecretOptions,
+  VaultSecrets,
+} from "@notation/factory";
+import { type SecretGroup, secret } from "@notation/cloudflare/secrets-store";
 
-const vaultConfig = v.object({ name: v.optional(v.string()) });
-export type VaultConfig = v.InferInput<typeof vaultConfig>;
+/** A secret in the Cloudflare vault: the Secrets Store secret that Workers bind. */
+export type VaultSecret = VaultSecretContract & { readonly secret: SecretGroup };
 
-export type VaultOptions = VaultConfig;
-
-/** `new cloudflare.Vault(...)`: a Secrets Store store, bound to the router and deployer Workers. Values can't be read back through the API. */
-export class Vault extends ResourceGroup<VaultConfig> implements VaultContract {
+/**
+ * `new cloudflare.Vault(id)`: the hub's secrets, in the account's Secrets
+ * Store. Each secret's name in the store is `<app>--<stage>--<id>`. Values
+ * can't be read back through the API.
+ */
+export class Vault extends ResourceGroup implements VaultContract<VaultSecret> {
   readonly provider = "cloudflare";
-  readonly store: SecretsStoreInstance;
+  readonly #secrets = new VaultSecrets<VaultSecret>();
 
-  constructor(id: string, config: VaultOptions = {}) {
-    const { name = id } = v.parse(vaultConfig, config);
-    super("cloudflare/Vault", id, config);
-    this.store = this.add(
-      new SecretsStore(`${id}-store`, { config: { name } }),
-    );
+  constructor(id: string) {
+    super("cloudflare/Vault", id);
   }
 
-  secret({ id, name }: VaultSecretOptions): StoreSecretInstance {
-    return this.add(
-      new StoreSecret(id, {
-        config: { name },
-        dependencies: { store: this.store },
-      }),
-    );
+  secret({ id, binding, consumers, ...from }: VaultSecretOptions): VaultSecret {
+    return this.#secrets.add({
+      id,
+      binding,
+      consumers: [...consumers],
+      secret: secret(
+        from.source ? { id, source: from.source, key: from.key } : { id },
+      ),
+    });
+  }
+
+  bindings(consumer: SecretConsumer): VaultSecret[] {
+    return this.#secrets.for(consumer);
   }
 }

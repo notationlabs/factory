@@ -1,5 +1,6 @@
-import { defineResource } from "@notation/resource";
-import type { RouterApi } from "@notation/factory";
+import { resource } from "@notation/resource";
+import type { workers } from "@notation/cloudflare/resources";
+import * as v from "valibot";
 import {
   createApplication,
   deleteApplication,
@@ -8,33 +9,75 @@ import {
 } from "../lib/access.ts";
 
 type AccessApplicationApi = {
-  Key: { id: string };
-  CreateParams: { name: string; domain: string; emails: string[] };
-  UpdateParams: { domain: string; emails: string[] };
-  ReadResult: { id: string; aud: string };
+  Key: { AccountId: string; ApplicationId: string };
+  CreateParams: {
+    AccountId: string;
+    Name: string;
+    Domain: string;
+    Emails: string[];
+  };
+  UpdateParams: { Domain: string; Emails: string[] };
+  ReadResult: { Aud: string };
 };
 
-/** An Access application in front of the router's admin routes. The router verifies Access's token against `aud`. */
-export const AccessApplication = defineResource<AccessApplicationApi>({
-  type: "cloudflare/access/Application",
-})
-  .defineSchema({
-    name: { propertyType: "param", presence: "required", immutable: true },
-    domain: { propertyType: "param", presence: "required" },
-    emails: { propertyType: "param", presence: "required" },
-    id: { propertyType: "computed", presence: "required", primaryKey: true },
-    aud: { propertyType: "computed", presence: "required" },
-  } as const)
+const accessApplication = resource<AccessApplicationApi>({
+  type: "cloudflare/access/AccessApplication",
+  provider: "@notation/factory-cloudflare",
+});
+
+const accessApplicationSchema = accessApplication.defineSchema({
+  AccountId: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    secondaryKey: true,
+    value: v.string(),
+  },
+  ApplicationId: {
+    propertyType: "computed",
+    presence: "required",
+    primaryKey: true,
+    value: v.string(),
+  },
+  Name: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  Domain: {
+    propertyType: "param",
+    presence: "required",
+    value: v.string(),
+  },
+  Emails: {
+    propertyType: "param",
+    presence: "required",
+    value: v.array(v.string()),
+  },
+  Aud: {
+    propertyType: "computed",
+    presence: "required",
+    value: v.string(),
+  },
+} as const);
+
+/** An Access application in front of the router's admin routes. The router verifies Access's token against `Aud`. */
+export const AccessApplication = accessApplicationSchema
   .defineOperations({
     create: async (params) => createApplication(params),
     read: async (key) => getApplication(key),
-    update: async (key, _patch, { domain, emails }) =>
-      updateApplication(key, { domain, emails }),
+    update: async (key, _patch, { Domain, Emails }) =>
+      updateApplication(key, { Domain, Emails }),
     delete: async (key) => deleteApplication(key),
   })
-  .requireDependencies<{ router: RouterApi }>()
-  .deriveParams(({ deps }) => ({
-    domain: `${deps.router.output.url}/admin`,
-  }));
+  .requireDependencies<{ router: workers.WorkerSubdomainInstance }>()
+  .deriveParams(({ deps }) => {
+    const url = new URL(deps.router.output.Url);
+    return {
+      AccountId: deps.router.output.AccountId,
+      Domain: `${url.host}/admin`,
+    };
+  });
 
 export type AccessApplicationInstance = InstanceType<typeof AccessApplication>;

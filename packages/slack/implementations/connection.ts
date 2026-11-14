@@ -2,7 +2,6 @@ import { ResourceGroup } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
-  secret,
 } from "@notation/factory";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
@@ -17,10 +16,13 @@ export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ConnectionConfig & { router: Router };
 
+/** Turns a connection name into the part of an env var name, such as `my-app` into `MY_APP`. */
+const envName = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+
 /**
  * `new slack.Connection(...)`: Notation Factory on Slack, as one app whose events go
- * to the router. Its bot token and signing secret are pasted on the first
- * deploy and go straight into the router's vault. Slack is a channel only:
+ * to the router. Deploy asks for its bot token and signing secret, and
+ * keeps them in the router's vault. Slack is a channel only:
  * code still lives on the code host.
  */
 export class Connection
@@ -42,24 +44,25 @@ export class Connection
         dependencies: { router: router.api },
       }),
     );
-    const botToken = `slack-${name}-bot-token`;
-    const signingSecret = `slack-${name}-signing-secret`;
-    this.router.vault.secret({
+    const botToken = this.router.vault.secret({
       id: `${id}-bot-token`,
-      name: botToken,
-      value: secret.prompt(`Bot token for the ${name} Slack app`),
+      binding: `SLACK_${envName(name)}_BOT_TOKEN`,
+      consumers: ["router"],
     });
-    this.router.vault.secret({
+    const signingSecret = this.router.vault.secret({
       id: `${id}-signing-secret`,
-      name: signingSecret,
-      value: secret.prompt(`Signing secret for the ${name} Slack app`),
+      binding: `SLACK_${envName(name)}_SIGNING_SECRET`,
+      consumers: ["router"],
     });
     this.router.store.contribute({
       connections: {
         [`slack/${name}`]: {
           provider: "slack",
-          source: this.app.outputValue("appId"),
-          credentials: { botToken, signingSecret },
+          source: this.app.outputRef("appId"),
+          credentials: {
+            botToken: botToken.binding,
+            signingSecret: signingSecret.binding,
+          },
         },
       },
     });

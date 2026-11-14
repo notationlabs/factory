@@ -2,7 +2,6 @@ import { ResourceGroup } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
-  secret,
 } from "@notation/factory";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
@@ -16,10 +15,13 @@ export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
 export type ConnectionOptions = ConnectionConfig & { router: Router };
 
+/** Turns a connection name into the part of an env var name, such as `my-app` into `MY_APP`. */
+const envName = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+
 /**
  * `new github.Connection(...)`: Notation Factory on GitHub, as one App whose webhook
- * is the router. Its private key goes straight into the router's vault, and
- * the router is the only thing that reads it.
+ * is the router. Its private key is kept in the router's vault, and the
+ * router is the only thing that reads it.
  */
 export class Connection
   extends ResourceGroup<ConnectionConfig>
@@ -50,18 +52,19 @@ export class Connection
         metadata: "read",
       },
     });
-    const privateKey = `github-${name}-private-key`;
-    this.router.vault.secret({
+    // The App's create will write this once Notation supports a resource
+    // writing a secret value.
+    const privateKey = this.router.vault.secret({
       id: `${id}-private-key`,
-      name: privateKey,
-      value: secret.output(this.app.outputValue("privateKey")),
+      binding: `GITHUB_${envName(name)}_PRIVATE_KEY`,
+      consumers: ["router"],
     });
     this.router.store.contribute({
       connections: {
         [`github/${name}`]: {
           provider: "github",
-          source: this.app.outputValue("id"),
-          credentials: { privateKey },
+          source: this.app.outputRef("id"),
+          credentials: { privateKey: privateKey.binding },
         },
       },
     });

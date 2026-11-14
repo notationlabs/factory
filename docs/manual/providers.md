@@ -100,4 +100,5 @@ The provider plugins don't yet do all that these pages describe:
 | The R2 bucket isn't bound to the router | `cloudflare.Router` creates the bucket, but Notation 0.20's `WorkerScript` has no `r2_bucket` binding, so the router Worker can't reach it |
 | Nothing builds the router image | `cloudflare.Router` takes an `image` pinned by digest, but nothing in Notation Factory builds or pushes that image yet |
 | The router and deployer Worker code doesn't exist yet | `@notation/factory-cloudflare` expects the bundles at `dist/router/index.mjs` and `dist/deployer/index.mjs`, and doesn't ship them yet |
+| The Railway deployer doesn't receive its project token | `railway.Deployer` creates a project token, but doesn't give its value to the deployer service. Railway returns the value only when it creates the token, and Notation doesn't yet support a resource writing a secret value |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

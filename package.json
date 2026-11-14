@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@notation/resource": "0.20.0",
+    "@notation/std": "0.20.0",
     "@pokit/core": "^1.0.1",
     "@pokit/terminal": "^1.0.1",
     "@types/node": "^24.19.2",

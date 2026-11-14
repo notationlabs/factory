@@ -91,7 +91,10 @@ export const RouterConfig = routerConfigSchema
     create: async ({ AccountId, NamespaceId, Key, ...config }) => {
       await putValue({ AccountId, NamespaceId, Key }, config);
     },
-    read: async (key) => getValue(key) as Promise<{}>,
+    read: async (key) => {
+      await getValue(key);
+      return {};
+    },
     update: async (key, _patch, params) => {
       const { AccountId: _a, NamespaceId: _n, Key: _k, ...config } = params;
       await putValue(key, config);

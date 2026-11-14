@@ -40,7 +40,7 @@ export default factory(() => {
 
 An App that doesn't exist yet is created through GitHub's manifest flow in your browser. The App is protected: `factory infra down` leaves it.
 
-The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`. Only the router binds it, as `GITHUB_<NAME>_PRIVATE_KEY`, here `GITHUB_ACME_AGENTS_PRIVATE_KEY`. The secret has no source, so for now you set it by hand: generate a private key on the App's settings page, then run `notation secret set gh-private-key`. Later, the App's create will write the key, once Notation supports a resource writing a secret value. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
+The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`. The connection binds it to the router with `router.bind(...)`, which names the binding after the secret's id: here `GH_PRIVATE_KEY`. The deployer doesn't bind it. Several connections in one hub each get their own binding, such as `GH_PRIVATE_KEY` and `PERSONAL_PRIVATE_KEY` for connections with the ids `gh` and `personal`. The secret has no source, so for now you set it by hand: generate a private key on the App's settings page, then run `notation secret set gh-private-key`. Later, the App's create will write the key, once Notation supports a resource writing a secret value. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
 
 | GitHub App manifest | Value |
 | --- | --- |

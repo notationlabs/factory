@@ -72,7 +72,7 @@ export class Deployer
           permissionGroups: [
             "Workers Scripts Write",
             "Workers CI Write",
-            "Containers Write",
+            "Workers Containers Write",
           ],
           resources: { [`com.cloudflare.api.account.${accountId}`]: "*" },
         },

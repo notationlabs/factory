@@ -40,7 +40,7 @@ new cloudflare.Deployer("deployer", {
 | --- | --- | --- |
 | **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI). Plan also needs the Containers: Edit permission, because it reads the router image from the registry |
 | **Docker** | `factory infra up`, to build and push the router image | Docker with buildx, installed and running on the machine that deploys |
-| **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
+| **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Workers Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 
 The project's KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. Secrets are only in the Secrets Store or in Worker secrets.
 

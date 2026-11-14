@@ -8,13 +8,12 @@ const API_URL = "https://api.cloudflare.com/client/v4";
 export type ValueKey = { AccountId: string; NamespaceId: string; Key: string };
 
 class CloudflareApiError extends Error {
-  constructor(
-    request: string,
-    readonly status: number,
-    body: string,
-  ) {
+  readonly status: number;
+
+  constructor(request: string, status: number, body: string) {
     super(`Cloudflare API ${request} failed with status ${status}: ${body}`);
     this.name = "CloudflareApiError";
+    this.status = status;
   }
 }
 

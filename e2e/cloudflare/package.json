@@ -1,0 +1,19 @@
+{
+  "name": "@notation/factory-e2e-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "workers": "node scripts/placeholder-workers.mjs",
+    "plan": "pnpm workers && notation plan",
+    "deploy": "pnpm workers && notation deploy",
+    "destroy": "notation destroy"
+  },
+  "dependencies": {
+    "@notation/cli": "0.21.0",
+    "@notation/core": "0.21.0",
+    "@notation/std": "0.21.0",
+    "@notation/factory": "workspace:*",
+    "@notation/factory-claude": "workspace:*",
+    "@notation/factory-cloudflare": "workspace:*"
+  }
+}

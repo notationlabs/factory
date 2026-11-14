@@ -145,7 +145,7 @@ The deployer's own provider token isn't a vault secret. It's a resource the depl
 
 | Provider | Token | How the deployer gets it |
 | --- | --- | --- |
-| Cloudflare | An account API token, with Workers Scripts Write, Workers CI Write and Containers Write in the deployer's account | Cloudflare returns its value only when it creates the token. Notation writes the value to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
+| Cloudflare | An account API token, with Workers Scripts Write, Workers CI Write and Workers Containers Write in the deployer's account | Cloudflare returns its value only when it creates the token. Notation writes the value to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 | Railway | A project token | `factory infra up` creates it with your sign-in. The deployer service doesn't receive its value yet. See [Known gaps](./providers.md#known-gaps) |
 
 `notation secret set` can't set the Cloudflare token, because only the token's create can write its value.

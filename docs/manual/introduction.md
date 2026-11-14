@@ -24,7 +24,7 @@ export default factory(() => {
   new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
+    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
   });
 
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
@@ -37,7 +37,7 @@ The `CodeHost` decides which repos Notation Factory serves, and mints the short-
 
 The `Deployer` provisions agent containers when a new outpost comes online (e.g. the GitHub App is installed on your repo), and gives them the `Account` credentials their agents run on.
 
-The `Vault` holds the hub's secrets. Each secret is bound to the router, the deployer, or both, and nothing else reads it. The router gets the connections' credentials, and the deployer gets the accounts' secrets.
+The `Vault` holds the hub's secrets. `vault.secret(...)` only declares a secret. The router and the deployer each bind the secrets they use, and nothing else reads them. Each connection binds its credentials to the router, and the deployer binds the accounts' secrets.
 
 
 ## Outposts

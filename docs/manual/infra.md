@@ -30,7 +30,7 @@ export default factory(() => {
   new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }, // <-- what outposts' Claude agents run on
+    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- what outposts' Claude agents run on
   });
 
   new cloudflare.Deployer("deployer", {
@@ -47,7 +47,7 @@ Each repository then declares its own outpost in [`.factory/config.ts`](./outpos
 | --- | --- | --- |
 | `Router` | Public, always on | Receives every connection's events, matches triggers, relays channel replies, mints short-lived code host tokens |
 | `Deployer` | Private | Checks and builds outpost containers for the repos the code host allows |
-| `Vault` | Private | Holds the hub's secrets. The router binds the connections' credentials, the deployer binds the accounts' secrets, and both bind the root key. See [Secrets](./secrets.md) |
+| `Vault` | Private | Holds the hub's secrets, declared with `vault.secret(...)`. Each connection binds its credentials to the router with `router.bind(...)`, the deployer binds the accounts' secrets, and both bind the root key. See [Secrets](./secrets.md) |
 | `Connection` | External platform | Notation Factory's presence on a platform: its credentials, bot identity and event feed. See [Connections & Channels](./connections.md) |
 | `CodeHost` | External platform | Where the repositories live, which of them Notation Factory serves (`allow`), and the credentials containers push with; an infra has one |
 | `Account` | Every outpost that runs its runtime | Credentials for an agent runtime, e.g. `CLAUDE_CODE_OAUTH_TOKEN` |

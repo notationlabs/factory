@@ -13,8 +13,8 @@ export const createApp = async (_params: {
 
 export const readApp = async (_key: {
   slug: string;
-}): Promise<{ slug: string; id: string; privateKey: string }> => {
-  throw new Error("not implemented: read the App with its key");
+}): Promise<{ slug: string; id: string }> => {
+  throw new Error("not implemented: read the App");
 };
 
 export const setWebhook = async (

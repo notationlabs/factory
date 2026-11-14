@@ -1,4 +1,5 @@
-import { defineResource } from "@notation/resource";
+import { resource } from "@notation/resource";
+import * as v from "valibot";
 import {
   createProjectToken,
   deleteProjectToken,
@@ -13,25 +14,46 @@ type ProjectTokenApi = {
   ReadResult: { id: string; value: string };
 };
 
-/** A token scoped to one environment of the hub's project, e.g. the deployer's. Its value is only returned when it's created. */
-export const ProjectToken = defineResource<ProjectTokenApi>({
+const projectToken = resource<ProjectTokenApi>({
   type: "railway/projects/ProjectToken",
-})
-  .defineSchema({
-    projectId: {
-      propertyType: "param",
-      presence: "required",
-      immutable: true,
-    },
-    environmentId: {
-      propertyType: "param",
-      presence: "required",
-      immutable: true,
-    },
-    name: { propertyType: "param", presence: "required", immutable: true },
-    id: { propertyType: "computed", presence: "required", primaryKey: true },
-    value: { propertyType: "computed", presence: "required", hidden: true },
-  } as const)
+  provider: "@notation/factory-railway",
+});
+
+const projectTokenSchema = projectToken.defineSchema({
+  projectId: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  environmentId: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  name: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  id: {
+    propertyType: "computed",
+    presence: "required",
+    primaryKey: true,
+    value: v.string(),
+  },
+  value: {
+    propertyType: "computed",
+    presence: "required",
+    hidden: true,
+    value: v.string(),
+  },
+} as const);
+
+/** A token scoped to one environment of the hub's project, e.g. the deployer's. Its value is only returned when it's created. */
+export const ProjectToken = projectTokenSchema
   .defineOperations({
     create: async (params) => createProjectToken(params),
     read: async (key) => getProjectToken(key),

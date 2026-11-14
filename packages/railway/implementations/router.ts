@@ -1,5 +1,5 @@
 import { ResourceGroup } from "@notation/resource";
-import { type Router as RouterContract, secret } from "@notation/factory";
+import { generated, type Router as RouterContract } from "@notation/factory";
 import * as v from "valibot";
 import { Project, type ProjectInstance } from "../resources/project.ts";
 import {
@@ -7,6 +7,7 @@ import {
   type RouterConfigInstance,
 } from "../resources/router-config.ts";
 import { Service, type ServiceInstance } from "../resources/service.ts";
+import { bindSecrets } from "./bind-secrets.ts";
 import type { Vault } from "./vault.ts";
 
 const routerConfig = v.object({ project: v.string() });
@@ -18,7 +19,8 @@ export type RouterOptions = RouterGroupConfig & { vault: Vault };
  * `new railway.Router(...)`: the hub's Railway project, a public router
  * service with a `/data` volume and the webhook's domain, and the config
  * file on that volume. Creating it binds the vault to the project and
- * generates the root key into it.
+ * generates the root key into it. The router service binds the vault's
+ * `router` secrets.
  */
 export class Router
   extends ResourceGroup<RouterGroupConfig>
@@ -36,11 +38,13 @@ export class Router
     this.project = this.add(
       new Project(`${id}-project`, { config: { name: project } }),
     );
-    this.vault.bind(this.project);
+    this.vault.bind(this.project, project);
     this.vault.secret({
       id: `${id}-root-key`,
-      name: "FACTORY_ROOT_KEY",
-      value: secret.generated(),
+      binding: "FACTORY_ROOT_KEY",
+      consumers: ["router", "deployer"],
+      source: generated(),
+      key: "FACTORY_ROOT_KEY",
     });
     this.api = this.add(
       new Service(`${id}-service`, {
@@ -48,6 +52,7 @@ export class Router
         dependencies: { project: this.project },
       }),
     );
+    bindSecrets(this.api, vault, "router");
     this.store = this.add(
       new RouterConfig(`${id}-config`, {
         config: { path: "/data/config.json" },

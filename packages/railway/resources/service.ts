@@ -1,4 +1,5 @@
-import { defineResource } from "@notation/resource";
+import { mergeContributions, resource } from "@notation/resource";
+import * as v from "valibot";
 import {
   createService,
   deleteService,
@@ -12,41 +13,65 @@ type ServiceApi = {
   CreateParams: {
     projectId: string;
     name: string;
-    /** Gets a public domain. Otherwise it's reached on the private network. */
     public?: boolean;
-    /** Mount path of its persistent volume. */
     volume?: string;
-    /** Scales to zero when idle. */
     sleep?: boolean;
-    vars?: Record<string, unknown>;
+    vars?: Record<string, string>;
   };
   UpdateParams: {
     public?: boolean;
     volume?: string;
     sleep?: boolean;
-    vars?: Record<string, unknown>;
+    vars?: Record<string, string>;
   };
   ReadResult: { id: string; url: string };
 };
 
-/** A service in the hub's project, e.g. the router or the deployer. */
-export const Service = defineResource<ServiceApi>({
+const service = resource<ServiceApi>({
   type: "railway/services/Service",
-})
-  .defineSchema({
-    projectId: {
-      propertyType: "param",
-      presence: "required",
-      immutable: true,
-    },
-    name: { propertyType: "param", presence: "required", immutable: true },
-    public: { propertyType: "param", presence: "optional" },
-    volume: { propertyType: "param", presence: "optional" },
-    sleep: { propertyType: "param", presence: "optional" },
-    vars: { propertyType: "param", presence: "optional" },
-    id: { propertyType: "computed", presence: "required", primaryKey: true },
-    url: { propertyType: "computed", presence: "required" },
-  } as const)
+  provider: "@notation/factory-railway",
+});
+
+const serviceSchema = service.defineSchema({
+  projectId: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  name: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.string(),
+  },
+  /** Gets a public domain. Otherwise it's reached on the private network. */
+  public: { propertyType: "param", presence: "optional", value: v.boolean() },
+  /** Mount path of its persistent volume. */
+  volume: { propertyType: "param", presence: "optional", value: v.string() },
+  /** Scales to zero when idle. */
+  sleep: { propertyType: "param", presence: "optional", value: v.boolean() },
+  /**
+   * The service's variables. A value may be a Railway reference such as
+   * `${{shared.NAME}}`, which Railway resolves when it deploys the service.
+   */
+  vars: {
+    propertyType: "param",
+    presence: "optional",
+    value: v.record(v.string(), v.string()),
+    collect: mergeContributions,
+  },
+  id: {
+    propertyType: "computed",
+    presence: "required",
+    primaryKey: true,
+    value: v.string(),
+  },
+  url: { propertyType: "computed", presence: "required", value: v.string() },
+} as const);
+
+/** A service in the hub's project, e.g. the router or the deployer. */
+export const Service = serviceSchema
   .defineOperations({
     create: async (params) => createService(params),
     read: async (key) => getService(key),

@@ -1,4 +1,4 @@
-/** The Railway API calls the hub's resources make. Stubs. */
+import type { Redacted } from "@notation/std/sources";
 
 export const createProject = async (_params: {
   name: string;
@@ -42,7 +42,7 @@ export type ServiceParams = {
   public?: boolean;
   volume?: string;
   sleep?: boolean;
-  vars?: Record<string, unknown>;
+  vars?: Record<string, string>;
 };
 
 export const createService = async (
@@ -70,29 +70,37 @@ export const deleteService = async (_key: { id: string }): Promise<void> => {
   throw new Error("not implemented: delete a service");
 };
 
-export const putSealedVariable = async (_key: {
+export type SealedVariableKey = {
   projectId: string;
+  environmentId: string;
   name: string;
-}): Promise<void> => {
+};
+
+export const findProject = async (_query: {
+  name: string;
+}): Promise<{ id: string; environmentId: string } | undefined> => {
+  throw new Error("not implemented: find a Railway project by name");
+};
+
+export const putSealedVariable = async (
+  _key: SealedVariableKey,
+  _value: Redacted<string> | string,
+): Promise<void> => {
   throw new Error(
-    "not implemented: mint the secret's value as a sealed shared variable",
+    "not implemented: write the value as a shared variable, and seal it",
   );
 };
 
-export const getSealedVariable = async (_key: {
-  projectId: string;
-  name: string;
-}): Promise<{}> => {
-  throw new Error(
-    "not implemented: check a sealed variable exists, or throw ResourceNotFoundError",
-  );
+export const findSealedVariable = async (
+  _key: SealedVariableKey,
+): Promise<{ name: string } | undefined> => {
+  throw new Error("not implemented: find a sealed shared variable by name");
 };
 
-export const deleteSealedVariable = async (_key: {
-  projectId: string;
-  name: string;
-}): Promise<void> => {
-  throw new Error("not implemented: delete a sealed variable");
+export const deleteSealedVariable = async (
+  _key: SealedVariableKey,
+): Promise<void> => {
+  throw new Error("not implemented: delete a sealed shared variable");
 };
 
 export const writeRouterConfig = async (

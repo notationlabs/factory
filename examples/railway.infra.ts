@@ -1,7 +1,8 @@
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
 import * as railway from "@notation/factory-railway";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new railway.Vault("vault");
@@ -28,7 +29,7 @@ export default factory(() => {
   });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"),
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
   });
 
   new railway.Deployer("deployer", {

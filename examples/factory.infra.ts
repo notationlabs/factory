@@ -1,14 +1,17 @@
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import * as slack from "@notation/factory-slack";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
 
   const router = new cloudflare.Router("router", {
     project: "acme-agents",
+    image:
+      "registry.cloudflare.com/<account>/factory-router@sha256:0000000000000000000000000000000000000000000000000000000000000000",
     vault,
   });
 
@@ -35,7 +38,7 @@ export default factory(() => {
   });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"),
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
   });
 
   new cloudflare.Deployer("deployer", {

@@ -9,11 +9,11 @@ importers:
   .:
     devDependencies:
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       '@notation/std':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@5.9.3)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@5.9.3)
       '@pokit/core':
         specifier: ^1.0.1
         version: 1.0.1
@@ -49,8 +49,8 @@ importers:
   packages/claude:
     dependencies:
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -62,17 +62,17 @@ importers:
   packages/cloudflare:
     dependencies:
       '@notation/cloudflare':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       '@notation/core':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       '@notation/std':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -84,14 +84,14 @@ importers:
   packages/factory:
     dependencies:
       '@notation/core':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       '@notation/std':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -99,8 +99,8 @@ importers:
   packages/github:
     dependencies:
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -112,14 +112,14 @@ importers:
   packages/railway:
     dependencies:
       '@notation/core':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       '@notation/std':
-        specifier: 0.20.0
-        version: 0.20.0(typescript@7.0.2)
+        specifier: 0.21.0
+        version: 0.21.0(typescript@7.0.2)
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -131,8 +131,8 @@ importers:
   packages/slack:
     dependencies:
       '@notation/resource':
-        specifier: 0.20.0
-        version: 0.20.0
+        specifier: 0.21.0
+        version: 0.21.0
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)
@@ -799,11 +799,11 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@notation/cloudflare@0.20.0':
-    resolution: {integrity: sha512-omGpza3IfZ3tV5BUxFL2Z0dVligmq9jNfFuES7OJmMNtrz2rQLk8b0bs5D/+UyR0LEVoyq8gpXaYxfYFLKzCaA==}
+  '@notation/cloudflare@0.21.0':
+    resolution: {integrity: sha512-fAFP/XLASdHJfVU4mIetwRyVK6XS6J9N34zvhOg0IbaW2yhtm/GmrAQxyavhnxJse24JC/MoSH8Tgdw6m96zJQ==}
 
-  '@notation/core@0.20.0':
-    resolution: {integrity: sha512-7UKpx88ev3GTMNO1LNJ7Cy98sbpcKukQ7i4UKVLJp5L4ssH/hXRMmyvawdflR9ve1oKgYtuhl+M6L/uvsuzP4A==}
+  '@notation/core@0.21.0':
+    resolution: {integrity: sha512-fu8ZIFtojffqm++mj7SPBDQwNYB1lZatAi7Kn+x+jD/D+34Qt6yf6gU90ErCTv48UvONqJbLC2wi4wSb7qZpAw==}
 
   '@notation/docs@git+ssh://git@github.com/djgrant/docs.git#9b19b945c04aa81df20208c21e9cd975394a09a4&path:/packages/docs':
     resolution: {commit: 9b19b945c04aa81df20208c21e9cd975394a09a4, path: /packages/docs, repo: git@github.com:djgrant/docs.git, type: git}
@@ -819,20 +819,20 @@ packages:
   '@notation/durable@0.9.0':
     resolution: {integrity: sha512-fVn9BGcAFpethUhhOSuPtgKxSuHgO1YtFxBD8ywKJ3PaAQyn6Zxb+D14iNUaAVaT8+TrAD3EP42oOtbyI8FZwg==}
 
-  '@notation/reconciler@0.20.0':
-    resolution: {integrity: sha512-HlGm2rcslhOf77fbuSoJxfrwkpgYt6hCQuClxt8Hje5lTm4LpY718P+IzSt0tuKoko8mzoNXR6O73GzIfoIYFQ==}
+  '@notation/reconciler@0.21.0':
+    resolution: {integrity: sha512-4KtcDoM2D3RBpfTbe5cvRL0Bgo0IsBHZkb4Af39RagAPONd8k0pBLwCM/Tr+AmMMIHUWLTYA2mipDeW5BTO1fw==}
 
-  '@notation/resource@0.20.0':
-    resolution: {integrity: sha512-jQlNiXm3YtFIOW1R1YeSFzcfrftWhqLFbO/YWjVDpQzja+J05VDaEkbY9fSzLf9yojA+3g095IZ3Dj52Br9mzA==}
+  '@notation/resource@0.21.0':
+    resolution: {integrity: sha512-EDhhIkYPTea+ry5Nw6kCHhUH8Jf3CZOcbq3jNZ6GKNPBI65SW0zJbFsPmPY1mTiI5tLslpfe/i6gtgUJJwC59g==}
 
-  '@notation/state@0.20.0':
-    resolution: {integrity: sha512-8rYaPC/DLyz7rOo6WIymAlyPrYB6bQS1j+JZiC14zA+kgohvQhYUDXarESOut2AbajA5NHa9eqO1f909A1vICA==}
+  '@notation/state@0.21.0':
+    resolution: {integrity: sha512-2vPEW3zdoH8uffwskDFO0fzDE/ybp2hXpzWjxpeAaYtlHteWZ09naeE9sFBCNtSVXyOoOj6V9OnL5yzzBv4jYg==}
 
-  '@notation/std@0.20.0':
-    resolution: {integrity: sha512-+zSQc/h+nvC0wUKhpPU7VZSqMcyPLHDZKQOuLfH6V3jlty6g+UgDkyGSwdN1pLTdq5rsMEQ+SPcbzx5eZs83SQ==}
+  '@notation/std@0.21.0':
+    resolution: {integrity: sha512-rB301LzrDkZEU+krqgv1dRmtRoayC0xGcR+9xi14jCxSKjEhSDcbrY1A3gDYfoaAP04uVy6tfhCN84WcfHMg9w==}
 
-  '@notation/utils@0.20.0':
-    resolution: {integrity: sha512-6zPtIvbT+qx1D1mAU7uc9y3WSzm6KCyd+IEwMB3fJOUiu+4Thq+6M7TUAKiEDl+/MNrWsY7HV9M6rgIEt33Ngg==}
+  '@notation/utils@0.21.0':
+    resolution: {integrity: sha512-HA2sOdo5jTlNMrpCnQ0WVFIWeP8PWRmF0gsgT0bh3QgllQcqb2njZ7t1BOnTHpsiZs8gdXWFVGKcrSgZR0IeGg==}
 
   '@oozcitak/dom@2.0.2':
     resolution: {integrity: sha512-GjpKhkSYC3Mj4+lfwEyI1dqnsKTgwGy48ytZEhm4A/xnH/8z9M3ZVXKr/YGQi3uCLs1AEBS+x5T2JPiueEDW8w==}
@@ -3411,24 +3411,24 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@notation/cloudflare@0.20.0(typescript@7.0.2)':
+  '@notation/cloudflare@0.21.0(typescript@7.0.2)':
     dependencies:
       '@cloudflare/workers-types': 5.20261012.1
-      '@notation/core': 0.20.0(typescript@7.0.2)
-      '@notation/resource': 0.20.0
-      '@notation/std': 0.20.0(typescript@7.0.2)
-      '@notation/utils': 0.20.0
+      '@notation/core': 0.21.0(typescript@7.0.2)
+      '@notation/resource': 0.21.0
+      '@notation/std': 0.21.0(typescript@7.0.2)
+      '@notation/utils': 0.21.0
       valibot: 1.5.0(typescript@7.0.2)
     transitivePeerDependencies:
       - typescript
 
-  '@notation/core@0.20.0(typescript@5.9.3)':
+  '@notation/core@0.21.0(typescript@5.9.3)':
     dependencies:
       '@notation/durable': 0.9.0
-      '@notation/reconciler': 0.20.0(typescript@5.9.3)
-      '@notation/resource': 0.20.0
-      '@notation/state': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/reconciler': 0.21.0(typescript@5.9.3)
+      '@notation/resource': 0.21.0
+      '@notation/state': 0.21.0
+      '@notation/utils': 0.21.0
       esbuild: 0.25.12
       js-base64: 3.9.6
       lodash-es: 4.18.1
@@ -3438,13 +3438,13 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@notation/core@0.20.0(typescript@7.0.2)':
+  '@notation/core@0.21.0(typescript@7.0.2)':
     dependencies:
       '@notation/durable': 0.9.0
-      '@notation/reconciler': 0.20.0(typescript@7.0.2)
-      '@notation/resource': 0.20.0
-      '@notation/state': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/reconciler': 0.21.0(typescript@7.0.2)
+      '@notation/resource': 0.21.0
+      '@notation/state': 0.21.0
+      '@notation/utils': 0.21.0
       esbuild: 0.25.12
       js-base64: 3.9.6
       lodash-es: 4.18.1
@@ -3514,56 +3514,56 @@ snapshots:
       pino: 9.14.0
       uuid: 11.1.1
 
-  '@notation/reconciler@0.20.0(typescript@5.9.3)':
+  '@notation/reconciler@0.21.0(typescript@5.9.3)':
     dependencies:
       '@notation/durable': 0.9.0
-      '@notation/resource': 0.20.0
-      '@notation/state': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/resource': 0.21.0
+      '@notation/state': 0.21.0
+      '@notation/utils': 0.21.0
       valibot: 1.5.0(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
 
-  '@notation/reconciler@0.20.0(typescript@7.0.2)':
+  '@notation/reconciler@0.21.0(typescript@7.0.2)':
     dependencies:
       '@notation/durable': 0.9.0
-      '@notation/resource': 0.20.0
-      '@notation/state': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/resource': 0.21.0
+      '@notation/state': 0.21.0
+      '@notation/utils': 0.21.0
       valibot: 1.5.0(typescript@7.0.2)
     transitivePeerDependencies:
       - typescript
 
-  '@notation/resource@0.20.0':
+  '@notation/resource@0.21.0':
     dependencies:
-      '@notation/utils': 0.20.0
+      '@notation/utils': 0.21.0
       deep-object-diff: 1.1.9
 
-  '@notation/state@0.20.0':
+  '@notation/state@0.21.0':
     dependencies:
-      '@notation/resource': 0.20.0
+      '@notation/resource': 0.21.0
 
-  '@notation/std@0.20.0(typescript@5.9.3)':
+  '@notation/std@0.21.0(typescript@5.9.3)':
     dependencies:
-      '@notation/core': 0.20.0(typescript@5.9.3)
-      '@notation/resource': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/core': 0.21.0(typescript@5.9.3)
+      '@notation/resource': 0.21.0
+      '@notation/utils': 0.21.0
       fflate: 0.8.3
       valibot: 1.5.0(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
 
-  '@notation/std@0.20.0(typescript@7.0.2)':
+  '@notation/std@0.21.0(typescript@7.0.2)':
     dependencies:
-      '@notation/core': 0.20.0(typescript@7.0.2)
-      '@notation/resource': 0.20.0
-      '@notation/utils': 0.20.0
+      '@notation/core': 0.21.0(typescript@7.0.2)
+      '@notation/resource': 0.21.0
+      '@notation/utils': 0.21.0
       fflate: 0.8.3
       valibot: 1.5.0(typescript@7.0.2)
     transitivePeerDependencies:
       - typescript
 
-  '@notation/utils@0.20.0': {}
+  '@notation/utils@0.21.0': {}
 
   '@oozcitak/dom@2.0.2':
     dependencies:

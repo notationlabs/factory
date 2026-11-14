@@ -9,8 +9,8 @@
 | Used in | Exports |
 | --- | --- |
 | `.factory/config.ts` | `outpost`, `Container`, `Policy`, `Trigger` |
-| `factory.infra.ts` | `factory`, `secret` |
-| Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `isSecret` |
+| `factory.infra.ts` | `factory`, `generated` |
+| Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `secretValueFrom`, `VaultSecrets` |
 
 Plugins add the vendor-specific resources alongside it. Each has one entrypoint, used in both config files:
 
@@ -100,18 +100,25 @@ A trigger throws when it's declared if its container doesn't list its agent's ru
 Declare the central hub graph:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
   const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
   new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
   new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
-  const claudeAccount = new claude.Account("claude", { auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN") });
+  const claudeAccount = new claude.Account("claude", {
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
+  });
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 });
 ```
@@ -119,26 +126,40 @@ export default factory(() => {
 | Export | Role |
 | --- | --- |
 | `factory(declare)` | Captures the resource graph for `factory infra up` and `factory infra down` |
-| `secret.env(name)` | A secret read from your environment by `factory infra up` and written to the vault, e.g. `CLAUDE_CODE_OAUTH_TOKEN` |
-| `secret.generated(bytes?)` | A random secret generated once when its vault item is created, e.g. the root key. 32 bytes by default |
-| `secret.prompt(label)` | A secret pasted, unechoed, by whoever runs the deploy, e.g. a Slack bot token |
-| `secret.output(value)` | Another resource's output, e.g. a GitHub App's private key |
+| `generated(bytes?)` | A Notation source of random values, such as the root key. Each secret that uses it gets its own value of `bytes` random bytes in hex, 32 by default. The value is written once, when the secret is created. The key is not used |
 
-A secret says where a vault item's value comes from. It's part of the item's identity, not its value: the provider holds the value, and the vault never reads it back.
+A secret's value comes from a Notation source and a key, `{ source, key }`, such as `env` or `dotenv(path)` from `@notation/std/sources`. With no source, `factory infra up` asks for the value on a terminal, and `notation secret set <id>` sets it. The provider holds the value, and the vault never reads it back. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
 
 ## Contracts
 
 Each plugin implements some of these, so that one provider can be swapped for another. A contract is an interface: the fields and methods every provider's version has, so other resources can rely on them whichever provider built it.
 
 ```ts
-// The hub's write-only secret store. secret() adds an item the vault owns.
+// Where a secret's value comes from. With no source, deploy asks for it.
+type SecretValueFrom = { source: Source; key: string } | { source?: undefined; key?: undefined };
+
+// The hub Workers or services that bind secrets from the vault.
+type SecretConsumer = "router" | "deployer";
+
+type VaultSecretOptions = SecretValueFrom & {
+  id: string;                  // keys the secret in state; `notation secret set <id>` takes it
+  binding: string;             // the env var name each consumer reads it as
+  consumers: SecretConsumer[]; // the router, the deployer, or both
+};
+
+type VaultSecret = { id: string; binding: string; consumers: SecretConsumer[] };
+
+// The hub's write-only secret store. secret() declares a secret the vault
+// owns; bindings() lists the secrets a consumer binds, and is complete only
+// when evaluation ends.
 interface Vault {
   provider: string;
-  secret(opts: { id: string; name: string; value: Secret }): Resource;
+  secret(opts: VaultSecretOptions): VaultSecret;
+  bindings(consumer: SecretConsumer): VaultSecret[];
 }
 
 // Receives every connection's deliveries, matches triggers, relays channel
-// replies and mints code host tokens. `api` has the router's `url`; `store`
+// replies and mints code host tokens. `api` has the router's `Url`; `store`
 // is where its config is contributed to.
 interface Router {
   api: RouterApi;
@@ -174,10 +195,11 @@ interface OperatorAuth {
   provider: string;
 }
 
-// Credentials an agent runtime runs on, by env var.
+// Credentials an agent runtime runs on, keyed by the env var containers read
+// them as. The deployer declares each in the vault, bound to the deployer only.
 interface Account {
   runtime: Runtime["id"];
-  secrets: Record<string, Secret>;
+  secrets: Record<string, SecretValueFrom>;
 }
 
 interface Deployer {

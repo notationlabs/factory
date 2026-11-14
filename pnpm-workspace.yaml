@@ -9,6 +9,7 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@notation/resource@0.16.0'
   - '@notation/utils@0.16.0'
+  - '@notation/*'
 packages:
   - packages/*
   - docs

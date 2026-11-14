@@ -1,26 +1,30 @@
 import { ResourceGroup } from "@notation/resource";
 import {
   type Account as AccountContract,
-  isSecret,
-  type Secret,
+  type SecretValueFrom,
+  secretValueFrom,
 } from "@notation/factory";
 import * as v from "valibot";
 
 const accountConfig = v.object({
-  /** e.g. `secret.env("CLAUDE_CODE_OAUTH_TOKEN")`, from `claude setup-token`. */
-  auth: v.custom<Secret>(isSecret, "auth must be a secret"),
+  /**
+   * The OAuth token from `claude setup-token`, such as
+   * `{ source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }`. Without a source,
+   * deploy asks for it.
+   */
+  auth: secretValueFrom,
 });
 export type AccountConfig = v.InferInput<typeof accountConfig>;
 
 export type AccountOptions = AccountConfig;
 
-/** The credentials Claude Code runs on. The deployer writes them to the vault, and injects them into every container that lists `claude.runtime`, and no other. */
+/** The credentials Claude Code runs on. The deployer declares them in the vault, and injects them into every container that lists `claude.runtime`, and no other. */
 export class Account
   extends ResourceGroup<AccountConfig>
   implements AccountContract
 {
   readonly runtime = "claude";
-  readonly secrets: Record<string, Secret>;
+  readonly secrets: Record<string, SecretValueFrom>;
 
   constructor(id: string, config: AccountOptions) {
     const { auth } = v.parse(accountConfig, config);

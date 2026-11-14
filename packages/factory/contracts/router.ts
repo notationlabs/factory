@@ -7,7 +7,8 @@ import type { Vault } from "./vault.ts";
 
 /**
  * In the router's config: how to verify a connection's deliveries (`source`,
- * e.g. a GitHub App's id), and the vault items that hold its credentials.
+ * e.g. a GitHub App's id), and the binding names of the vault secrets that
+ * hold its credentials.
  * Keyed by `<provider>/<name>`: outposts look a connection up by name, from
  * its provider's package, so a GitHub App and a Slack app may share a name.
  */

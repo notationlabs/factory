@@ -24,7 +24,7 @@ export default factory(() => {
   new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] }); // <-- 2. who may run the CLI against the hub
 
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }, // <-- 3. read from your environment at deploy
+    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- 3. read from your environment at deploy
   });
 
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
@@ -38,7 +38,7 @@ A Notation Factory instance has secrets in three places: your machine, the hub (
 | Place | Holds | Who reads it |
 | --- | --- | --- |
 | **Local** | Your container provider sign-in, your `gh` login, account secrets such as `CLAUDE_CODE_OAUTH_TOKEN` | `factory` on your machine |
-| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Consumers](#consumers) |
+| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Who binds each secret](#who-binds-each-secret) |
 | **Outpost** | Its `FACTORY_CONTAINER_KEY`, the secrets of the accounts whose runtimes it lists, short-lived code host tokens the router mints | That container; agents get only the minted tokens and account secrets |
 
 **The hub vault is write-only from outside the hub.** `factory infra up` writes a secret's value to the vault's store, and never reads one back. Holding the container provider's credentials lets you replace the hub's secrets, not read them.
@@ -63,31 +63,31 @@ Platforms that issue their own signing secret, such as Slack, keep it in the vau
 
 ## The hub vault
 
-The vault is a `Vault` from the hub's provider plugin. Groups declare secrets in it with `vault.secret(...)`. For example, `github.Connection` declares its App's private key:
+The vault is a `Vault` from the hub's provider plugin. `vault.secret(...)` declares a secret in it, in the same way as Notation's `secret()`. Declaring a secret doesn't give anything access to it. The router or the deployer binds the secret to its own Worker or service, under a name it chooses. For example, `github.Connection` declares its App's private key and binds it to the router:
 
 ```ts
-router.vault.secret({
-  id: "gh-private-key",                       // <-- the secret's id in state; `notation secret set` takes it
-  binding: "GITHUB_ACME_AGENTS_PRIVATE_KEY",  // <-- the env var name the router reads it as
-  consumers: ["router"],                      // <-- only the router binds it
-});
+const privateKey = router.bind(                  // <-- returns the binding name, here GH_PRIVATE_KEY
+  router.vault.secret({ id: "gh-private-key" }), // <-- the secret's id in state; `notation secret set` takes it
+);
 ```
 
-Each secret has these fields:
+`vault.secret(...)` takes these fields:
 
 | Field | Meaning |
 | --- | --- |
 | `id` | Keys the secret in Notation's state. `notation secret set <id>` takes it |
-| `binding` | The env var name that a Worker or service reads the secret as |
-| `consumers` | `"router"`, `"deployer"`, or both. Each one binds only the secrets that list it |
 | `source`, `key` | Where the value comes from, such as `{ source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }`. Optional |
+
+On Cloudflare, `vault.secret(...)` returns Notation's `SecretGroup`.
+
+`router.bind(secret, name?)` binds the secret to the router's Worker or service, and returns the binding name. Without `name`, the binding name is made from the secret's id with `bindingName(id)` from `@notation/factory`. `bindingName` makes the id upper case, and replaces each character other than a letter, a digit or `_` with `_`. If the result starts with a digit, it adds `_` in front. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. A connection records the binding names in its entry in the router's config.
 
 The factory doesn't choose the secret's name in the store. The vault's provider makes a name scoped to the Notation app and stage, so two stages of one hub keep separate secrets:
 
 | Provider | `Vault` | Each secret is | Name in the store |
 | --- | --- | --- | --- |
 | Cloudflare | `cloudflare.Vault` | A secret in the account's Secrets Store. Values can't be read back through the API. Workers read it through a `secrets_store_secret` binding | `<app>--<stage>--<id>` |
-| Railway | `railway.Vault` | A sealed shared variable in the router's project. Values are never shown in the dashboard or returned by the API. A service reads it through a variable named after the binding, whose value is `${{shared.<name>}}` | `<app>__<stage>__<id>`, with characters other than letters, digits and `_` replaced by `_` |
+| Railway | `railway.Vault` | A sealed shared variable in the router's project. Values are never shown in the dashboard or returned by the API. A service reads it through a variable named after the binding name, whose value is `${{shared.<name>}}` | `<app>__<stage>__<id>`, with characters other than letters, digits and `_` replaced by `_` |
 
 **The vault and the hub are always on the same provider.** `cloudflare.Router` and `cloudflare.Deployer` take only a `cloudflare.Vault`. A vault elsewhere would need its own access credential, and that credential would have to live in the hub provider's store anyway.
 
@@ -116,30 +116,32 @@ See [notation secret](https://github.com/notationlabs/notation/blob/main/docs/cl
 
 For the example at the top of this page, the vault holds these secrets:
 
-| Secret `id` | `binding` | Declared by | Value from |
-| --- | --- | --- | --- |
-| `router-root-key` | `FACTORY_ROOT_KEY` | `Router` | `generated()` |
-| `gh-private-key` | `GITHUB_ACME_AGENTS_PRIVATE_KEY` | `github.Connection` | No source: set it with `notation secret set` |
-| `slack-bot-token`, `slack-signing-secret` | `SLACK_ACME_AGENTS_BOT_TOKEN`, `SLACK_ACME_AGENTS_SIGNING_SECRET` | `slack.Connection`, if the hub has one | No source: deploy asks for them, or set them with `notation secret set` |
-| `deployer-claude-CLAUDE_CODE_OAUTH_TOKEN` | `CLAUDE_CODE_OAUTH_TOKEN` | `Deployer`, for each of its `accounts` | The account's `auth`, here `env` |
+| Secret `id` | Binding name | Declared by | Bound by | Value from |
+| --- | --- | --- | --- | --- |
+| `router-root-key` | `FACTORY_ROOT_KEY` | `Router`, as `router.rootKey` | Router and deployer | `generated()` |
+| `gh-private-key` | `GH_PRIVATE_KEY` | `github.Connection` | Router | No source: set it with `notation secret set` |
+| `slack-bot-token`, `slack-signing-secret` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` | `slack.Connection`, if the hub has one | Router | No source: deploy asks for them, or set them with `notation secret set` |
+| `claude-oauth-token` | `CLAUDE_CODE_OAUTH_TOKEN` | You, in the account's `auth` | Deployer | `env` |
 
-A connection's bindings are named after the connection's `name`, in upper case, with each character other than a letter or a digit replaced by `_`. So the router can hold the credentials of several connections at once.
+A connection's secret ids start with the connection's id, and the router makes each binding name from the id. So several connections of one provider each get their own bindings. For example, connections with the ids `gh` and `personal` bind `GH_PRIVATE_KEY` and `PERSONAL_PRIVATE_KEY`.
+
+The deployer binds an account's secrets under the env var names that the account gives them, such as `CLAUDE_CODE_OAUTH_TOKEN`. The secret's id is yours to choose.
 
 The GitHub App's private key has to be set by hand for now. Generate a private key on the App's settings page, then run `notation secret set gh-private-key`. Later, the App's create will write the key, once Notation supports a resource writing a secret value. See [Known gaps](./providers.md#known-gaps).
 
-### Consumers
+### Who binds each secret
 
-Each consumer binds only its own secrets:
+Each Worker or service binds only the secrets it uses:
 
 | Secret | Router | Deployer |
 | --- | --- | --- |
-| `FACTORY_ROOT_KEY` | Bound | Bound |
-| Connection credentials | Bound | Not bound |
-| Account secrets | Not bound | Bound |
+| `FACTORY_ROOT_KEY` | Bound by the router | Bound by the deployer |
+| Connection credentials | Bound by each connection, with `router.bind(...)` | Not bound |
+| Account secrets | Not bound | Bound by the deployer, for each of its `accounts` |
 
 **The router never binds an account's secrets, and the deployer never binds a connection's credentials.** A leak of one Worker or service therefore exposes only the secrets it binds, plus the root key.
 
-Connections and the deployer's accounts are declared after the router, so the list of secrets is complete only when the infra's evaluation ends. Each consumer adds its bindings then: on Cloudflare, to the Worker's `Bindings`; on Railway, to the service's variables.
+On Cloudflare, a binding is a `secrets_store_secret` entry in the Worker's `Bindings`. On Railway, it is a variable on the service.
 
 ### The deployer's provider token
 

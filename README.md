@@ -14,7 +14,7 @@ An organisation has one hub and one outpost per repo.
 | Contains | A router, a deployer, a vault, connections and agent accounts | Channels, containers, policies, agents and triggers |
 | Deployed by | Notation | The hub's deployer |
 
-The router receives events from each connection. The deployer provisions containers. The vault holds secrets, and each secret is bound to the router, the deployer, or both. A secret's value comes from a Notation [source](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md), such as `env` from `@notation/std/sources`, or from `notation secret set`.
+The router receives events from each connection. The deployer provisions containers. The vault holds secrets. The router and the deployer each bind only the secrets they use. A secret's value comes from a Notation [source](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md), such as `env` from `@notation/std/sources`, or from `notation secret set`.
 
 ## Plugins
 
@@ -48,13 +48,13 @@ export default factory(() => {
   new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
+    auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
   });
   new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 });
 ```
 
-Each class here is a group. A group creates real resources, such as a Worker or a GitHub App, and adds entries to shared ones. For example, `github.Connection` adds its App to the router's config and declares the App's private key in the vault.
+Each class here is a group. A group creates real resources, such as a Worker or a GitHub App, and adds entries to shared ones. For example, `github.Connection` adds its App to the router's config declares the App's private key in the vault, and binds the key to the router.
 
 ## An outpost
 

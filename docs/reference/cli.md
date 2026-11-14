@@ -24,7 +24,7 @@ The CLI has two kinds of credential, with separate jobs:
 | **Local provider credentials** (Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN`; `gh`; account secrets such as `CLAUDE_CODE_OAUTH_TOKEN`) | The hub's lifecycle: `factory infra up` and `factory infra down` create, update and delete it, and write secrets to its vault |
 | **Operator auth** (`github.OperatorAuth` or `cloudflare.OperatorAuth`) | Everything that talks to the running hub: `factory infra status`, `factory infra replay`, and the router calls `up` and `down` make |
 
-After the hub is created, the CLI never reads a hub secret. See [Secrets](../manual/secrets.md).
+The CLI never reads a hub secret back. It writes each secret's value from the secret's source, or from a prompt, and `notation secret set` writes a secret that has no source. See [Secrets](../manual/secrets.md).
 
 ## `factory.config.ts`
 

@@ -53,7 +53,7 @@ The router is reached at its `workers.dev` subdomain: `https://<script>.<account
 
 Cloudflare returns the deployer's token value only when it creates the token. Notation writes the value to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN`. The deployer also gets `CLOUDFLARE_ACCOUNT_ID`, `KNOWN_HOSTS` and `ACCOUNTS` as plain text bindings, each holding JSON.
 
-Both Workers bind the KV namespace as `FACTORY_KV`. The KV namespace holds the router's and outposts' configs, which name secrets by their bindings and hold no secret values. The Workers' internal key is derived from the root key inside the Workers, so `factory infra up` deploys them without reading any secret.
+Both Workers bind the KV namespace as `FACTORY_KV`. The KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their bindings, and holds no secret values. The Workers' internal key is derived from the root key inside the Workers, so `factory infra up` deploys them without reading any secret.
 
 The R2 bucket isn't bound to the router yet, nothing builds the router image, and the Worker bundles aren't shipped yet. See [Known gaps](../manual/providers.md#known-gaps).
 

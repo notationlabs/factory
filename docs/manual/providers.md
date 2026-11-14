@@ -44,7 +44,7 @@ export default factory(() => {
 | **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI) |
 | **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 
-The project's KV namespace holds the router's config and the outposts' configs. They name the vault's secrets by their bindings, and hold no secret values. Secrets are only in the Secrets Store or in Worker secrets.
+The project's KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their bindings, and holds no secret values. Secrets are only in the Secrets Store or in Worker secrets.
 
 | `/data` lifecycle event | Snapshot mechanism |
 | --- | --- |

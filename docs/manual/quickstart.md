@@ -13,21 +13,26 @@ In your infra repository, add the packages `factory.infra.ts` imports:
 Declare the hub for the `acme` organization:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault");
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>",
+    vault,
+  });
 
   const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
   new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
   new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] }); // <-- who may run `factory infra status`
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"),
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" },
   });
 
   new cloudflare.Deployer("deployer", {
@@ -43,11 +48,20 @@ Sign in to Cloudflare and Claude, then bring the hub up:
 
 ```bash
 @pm.dlx("wrangler login")
+export CLOUDFLARE_ACCOUNT_ID="<account id>" # <-- the account the deployer's API token may act in
 export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 factory infra up
 ```
 
-`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<router.url>/webhook`.
+`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook`, where `Url` is the router's `Url` output. `image` is the router's container image, pinned by its digest.
+
+The App's private key has to be set by hand for now. Generate a private key on the App's settings page, then write it to the vault:
+
+```bash
+notation secret set gh-private-key < acme-agents.private-key.pem
+```
+
+See [Secrets](./secrets.md#the-secrets-in-the-vault) and [Known gaps](./providers.md#known-gaps).
 
 ## 2. Declare an outpost (`.factory/`)
 
@@ -72,6 +86,7 @@ Wire `@claude` mentions from collaborators to that container:
 import { Container, outpost, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
+import { env } from "@notation/std/sources";
 
 export default outpost(() => {
   const gh = github.Connection.get("acme-agents").channel({ id: "issues" });

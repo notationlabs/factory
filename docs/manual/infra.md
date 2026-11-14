@@ -3,15 +3,20 @@
 Stand up a central hub to serve all of your repositories:
 
 ```ts [factory.infra.ts]
-import { factory, secret } from "@notation/factory";
+import { factory } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import * as slack from "@notation/factory-slack";
+import { env } from "@notation/std/sources";
 
 export default factory(() => {
   const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
-  const router = new cloudflare.Router("router", { project: "acme-agents", vault });
+  const router = new cloudflare.Router("router", {
+    project: "acme-agents",
+    image: "registry.cloudflare.com/<account>/factory-router@sha256:<digest>", // <-- the router's container image, pinned by digest
+    vault,
+  });
 
   const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
 
@@ -25,7 +30,7 @@ export default factory(() => {
   new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
 
   const claudeAccount = new claude.Account("claude", {
-    auth: secret.env("CLAUDE_CODE_OAUTH_TOKEN"), // <-- what outposts' Claude agents run on
+    auth: { source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }, // <-- what outposts' Claude agents run on
   });
 
   new cloudflare.Deployer("deployer", {
@@ -41,8 +46,8 @@ Each repository then declares its own outpost in [`.factory/config.ts`](./outpos
 | Component | Exposure | Role |
 | --- | --- | --- |
 | `Router` | Public, always on | Receives every connection's events, matches triggers, relays channel replies, mints short-lived code host tokens |
-| `Deployer` | Private, sleeps when idle | Checks and builds outpost containers for the repos the code host allows |
-| `Vault` | Private | Holds the hub's secrets. `Router` and `Deployer` both take it, and only they read it. See [Secrets](./secrets.md) |
+| `Deployer` | Private | Checks and builds outpost containers for the repos the code host allows |
+| `Vault` | Private | Holds the hub's secrets. The router binds the connections' credentials, the deployer binds the accounts' secrets, and both bind the root key. See [Secrets](./secrets.md) |
 | `Connection` | External platform | Notation Factory's presence on a platform: its credentials, bot identity and event feed. See [Connections & Channels](./connections.md) |
 | `CodeHost` | External platform | Where the repositories live, which of them Notation Factory serves (`allow`), and the credentials containers push with; an infra has one |
 | `Account` | Every outpost that runs its runtime | Credentials for an agent runtime, e.g. `CLAUDE_CODE_OAUTH_TOKEN` |
@@ -94,4 +99,4 @@ factory infra down --dry-run
 factory infra down
 ```
 
-Destroys all outpost containers first, then tears down `Deployer` and `Router`, and opens browser settings for protected resources (GitHub Apps and Slack apps). The `Vault` is protected too, so a hub re-created in the same account finds its keys.
+Destroys all outpost containers first, then tears down `Deployer`, `Router` and the `Vault`'s secrets, and opens browser settings for protected resources (GitHub Apps and Slack apps). A hub re-created later generates a new root key, and needs its connections' credentials set again. See [Losing the vault](./secrets.md#losing-the-vault).

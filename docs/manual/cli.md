@@ -30,13 +30,13 @@ Deploy infrastructure changes and reconcile subscribed outposts:
 factory infra up [--dry-run] [--prune]
 ```
 
-Plans and applies `factory.infra.ts`, writes new or changed secrets to the vault, then signs you in as an operator and syncs all subscribed repositories.
+Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and syncs all subscribed repositories. A secret with a source is written from its source: `env` and `dotenv` on every deploy, `generated()` once. A secret without a source is asked for on a terminal when it's created. See [Secrets](./secrets.md#where-a-value-comes-from).
 
 | Step | Authenticates with |
 | --- | --- |
 | Create and deploy the hub | The container provider's sign-in: Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN` |
 | Create GitHub Apps and Slack apps | Your `gh` login and your browser |
-| Copy account secrets into the vault | The values in your environment, e.g. `CLAUDE_CODE_OAUTH_TOKEN` |
+| Write secrets to the vault | Each secret's source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `env`; a hidden prompt for a secret without a source |
 | Read and set App webhooks, sync repos | Operator auth; the router does the work with the connection's credentials |
 
 | Flag | Effect |
@@ -72,7 +72,7 @@ Tear down all outposts and hub resources:
 factory infra down [--dry-run] [--yes]
 ```
 
-Tears down all outpost containers (`FACTORY_STATUS` cleared), then destroys `Deployer`, `Router`, and cloud project resources in reverse dependency order. Leaves protected resources (the `Vault`, GitHub Apps and Slack apps) and opens their settings in your browser.
+Tears down all outpost containers (`FACTORY_STATUS` cleared), then destroys `Deployer`, `Router`, and cloud project resources in reverse dependency order. Deletes the `Vault`'s secrets. Leaves protected resources (GitHub Apps and Slack apps) and opens their settings in your browser.
 
 | Flag | Effect |
 | --- | --- |

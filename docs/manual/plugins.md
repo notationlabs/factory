@@ -19,8 +19,6 @@ const connectionConfig = v.object({ name: v.string(), workspace: v.string() });
 
 export type ConnectionOptions = v.InferInput<typeof connectionConfig> & { router: Router };
 
-const envName = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-
 export class Connection extends ResourceGroup implements ConnectionContract {
   readonly name: string;
   readonly router: Router;
@@ -34,17 +32,15 @@ export class Connection extends ResourceGroup implements ConnectionContract {
     this.app = this.add(
       new App(`${id}-app`, { config: { name, workspace }, dependencies: { router: router.api } }),
     );
-    const token = router.vault.secret({
-      id: `${id}-token`,                        // <-- `notation secret set linear-token` sets it
-      binding: `LINEAR_${envName(name)}_TOKEN`, // <-- the env var the router reads it as
-      consumers: ["router"],                    // <-- a connection's credentials go to the router only
-    });
+    const token = router.bind(                   // <-- binds it to the router only, here as LINEAR_TOKEN
+      router.vault.secret({ id: `${id}-token` }), // <-- `notation secret set linear-token` sets it
+    );
     router.store.contribute({
       connections: {
         [`linear/${name}`]: {
           provider: "linear",
           source: this.app.outputRef("id"),
-          credentials: { token: token.binding },
+          credentials: { token },
         },
       },
     });
@@ -52,9 +48,9 @@ export class Connection extends ResourceGroup implements ConnectionContract {
 }
 ```
 
-The connection declares its API key in the router's vault without a source, so `factory infra up` asks for it on a terminal, and `notation secret set linear-token` sets it. To read the value from somewhere instead, pass a Notation source and a key, such as `source: env, key: "LINEAR_API_KEY"` with `env` from `@notation/std/sources`. The router's config holds the secret's `binding`, never its value, and the router reads the value through that binding. See [Secrets](./secrets.md#the-hub-vault).
+The connection declares its API key in the router's vault without a source, so `factory infra up` asks for it on a terminal, and `notation secret set linear-token` sets it. To read the value from somewhere instead, pass a Notation source and a key, such as `source: env, key: "LINEAR_API_KEY"` with `env` from `@notation/std/sources`. `router.bind(...)` returns the binding name, which it makes from the secret's id. The router's config holds that name, never the value, and the router reads the value through the binding. Pass a second argument to `router.bind` to choose the name yourself. See [Secrets](./secrets.md#the-hub-vault).
 
-A hub provider plugin implements `Vault` itself. Its `secret(...)` declares the secret in the provider's store, and its `bindings(consumer)` returns the secrets that the router or the deployer binds. Groups made after the router, such as connections, still declare secrets, so the plugin reads `bindings` only when evaluation ends, with `onEvaluationEnd` from `@notation/resource`. `VaultSecrets` from `@notation/factory` keeps the list, and rejects two secrets with one id, or two secrets that one consumer binds under the same name.
+A hub provider plugin implements `Vault` and `Router` itself. Its `Vault.secret(...)` declares the secret in the provider's store and returns it, as Notation's `secret()` does. Its `Router.bind(secret, name?)` binds the secret to the router's Worker or service and returns the binding name. Without `name`, it makes the name with `bindingName(secret.id)` from `@notation/factory`. The router also declares `rootKey`, with the `generated()` source, and binds it as `FACTORY_ROOT_KEY`. The plugin's `Deployer` binds `router.rootKey` as `FACTORY_ROOT_KEY`, and each of its accounts' `secrets` under the env var name it is keyed by. It never binds a connection's credentials.
 
 A group declared in an outpost extends `OutpostGroup` instead of `ResourceGroup`. `OutpostGroup` finds the outpost being declared, so the group can contribute its entry with `this.outpost.store.contribute(...)` without the user passing the outpost. A connection's outpost side is a separate class returned by a static `get(name)`, whose `channel(...)` makes the provider's own channel. That channel builds the provider's selectors.
 

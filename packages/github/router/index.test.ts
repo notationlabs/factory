@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig, RouterConfig } from "@notation/factory/router";
-import { connectionForApp, matchTriggers, verifySignature } from "./index.ts";
+import { connectionForApp, matchTriggers, mentions, verifySignature } from "./index.ts";
 
 const encode = (s: string) => new TextEncoder().encode(s);
 
@@ -70,75 +70,118 @@ const delivery = (event: string, payload: object, repo = "acme/api") => ({
   payload: { repository: { full_name: repo }, ...payload },
 });
 
-test("an opened issue with a matching label selects on-open, pending a collaborator check", () => {
-  const matches = matchTriggers(
-    outpost,
-    delivery("issues", {
-      action: "opened",
-      issue: { body: "", labels: [{ name: "bug" }] },
-      sender: { login: "bob" },
-    }),
+const person = (login: string, association = "NONE", type = "User") => ({
+  user: { login, type },
+  author_association: association,
+});
+
+const issue = (author = person("alice", "COLLABORATOR"), labels: string[] = []) => ({
+  body: "",
+  labels: labels.map((name) => ({ name })),
+  ...author,
+});
+
+const comment = (
+  author: ReturnType<typeof person>,
+  { body = "@claude please fix", on = issue(), repo = "acme/api" } = {},
+) =>
+  delivery(
+    "issue_comment",
+    {
+      action: "created",
+      issue: on,
+      comment: { body, ...author },
+      sender: author.user,
+    },
+    repo,
   );
-  assert.deepEqual(matches, [
-    { trigger: "on-open", author: { result: "check", sets: [{ kind: "collaborators" }] } },
+
+const opened = (author: ReturnType<typeof person>, labels: string[]) =>
+  delivery("issues", { action: "opened", issue: issue(author, labels), sender: author.user });
+
+test("an opened issue from a collaborator with the label selects on-open", () => {
+  assert.deepEqual(matchTriggers(outpost, opened(person("bob", "COLLABORATOR"), ["bug"])), [
+    { trigger: "on-open", author: { result: "allowed" } },
   ]);
 });
 
-test("an issue without the label selects nothing", () => {
-  const matches = matchTriggers(
-    outpost,
-    delivery("issues", { action: "opened", issue: { body: "", labels: [] } }),
-  );
-  assert.deepEqual(matches, []);
+test("an opened issue from someone without write access is denied", () => {
+  assert.deepEqual(matchTriggers(outpost, opened(person("eve", "CONTRIBUTOR"), ["bug"])), [
+    { trigger: "on-open", author: { result: "denied" } },
+  ]);
+});
+
+test("labels must all be on the issue", () => {
+  const twoLabels = {
+    ...outpost,
+    triggers: {
+      t: { ...outpost.triggers["on-open"]!, match: { actions: ["opened"], labels: ["bug", "p1"], from: { kind: "collaborators" } } },
+    },
+  };
+  const author = person("bob", "COLLABORATOR");
+  assert.equal(matchTriggers(twoLabels, opened(author, ["bug"])).length, 0);
+  assert.equal(matchTriggers(twoLabels, opened(author, ["bug", "p1"])).length, 1);
+  assert.equal(matchTriggers(outpost, opened(author, [])).length, 0);
 });
 
 test("a comment mentioning @claude from alice is allowed, and from bob is denied", () => {
-  const comment = (login: string) =>
-    delivery("issue_comment", {
-      action: "created",
-      issue: { body: "" },
-      comment: { body: "@Claude please fix" },
-      sender: { login },
-    });
-  assert.deepEqual(matchTriggers(outpost, comment("alice")), [
+  assert.deepEqual(matchTriggers(outpost, comment(person("alice"))), [
     { trigger: "on-mention", author: { result: "allowed" } },
   ]);
-  assert.deepEqual(matchTriggers(outpost, comment("bob")), [
+  assert.deepEqual(matchTriggers(outpost, comment(person("bob"))), [
     { trigger: "on-mention", author: { result: "denied" } },
   ]);
 });
 
+test("a comment on an issue whose author isn't in from is denied", () => {
+  const stranger = issue(person("eve"));
+  assert.deepEqual(matchTriggers(outpost, comment(person("alice"), { on: stranger })), [
+    { trigger: "on-mention", author: { result: "denied" } },
+  ]);
+});
+
+test("a bot is denied, even when it's in from", () => {
+  assert.deepEqual(matchTriggers(outpost, comment(person("alice", "NONE", "Bot"))), [
+    { trigger: "on-mention", author: { result: "denied" } },
+  ]);
+});
+
+test("a team in from leaves a check for the router to make", () => {
+  const teams = {
+    ...outpost,
+    triggers: {
+      t: { ...outpost.triggers["on-mention"]!, match: { actions: ["created"], mention: "@claude", from: { kind: "team", slug: "acme/core" } } },
+    },
+  };
+  assert.deepEqual(matchTriggers(teams, comment(person("bob"))), [
+    { trigger: "t", author: { result: "check", sets: [{ kind: "team", slug: "acme/core" }] } },
+  ]);
+});
+
+test("mentions match as GitHub does", () => {
+  assert.equal(mentions("@Claude please", "@claude"), true);
+  assert.equal(mentions("hi (@claude)", "@claude"), true);
+  assert.equal(mentions("@claude.", "@claude"), true);
+  assert.equal(mentions("@claudette", "@claude"), false);
+  assert.equal(mentions("me@claude.ai", "@claude"), false);
+  assert.equal(mentions("@claude-bot", "@claude"), false);
+  assert.equal(mentions(null, "@claude"), false);
+});
+
 test("an edit matches only if it newly adds the mention", () => {
-  const edit = (before: string) =>
-    delivery("issue_comment", {
-      action: "edited",
-      issue: { body: "" },
-      comment: { body: "@claude please fix" },
-      changes: { body: { from: before } },
-      sender: { login: "alice" },
-    });
-  assert.equal(matchTriggers(outpost, edit("please fix")).length, 1);
-  assert.equal(matchTriggers(outpost, edit("@claude fix")).length, 0);
+  const edit = (changes: object) => ({
+    ...comment(person("alice")),
+    payload: { ...comment(person("alice")).payload, action: "edited", changes },
+  });
+  assert.equal(matchTriggers(outpost, edit({ body: { from: "please fix" } })).length, 1);
+  assert.equal(matchTriggers(outpost, edit({ body: { from: "@claude fix" } })).length, 0);
+  // An edit that didn't touch the body has no changes.body.
+  assert.equal(matchTriggers(outpost, edit({})).length, 0);
 });
 
 test("a channel with a scope covers that repo, not the outpost's", () => {
-  const comment = (repo: string) =>
-    delivery(
-      "issue_comment",
-      {
-        action: "created",
-        issue: { body: "" },
-        comment: { body: "@claude" },
-        sender: { login: "alice" },
-      },
-      repo,
-    );
-  assert.deepEqual(
-    matchTriggers(outpost, comment("acme/docs")).map((m) => m.trigger),
-    ["docs-mention"],
-  );
-  assert.deepEqual(
-    matchTriggers(outpost, comment("acme/api")).map((m) => m.trigger),
-    ["on-mention"],
-  );
+  const triggers = (repo: string) =>
+    matchTriggers(outpost, comment(person("alice"), { repo })).map((m) => m.trigger);
+  assert.deepEqual(triggers("acme/docs"), ["docs-mention"]);
+  assert.deepEqual(triggers("acme/api"), ["on-mention"]);
 });

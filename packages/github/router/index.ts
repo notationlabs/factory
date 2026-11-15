@@ -33,13 +33,17 @@ export const connectionForApp = (config: RouterConfig, appId: string) => {
   return undefined;
 };
 
+type User = { login: string; type?: string };
+
+type Post = { body: string | null; user?: User; author_association?: string };
+
 type Payload = {
   action?: string;
   repository?: { full_name: string };
-  issue?: { body: string | null; labels?: { name: string }[] };
-  comment?: { body: string };
+  issue?: Post & { labels?: { name: string }[] };
+  comment?: Post;
   changes?: { body?: { from?: string } };
-  sender?: { login: string };
+  sender?: User;
 };
 
 type Match = {
@@ -50,9 +54,9 @@ type Match = {
 };
 
 /**
- * Whether the sender is in the trigger's `from`. `allowed` and `denied` are
- * decided from the payload. `check` lists the author sets that need a call to
- * GitHub (collaborators and teams), which the router doesn't make yet.
+ * Whether the people behind a delivery are in the trigger's `from`.
+ * `allowed` and `denied` are decided from the payload. `check` lists the
+ * teams that need a call to GitHub, which the router doesn't make yet.
  */
 export type AuthorCheck =
   | { result: "allowed" }
@@ -61,25 +65,37 @@ export type AuthorCheck =
 
 export type TriggerMatch = { trigger: string; author: AuthorCheck };
 
-const mentions = (body: string | null | undefined, mention: string) =>
-  body?.toLowerCase().includes(mention.toLowerCase()) ?? false;
+/** Author associations that mean the person has write access to the repo. */
+const WRITE_ACCESS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
-/** The text that a `mention` is looked for in, and its text before an edit. */
-const texts = (event: string, payload: Payload) =>
-  event === "issue_comment"
-    ? { body: payload.comment?.body, before: payload.changes?.body?.from }
-    : { body: payload.issue?.body, before: payload.changes?.body?.from };
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Whether `body` mentions `mention` as GitHub would: case-insensitively, and
+ * not as part of a longer name or an email address (`@claudette`,
+ * `me@claude.ai`).
+ */
+export const mentions = (body: string | null | undefined, mention: string) =>
+  body != null &&
+  new RegExp(`(?<![\\w@.-])${escapeRegExp(mention)}(?![\\w-])`, "i").test(body);
+
+/** The post a delivery is about: the comment, or else the issue. */
+const postOf = (event: string, payload: Payload) =>
+  event === "issue_comment" ? payload.comment : payload.issue;
 
 const selects = (event: string, match: Match, payload: Payload) => {
   if (!payload.action || !match.actions.includes(payload.action)) return false;
   if (match.labels?.length) {
     const names = new Set(payload.issue?.labels?.map((l) => l.name));
-    if (!match.labels.some((l) => names.has(l))) return false;
+    if (!match.labels.every((l) => names.has(l))) return false;
   }
   if (match.mention) {
-    const { body, before } = texts(event, payload);
+    const body = postOf(event, payload)?.body;
     if (!mentions(body, match.mention)) return false;
-    // An edit matches only if it newly adds the mention.
+    // An edit matches only if it newly adds the mention. An edit that didn't
+    // touch the body, such as a title change, has no `changes.body`, so the
+    // text before is the text now.
+    const before = payload.changes?.body?.from ?? body;
     if (payload.action === "edited" && mentions(before, match.mention)) {
       return false;
     }
@@ -87,16 +103,48 @@ const selects = (event: string, match: Match, payload: Payload) => {
   return true;
 };
 
-const checkAuthor = (from: Match["from"], login: string | undefined): AuthorCheck => {
-  const sets = Array.isArray(from) ? from : [from];
-  if (
-    login &&
-    sets.some((s) => s.kind === "user" && s.login.toLowerCase() === login.toLowerCase())
-  ) {
-    return { result: "allowed" };
+/** Whether one person is in `sets`. Collaborators are decided from the post's author association. */
+const checkPerson = (sets: AuthorSet[], post: Post): AuthorCheck => {
+  const login = post.user?.login.toLowerCase();
+  for (const set of sets) {
+    if (set.kind === "user" && set.login.toLowerCase() === login) {
+      return { result: "allowed" };
+    }
+    if (
+      set.kind === "collaborators" &&
+      WRITE_ACCESS.has(post.author_association ?? "")
+    ) {
+      return { result: "allowed" };
+    }
   }
-  const remote = sets.filter((s) => s.kind !== "user");
-  return remote.length ? { result: "check", sets: remote } : { result: "denied" };
+  const teams = sets.filter((s) => s.kind === "team");
+  return teams.length ? { result: "check", sets: teams } : { result: "denied" };
+};
+
+/**
+ * Checks the post's author against `from`. On a comment, the issue's author
+ * has to be in `from` too, so a comment from a trusted person doesn't make
+ * the agent act on an issue a stranger wrote. Bots are always denied, so the
+ * App's own comments can't start runs.
+ */
+const checkAuthors = (
+  from: Match["from"],
+  event: string,
+  payload: Payload,
+): AuthorCheck => {
+  const sets = Array.isArray(from) ? from : [from];
+  const posts = [postOf(event, payload), event === "issue_comment" ? payload.issue : undefined]
+    .filter((p): p is Post => p !== undefined);
+  if (!posts.length) return { result: "denied" };
+  if (payload.sender?.type === "Bot" || posts.some((p) => p.user?.type === "Bot")) {
+    return { result: "denied" };
+  }
+  const checks = posts.map((p) => checkPerson(sets, p));
+  if (checks.some((c) => c.result === "denied")) return { result: "denied" };
+  const pending = checks.flatMap((c) => (c.result === "check" ? c.sets : []));
+  return pending.length
+    ? { result: "check", sets: [...new Set(pending)] }
+    : { result: "allowed" };
 };
 
 /** A channel without a scope covers the outpost's repo. */
@@ -133,7 +181,7 @@ export const matchTriggers = (
     }
     const match = trigger.match as Match;
     if (!selects(event, match, payload)) continue;
-    matches.push({ trigger: id, author: checkAuthor(match.from, payload.sender?.login) });
+    matches.push({ trigger: id, author: checkAuthors(match.from, event, payload) });
   }
   return matches;
 };

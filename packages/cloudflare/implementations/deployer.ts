@@ -3,17 +3,18 @@ import {
   type Account,
   type Deployer as DeployerContract,
 } from "@notation/factory";
-import { workers } from "@notation/cloudflare/resources";
-import {
-  type AccountTokenGroup,
-  accountToken,
-} from "@notation/cloudflare/tokens";
+import { tokens, workers } from "@notation/cloudflare/resources";
+import { scopedPhysicalName } from "@notation/resource";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
 import { kvBinding, secretBinding, jsonBindings } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
 import type { Router } from "./router.ts";
-import { assertCloudflareSecret, type Vault } from "./vault.ts";
+import {
+  assertCloudflareSecret,
+  type CloudflareSecret,
+  type Vault,
+} from "./vault.ts";
 
 const deployerConfig = v.object({
   /** Written to outposts' authorized_keys, for `container ssh` and `resume`. */
@@ -44,7 +45,9 @@ export class Deployer
   readonly router: Router;
   readonly vault: Vault;
   readonly accounts: Account[];
-  readonly token: AccountTokenGroup;
+  readonly token: tokens.AccountTokenInstance;
+  /** Holds the token's value. */
+  readonly tokenSecret: CloudflareSecret;
   readonly code: fs.FileInstance;
   readonly script: workers.WorkerScriptInstance;
 
@@ -64,19 +67,29 @@ export class Deployer
     this.vault = vault;
     this.accounts = accounts;
 
-    this.token = accountToken({
-      id: `${id}-token`,
-      policies: [
-        {
-          effect: "allow",
-          permissionGroups: [
-            "Workers Scripts Write",
-            "Workers CI Write",
-            "Workers Containers Write",
+    this.token = this.add(
+      new tokens.AccountToken(`token:${id}-token`, {
+        config: {
+          Name: scopedPhysicalName(`${id}-token`, {
+            maxLength: tokens.TOKEN_NAME_MAX_LENGTH,
+          }),
+          Policies: [
+            {
+              effect: "allow",
+              permissionGroups: [
+                "Workers Scripts Write",
+                "Workers CI Write",
+                "Workers Containers Write",
+              ],
+              resources: { [`com.cloudflare.api.account.${accountId}`]: "*" },
+            },
           ],
-          resources: { [`com.cloudflare.api.account.${accountId}`]: "*" },
         },
-      ],
+      }),
+    );
+    this.tokenSecret = vault.secret({
+      id: `${id}-token`,
+      credential: this.token.credentials.Value,
     });
 
     const accountSecrets = accounts.flatMap((account) =>
@@ -93,7 +106,7 @@ export class Deployer
           CompatibilityDate: COMPATIBILITY_DATE,
           Bindings: [
             kvBinding(router.kv),
-            secretBinding("CLOUDFLARE_API_TOKEN", this.token),
+            secretBinding("CLOUDFLARE_API_TOKEN", this.tokenSecret),
             secretBinding("FACTORY_ROOT_KEY", router.rootKey),
             ...accountSecrets,
             ...jsonBindings({

@@ -74,7 +74,7 @@ const privateKey = router.bind(                  // <-- returns the binding name
 | `id` | Keys the secret in Notation's state. `notation secret set <id>` takes it |
 | `source`, `key` | Where the value comes from, such as `{ source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }`. Optional |
 
-On Cloudflare, `vault.secret(...)` returns Notation's `SecretGroup`.
+On Cloudflare, `vault.secret(...)` returns a `CloudflareSecret`. The vault owns the account's Secrets Store in the deployment, so infra that has a `cloudflare.Vault` can't also call Notation's `secret()` or `accountToken()`.
 
 `router.bind(secret, name?)` binds the secret to the router's Worker or service, and returns the binding name. Without `name`, the binding name is made from the secret's id with `bindingName(id)` from `@notation/factory`. `bindingName` makes the id upper case, and replaces each character other than a letter, a digit or `_` with `_`. If the result starts with a digit, it adds `_` in front. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. A connection records the binding names in its entry in the router's config.
 

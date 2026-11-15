@@ -136,7 +136,7 @@ type VaultSecretOptions = SecretValueFrom & {
   id: string; // keys the secret in state; `notation secret set <id>` takes it
 };
 
-// A secret that a vault declares. On Cloudflare, Notation's SecretGroup.
+// A secret that a vault declares. On Cloudflare, a CloudflareSecret.
 type VaultSecret = ResourceGroup;
 
 // The hub's write-only secret store. secret() only declares a secret. The

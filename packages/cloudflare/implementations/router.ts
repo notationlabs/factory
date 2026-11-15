@@ -6,7 +6,6 @@ import {
   type RouterApi,
   type VaultSecret,
 } from "@notation/factory";
-import type { SecretGroup } from "@notation/cloudflare/secrets-store";
 import { containers, kv, r2, workers } from "@notation/cloudflare/resources";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
@@ -16,7 +15,11 @@ import {
 } from "../resources/router-config.ts";
 import { kvBinding, r2Binding, secretBinding } from "./bindings.ts";
 import { COMPATIBILITY_DATE, routerImageContext, workerCode } from "./code.ts";
-import { assertCloudflareSecret, type Vault } from "./vault.ts";
+import {
+  assertCloudflareSecret,
+  type CloudflareSecret,
+  type Vault,
+} from "./vault.ts";
 
 const CONTAINER_NAMESPACE = "router-container";
 const CONTAINER_CLASS = "RouterContainer";
@@ -40,7 +43,7 @@ export class Router
 {
   readonly project: string;
   readonly vault: Vault;
-  readonly rootKey: SecretGroup;
+  readonly rootKey: CloudflareSecret;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
   readonly code: fs.FileInstance;

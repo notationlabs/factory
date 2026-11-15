@@ -9,14 +9,30 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "paths": {
-      "@notation/factory": ["./packages/factory/index.ts"],
+      "@notation/factory": [
+        "./packages/factory/index.ts"
+      ],
       "@notation/factory-cloudflare": [
         "./packages/cloudflare/implementations/index.ts"
       ],
-      "@notation/factory-github": ["./packages/github/implementations/index.ts"],
-      "@notation/factory-slack": ["./packages/slack/implementations/index.ts"],
-      "@notation/factory-claude": ["./packages/claude/implementations/index.ts"],
-      "@notation/factory-railway": ["./packages/railway/implementations/index.ts"]
+      "@notation/factory-github": [
+        "./packages/github/implementations/index.ts"
+      ],
+      "@notation/factory-slack": [
+        "./packages/slack/implementations/index.ts"
+      ],
+      "@notation/factory-claude": [
+        "./packages/claude/implementations/index.ts"
+      ],
+      "@notation/factory-railway": [
+        "./packages/railway/implementations/index.ts"
+      ],
+      "@notation/factory/router": [
+        "./packages/factory/router/index.ts"
+      ],
+      "@notation/factory-github/router": [
+        "./packages/github/router/index.ts"
+      ]
     }
   },
   "include": [
@@ -25,6 +41,8 @@
     "packages/*/resources/**/*.ts",
     "packages/*/implementations/**/*.ts",
     "packages/*/lib/**/*.ts",
+    "packages/*/router/**/*.ts",
+    "packages/*/workers/**/*.ts",
     "examples/**/*.ts",
     "scripts/**/*.ts"
   ]

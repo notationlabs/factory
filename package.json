@@ -5,7 +5,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/compile.ts",
-    "viewer": "tsx scripts/compile.ts --view"
+    "viewer": "tsx scripts/compile.ts --view",
+    "test": "node --test 'packages/*/router/*.test.ts'"
   },
   "devDependencies": {
     "@notation/resource": "0.21.0",

@@ -51,7 +51,7 @@ Cloudflare returns the deployer's token value only when it creates the token. No
 
 Both Workers bind the KV namespace as `FACTORY_KV`. The router binds the R2 bucket as `FACTORY_BUCKET`. The KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. The Workers' internal key is derived from the root key inside the Workers, so `factory infra up` deploys them without reading any secret.
 
-The router image is a placeholder, and the Worker bundles aren't shipped yet. See [Known gaps](../manual/providers.md#known-gaps).
+The router image and the deployer Worker are placeholders, and the router Worker only matches GitHub deliveries. See [Known gaps](../manual/providers.md#known-gaps).
 
 ## Operator auth
 

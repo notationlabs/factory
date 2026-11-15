@@ -10,14 +10,16 @@
   },
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./router": "./router/index.ts"
   },
   "files": [
     "contracts",
     "implementations",
     "index.ts",
     "lib",
-    "resources"
+    "resources",
+    "router"
   ],
   "publishConfig": {
     "access": "public"

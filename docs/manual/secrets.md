@@ -45,10 +45,10 @@ A Notation Factory instance has secrets in three places: your machine, the hub (
 
 ```text
 FACTORY_ROOT_KEY
- ├─ container key   HMAC(root, repo + container)    container ⇄ router, both directions
- ├─ webhook secret  HMAC(root, App id)              GitHub ─▶ router
- ├─ admin key       HMAC(root, "admin")             router ⇄ deployer
- └─ internal key    HMAC(root, "cloudflare:…")      Cloudflare Workers' private routing (*.factory.internal)
+ ├─ container key   HMAC(root, repo + container)               container ⇄ router, both directions
+ ├─ webhook secret  HMAC(root, "github:webhook:" + App id)     GitHub ─▶ router
+ ├─ admin key       HMAC(root, "admin")                        router ⇄ deployer
+ └─ internal key    HMAC(root, "cloudflare:…")                 Cloudflare Workers' private routing (*.factory.internal)
 ```
 
 Neither the router nor the deployer stores a derived key. Each derives the key where the root key is bound, when it needs it. For example, the router derives `acme-agents`' webhook secret to verify a webhook, and derives a container's key to verify that container's request for credentials.

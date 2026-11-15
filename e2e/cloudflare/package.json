@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "workers": "node scripts/placeholder-workers.mjs",
+    "workers": "node ../../packages/cloudflare/scripts/build.mjs",
     "plan": "pnpm workers && notation plan",
     "deploy": "pnpm workers && notation deploy",
     "destroy": "notation destroy"

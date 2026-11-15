@@ -101,6 +101,12 @@ importers:
       '@notation/factory':
         specifier: workspace:*
         version: link:../factory
+      '@notation/factory-github':
+        specifier: workspace:*
+        version: link:../github
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
 
   packages/factory:
     dependencies:

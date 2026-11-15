@@ -12,6 +12,9 @@
   "exports": {
     ".": "./implementations/index.ts"
   },
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
   "files": [
     "dist",
     "implementations",
@@ -33,6 +36,8 @@
     "@notation/factory": "workspace:^"
   },
   "devDependencies": {
-    "@notation/factory": "workspace:*"
+    "@notation/factory": "workspace:*",
+    "@notation/factory-github": "workspace:*",
+    "esbuild": "^0.25.12"
   }
 }

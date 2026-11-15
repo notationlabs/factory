@@ -7,8 +7,6 @@ allowBuilds:
   # The docs framework ships no dist/; its prepare script builds it after clone.
   "@notation/docs@git+ssh://git@github.com/djgrant/docs.git": true
 minimumReleaseAgeExclude:
-  - '@notation/resource@0.16.0'
-  - '@notation/utils@0.16.0'
   - '@notation/*'
 packages:
   - packages/*

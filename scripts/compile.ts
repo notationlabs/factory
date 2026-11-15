@@ -168,6 +168,9 @@ const open = (path: string) => {
   });
 };
 
+// The Cloudflare deployer reads its account from the environment when it is constructed.
+process.env.CLOUDFLARE_ACCOUNT_ID ??= "<CLOUDFLARE_ACCOUNT_ID>";
+
 const files = (await readdir(examplesDir))
   .filter((f) => f.endsWith(".ts"))
   .sort()

@@ -1,8 +1,8 @@
 import {
-  type ChannelEntry,
+  type AuthorCheck,
+  type ChannelProvider,
   deriveKey,
   hmacHex,
-  type OutpostConfig,
   type RouterConfig,
   timingSafeEqual,
 } from "@notation/factory/router";
@@ -23,47 +23,51 @@ export const verifySignature = async (
   return timingSafeEqual(header.slice(7), await hmacHex(secret, body));
 };
 
-/** The name of the GitHub connection whose App has id `appId`. */
-export const connectionForApp = (config: RouterConfig, appId: string) => {
-  for (const [key, entry] of Object.entries(config.connections ?? {})) {
-    if (entry.provider === "github" && entry.source === appId) {
-      return key.slice("github/".length);
-    }
-  }
-  return undefined;
+/** The GitHub connections in the router's config, by App id. */
+const connections = (config: Partial<RouterConfig>) =>
+  Object.entries(config.connections ?? {}).flatMap(([key, entry]) =>
+    entry.provider === "github"
+      ? [{ name: key.slice("github/".length), appId: entry.source, entry }]
+      : [],
+  );
+
+/** The parts of an issue or comment event that selectors read. */
+export type GithubEvent = {
+  action: string;
+  /** The author of the comment, or of the issue. */
+  author: { login: string; association: string };
+  body: string;
+  /** The body before an edit. The same as `body` when an edit didn't change it. */
+  before: string;
+  labels: string[];
 };
 
-type User = { login: string; type?: string };
-
-type Post = { body: string | null; user?: User; author_association?: string };
-
-type Payload = {
-  action?: string;
-  repository?: { full_name: string };
-  issue?: Post & { labels?: { name: string }[] };
-  comment?: Post;
-  changes?: { body?: { from?: string } };
-  sender?: User;
+type Post = {
+  body?: string | null;
+  user?: { login: string };
+  author_association?: string;
 };
 
-type Match = {
-  actions: string[];
-  mention?: string;
-  labels?: string[];
-  from: AuthorSet | AuthorSet[];
+const parse = (event: string, payload: any): GithubEvent | undefined => {
+  const post: Post | undefined =
+    event === "issue_comment"
+      ? payload.comment
+      : event === "issues"
+        ? payload.issue
+        : undefined;
+  if (!post || typeof payload.action !== "string") return undefined;
+  const body = post.body ?? "";
+  return {
+    action: payload.action,
+    author: {
+      login: post.user?.login ?? "",
+      association: post.author_association ?? "",
+    },
+    body,
+    before: payload.changes?.body?.from ?? body,
+    labels: (payload.issue?.labels ?? []).map((l: { name: string }) => l.name),
+  };
 };
-
-/**
- * Whether the people behind a delivery are in the trigger's `from`.
- * `allowed` and `denied` are decided from the payload. `check` lists the
- * teams that need a call to GitHub, which the router doesn't make yet.
- */
-export type AuthorCheck =
-  | { result: "allowed" }
-  | { result: "denied" }
-  | { result: "check"; sets: AuthorSet[] };
-
-export type TriggerMatch = { trigger: string; author: AuthorCheck };
 
 /** Author associations that mean the person has write access to the repo. */
 const WRITE_ACCESS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
@@ -75,115 +79,107 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * not as part of a longer name or an email address (`@claudette`,
  * `me@claude.ai`).
  */
-export const mentions = (body: string | null | undefined, mention: string) =>
-  body != null &&
+export const mentions = (body: string, mention: string) =>
   new RegExp(`(?<![\\w@.-])${escapeRegExp(mention)}(?![\\w-])`, "i").test(body);
 
-/** The post a delivery is about: the comment, or else the issue. */
-const postOf = (event: string, payload: Payload) =>
-  event === "issue_comment" ? payload.comment : payload.issue;
+type Selector = {
+  actions: string[];
+  mention?: string;
+  labels?: string[];
+  from: AuthorSet | AuthorSet[];
+};
 
-const selects = (event: string, match: Match, payload: Payload) => {
-  if (!payload.action || !match.actions.includes(payload.action)) return false;
-  if (match.labels?.length) {
-    const names = new Set(payload.issue?.labels?.map((l) => l.name));
-    if (!match.labels.every((l) => names.has(l))) return false;
-  }
-  if (match.mention) {
-    const body = postOf(event, payload)?.body;
-    if (!mentions(body, match.mention)) return false;
-    // An edit matches only if it newly adds the mention. An edit that didn't
-    // touch the body, such as a title change, has no `changes.body`, so the
-    // text before is the text now.
-    const before = payload.changes?.body?.from ?? body;
-    if (payload.action === "edited" && mentions(before, match.mention)) {
+const selects = (selector: Selector, event: GithubEvent) => {
+  if (!selector.actions.includes(event.action)) return false;
+  if (selector.labels?.some((l) => !event.labels.includes(l))) return false;
+  if (selector.mention) {
+    if (!mentions(event.body, selector.mention)) return false;
+    // An edit matches only if it newly adds the mention.
+    if (event.action === "edited" && mentions(event.before, selector.mention)) {
       return false;
     }
   }
   return true;
 };
 
-/** Whether one person is in `sets`. Collaborators are decided from the post's author association. */
-const checkPerson = (sets: AuthorSet[], post: Post): AuthorCheck => {
-  const login = post.user?.login.toLowerCase();
-  for (const set of sets) {
-    if (set.kind === "user" && set.login.toLowerCase() === login) {
-      return { result: "allowed" };
-    }
-    if (
-      set.kind === "collaborators" &&
-      WRITE_ACCESS.has(post.author_association ?? "")
-    ) {
-      return { result: "allowed" };
-    }
-  }
+const checkAuthor = (
+  from: Selector["from"],
+  { author }: GithubEvent,
+): AuthorCheck => {
+  const sets = Array.isArray(from) ? from : [from];
+  const allowed = sets.some((s) =>
+    s.kind === "user"
+      ? s.login.toLowerCase() === author.login.toLowerCase()
+      : s.kind === "collaborators" && WRITE_ACCESS.has(author.association),
+  );
+  if (allowed) return { result: "allowed" };
   const teams = sets.filter((s) => s.kind === "team");
   return teams.length ? { result: "check", sets: teams } : { result: "denied" };
 };
 
-/**
- * Checks the post's author against `from`. On a comment, the issue's author
- * has to be in `from` too, so a comment from a trusted person doesn't make
- * the agent act on an issue a stranger wrote. Bots are always denied, so the
- * App's own comments can't start runs.
- */
-const checkAuthors = (
-  from: Match["from"],
-  event: string,
-  payload: Payload,
-): AuthorCheck => {
-  const sets = Array.isArray(from) ? from : [from];
-  const posts = [postOf(event, payload), event === "issue_comment" ? payload.issue : undefined]
-    .filter((p): p is Post => p !== undefined);
-  if (!posts.length) return { result: "denied" };
-  if (payload.sender?.type === "Bot" || posts.some((p) => p.user?.type === "Bot")) {
-    return { result: "denied" };
-  }
-  const checks = posts.map((p) => checkPerson(sets, p));
-  if (checks.some((c) => c.result === "denied")) return { result: "denied" };
-  const pending = checks.flatMap((c) => (c.result === "check" ? c.sets : []));
-  return pending.length
-    ? { result: "check", sets: [...new Set(pending)] }
-    : { result: "allowed" };
-};
+/** GitHub Apps' webhooks. A delivery's scope is its repo. */
+export const channel: ChannelProvider<GithubEvent> = {
+  provider: "github",
 
-/** A channel without a scope covers the outpost's repo. */
-const inChannel = (
-  channel: ChannelEntry | undefined,
-  { connection, outpostRepo, deliveryRepo }: {
-    connection: string;
-    outpostRepo: string;
-    deliveryRepo: string;
-  },
-) =>
-  channel?.provider === "github" &&
-  channel.connection === connection &&
-  (channel.scope ?? outpostRepo).toLowerCase() === deliveryRepo.toLowerCase();
+  receives: (request) => request.headers.has("x-github-event"),
 
-/** The triggers of `outpost` that a delivery of `event` on `connection` selects. `repo` is the outpost's repo. */
-export const matchTriggers = (
-  outpost: OutpostConfig,
-  { connection, repo, event, payload }: {
-    connection: string;
-    repo: string;
-    event: string;
-    payload: Payload;
-  },
-): TriggerMatch[] => {
-  const matches: TriggerMatch[] = [];
-  const deliveryRepo = payload.repository?.full_name;
-  if (!deliveryRepo) return matches;
-  for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
-    if (trigger.event !== event) continue;
-    const channel = outpost.channels?.[trigger.channel];
-    if (!inChannel(channel, { connection, outpostRepo: repo, deliveryRepo })) {
-      continue;
+  async receive(request, ctx) {
+    const appId = request.headers.get("x-github-hook-installation-target-id");
+    const connection = connections(ctx.config).find((c) => c.appId === appId);
+    if (!connection) {
+      return { status: "rejected", reason: `no connection for App ${appId}` };
     }
-    const match = trigger.match as Match;
-    if (!selects(event, match, payload)) continue;
-    matches.push({ trigger: id, author: checkAuthors(match.from, event, payload) });
-  }
-  return matches;
+
+    const body = new Uint8Array(await request.arrayBuffer());
+    const secret = await webhookSecret(await ctx.rootKey(), connection.appId);
+    const signature = request.headers.get("x-hub-signature-256");
+    if (!(await verifySignature(secret, body, signature))) {
+      return { status: "rejected", reason: "bad signature" };
+    }
+
+    const event = request.headers.get("x-github-event")!;
+    const payload = JSON.parse(new TextDecoder().decode(body));
+    const repo: string | undefined = payload.repository?.full_name;
+    const data = parse(event, payload);
+    if (!repo || !data) return { status: "ignored", reason: event };
+    return {
+      status: "accepted",
+      delivery: {
+        id: request.headers.get("x-github-delivery") ?? "",
+        connection: connection.name,
+        scope: repo,
+        repo,
+        event,
+        data,
+      },
+    };
+  },
+
+  match(selector, delivery) {
+    const s = selector as Selector;
+    return selects(s, delivery.data)
+      ? checkAuthor(s.from, delivery.data)
+      : undefined;
+  },
+
+  async sync(ctx) {
+    const results: Record<string, string> = {};
+    for (const { name, appId, entry } of connections(ctx.config)) {
+      try {
+        await setWebhookConfig({
+          appId,
+          privateKey: await ctx.secret(entry.credentials.privateKey!),
+          rootKey: await ctx.rootKey(),
+          url: ctx.url,
+        });
+        results[`github/${name}`] = "ok";
+      } catch (error) {
+        results[`github/${name}`] =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
+    return results;
+  },
 };
 
 const GITHUB_API = "https://api.github.com";
@@ -192,7 +188,7 @@ const GITHUB_API = "https://api.github.com";
  * Sets the App's webhook to `url`, with the webhook secret derived from the
  * root key. It authenticates as the App with its private key.
  */
-export const setWebhookConfig = async ({
+const setWebhookConfig = async ({
   appId,
   privateKey,
   rootKey,

@@ -57,11 +57,7 @@ When `actions` includes `"edited"`, the trigger fires only if the edit newly add
 | `slack.group("eng")` | Members of a Slack user group |
 | `slack.user("dan@acme.dev")` | One Slack user |
 
-Pass an array to accept several.
-
-For GitHub, the router checks the author of the issue or comment, not the person who sent the event. On a comment, the issue's author has to match `from` too. So a collaborator's comment doesn't make the agent act on an issue that a stranger wrote. Events from bots never start a run, so the App's own comments can't start one. `github.collaborators()` is decided from the author association that GitHub sends with the event: `OWNER`, `MEMBER` or `COLLABORATOR`.
-
-Every message in the conversation still reaches the agent, marked trusted if its author matches `from` and untrusted otherwise. See [Connections & Channels](./connections.md#trust).
+Pass an array to accept several. Every message in the conversation still reaches the agent, marked trusted if its author matches `from` and untrusted otherwise. See [Connections & Channels](./connections.md#trust).
 
 ## Multiple agents on one conversation
 

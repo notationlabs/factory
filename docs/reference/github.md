@@ -44,7 +44,7 @@ The connection declares the App's private key in the hub vault as the secret `<i
 | **Events** | `issues`, `issue_comment`, `push` |
 | **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `metadata: "read"` |
 
-The router sets the App's webhook secret, because only the hub can read the root key that the secret is derived from. `POST <Url>/github/sync` makes the router set every GitHub App's webhook URL to `<Url>/webhook` and its secret to the derived one. The router authenticates as the App with its private key, so set the private key first. The route needs no auth, because it only sets the values the router derives. For now you call it by hand after a deploy. See [Known gaps](../manual/providers.md#known-gaps).
+The router sets the App's webhook secret, because only the hub can read the root key that the secret is derived from. `POST <Url>/sync` makes the router set every GitHub App's webhook URL to `<Url>/webhook` and its secret to the derived one. The router authenticates as the App with its private key, so set the private key first. The route needs no auth, because it only sets the values the router derives. `github.collaborators()` is decided from the author association that GitHub sends with the event: `OWNER`, `MEMBER` or `COLLABORATOR`. For now you call it by hand after a deploy. See [Known gaps](../manual/providers.md#known-gaps).
 
 The grant is the App's installation: installing it on a repo (`factory repo install`) lets that repo's channel receive events.
 

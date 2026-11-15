@@ -68,6 +68,34 @@ const githubWebhook = async (request: Request, env: Env) => {
   return json(202, result);
 };
 
+/**
+ * Sets every GitHub App's webhook to this router, with its derived secret.
+ * It needs no auth: it only ever sets the values the router would set, so a
+ * caller can't change them.
+ */
+const githubSync = async (request: Request, env: Env) => {
+  const config = await readConfig(env);
+  const url = `${new URL(request.url).origin}/webhook`;
+  const rootKey = await env.FACTORY_ROOT_KEY.get();
+  const results: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(config.connections ?? {})) {
+    if (entry.provider !== "github") continue;
+    const binding = (env as unknown as Record<string, unknown>)[
+      entry.credentials.privateKey!
+    ] as SecretsStoreSecret | undefined;
+    try {
+      if (!binding) throw new Error(`no binding ${entry.credentials.privateKey}`);
+      const privateKey = await binding.get();
+      await github.setWebhookConfig({ appId: entry.source, privateKey, rootKey, url });
+      results[key] = "ok";
+    } catch (error) {
+      results[key] = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const failed = Object.values(results).some((r) => r !== "ok");
+  return json(failed ? 502 : 200, { url, connections: results });
+};
+
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
@@ -76,6 +104,9 @@ export default {
         return githubWebhook(request, env);
       }
       return json(400, { error: "unknown sender" });
+    }
+    if (url.pathname === "/github/sync" && request.method === "POST") {
+      return githubSync(request, env);
     }
     return json(404, { error: "not found" });
   },

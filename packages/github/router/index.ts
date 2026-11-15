@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
+import { appJwt } from "./app-jwt.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -135,4 +136,44 @@ export const matchTriggers = (
     matches.push({ trigger: id, author: checkAuthor(match.from, payload.sender?.login) });
   }
   return matches;
+};
+
+const GITHUB_API = "https://api.github.com";
+
+/**
+ * Sets the App's webhook to `url`, with the webhook secret derived from the
+ * root key. It authenticates as the App with its private key.
+ */
+export const setWebhookConfig = async ({
+  appId,
+  privateKey,
+  rootKey,
+  url,
+}: {
+  appId: string;
+  privateKey: string;
+  rootKey: string;
+  url: string;
+}) => {
+  const response = await fetch(`${GITHUB_API}/app/hook/config`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${await appJwt(appId, privateKey)}`,
+      "Content-Type": "application/json",
+      "User-Agent": "notation-factory-router",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify({
+      url,
+      content_type: "json",
+      insecure_ssl: "0",
+      secret: await webhookSecret(rootKey, appId),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `GitHub PATCH /app/hook/config for App ${appId} failed with status ${response.status}: ${await response.text()}`,
+    );
+  }
 };

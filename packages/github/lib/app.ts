@@ -7,7 +7,7 @@ export const createApp = async (_params: {
   hookUrl: string;
   events?: GithubEvent[];
   permissions?: Permissions;
-}): Promise<{ slug: string }> => {
+}): Promise<{ slug: string; id: string; privateKey: string }> => {
   throw new Error("not implemented: GitHub's manifest flow, in the browser");
 };
 

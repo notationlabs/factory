@@ -11,7 +11,7 @@ type ProjectTokenApi = {
   Key: { id: string };
   CreateParams: { projectId: string; environmentId: string; name: string };
   UpdateParams: undefined;
-  ReadResult: { id: string; value: string };
+  ReadResult: { id: string };
 };
 
 const projectToken = resource<ProjectTokenApi>({
@@ -44,18 +44,22 @@ const projectTokenSchema = projectToken.defineSchema({
     primaryKey: true,
     value: v.string(),
   },
-  value: {
-    propertyType: "computed",
-    presence: "required",
-    hidden: true,
-    value: v.string(),
-  },
+  /** The token's value, which Railway returns only when it creates the token. */
+  value: { propertyType: "credential", value: v.string() },
 } as const);
 
-/** A token scoped to one environment of the hub's project, e.g. the deployer's. Its value is only returned when it's created. */
+/**
+ * A token scoped to one environment of the hub's project, such as the
+ * deployer's. Its value is the credential `value`. Railway has no API that
+ * gives a token a new value.
+ */
 export const ProjectToken = projectTokenSchema
   .defineOperations({
     create: async (params) => createProjectToken(params),
+    rotateManually: {
+      value:
+        "Create a token in the project's settings, under Tokens, and delete the old one.",
+    },
     read: async (key) => getProjectToken(key),
     delete: async (key) => deleteProjectToken(key),
   })

@@ -1,18 +1,21 @@
-import { ResourceGroup, scopedPhysicalName } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
   bindingName,
-  generated,
+  RandomKey,
+  type RandomKeyInstance,
   type Router as RouterContract,
   type RouterApi,
+  scopedName,
   type VaultSecret,
 } from "@notation/factory";
+import { KVJsonGroup } from "@notation/cloudflare/kv";
 import { containers, kv, r2, workers } from "@notation/cloudflare/resources";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
 import {
-  RouterConfig,
-  type RouterConfigInstance,
-} from "../resources/router-config.ts";
+  ROUTER_CONFIG_KEY,
+  RouterConfigSchema,
+} from "../lib/router-config.ts";
 import { kvBinding, r2Binding, secretBinding } from "./bindings.ts";
 import { COMPATIBILITY_DATE, routerImageContext, workerCode } from "./code.ts";
 import {
@@ -34,8 +37,8 @@ export type RouterOptions = RouterGroupConfig & { vault: Vault };
 /**
  * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
  * container built from the image this package ships, the project's KV
- * namespace and R2 bucket, and the KV entry its
- * config is contributed to. Creating it generates the root key into the vault.
+ * namespace and R2 bucket, and the KV entry its config is contributed to.
+ * It generates the root key, and keeps it in the vault.
  */
 export class Router
   extends ResourceGroup<RouterGroupConfig>
@@ -43,6 +46,7 @@ export class Router
 {
   readonly project: string;
   readonly vault: Vault;
+  readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: CloudflareSecret;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
@@ -52,7 +56,7 @@ export class Router
   readonly image: containers.ContainerImageInstance;
   readonly container: containers.ContainerApplicationInstance;
   readonly api: RouterApi;
-  readonly store: RouterConfigInstance;
+  readonly store: KVJsonGroup<typeof RouterConfigSchema>;
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
@@ -60,21 +64,23 @@ export class Router
     this.project = project;
     this.vault = vault;
 
+    this.rootKeyValue = this.add(
+      new RandomKey(`${id}-root-key`, { config: { Bytes: 32 } }),
+    );
     this.rootKey = vault.secret({
       id: `${id}-root-key`,
-      source: generated(),
-      key: "FACTORY_ROOT_KEY",
+      value: this.rootKeyValue.credentials.Value,
     });
 
     this.kv = this.add(
       new kv.KVNamespace(`${id}-kv`, {
-        config: { Title: scopedPhysicalName(project, { maxLength: 512 }) },
+        config: { Title: scopedName(project, 512) },
       }),
     );
     this.bucket = this.add(
       new r2.R2Bucket(`${id}-bucket`, {
         config: {
-          BucketName: scopedPhysicalName(project, { maxLength: 64 }),
+          BucketName: scopedName(project, 64),
           Jurisdiction: "default",
           StorageClass: "Standard",
         },
@@ -127,9 +133,7 @@ export class Router
       new containers.ContainerApplication(`${id}-container`, {
         config: {
           // Cloudflare refuses an application name with two dashes in a row.
-          Name: scopedPhysicalName(`${project}-router`, {
-            maxLength: 253,
-          }).replace(/-{2,}/g, "-"),
+          Name: scopedName(`${project}-router`, 253).replace(/-{2,}/g, "-"),
           HostedNamespaceId: CONTAINER_NAMESPACE,
           MaxInstances: 1,
           Configuration: {
@@ -141,12 +145,12 @@ export class Router
       }),
     );
 
-    this.store = this.add(
-      new RouterConfig(`${id}-config`, {
-        config: { Key: "config" },
-        dependencies: { kv: this.kv },
-      }),
-    );
+    this.store = new KVJsonGroup({
+      id: `${id}-config`,
+      namespace: this.kv,
+      key: ROUTER_CONFIG_KEY,
+      schema: RouterConfigSchema,
+    });
   }
 
   bind(secret: VaultSecret, name = bindingName(secret.id)): string {

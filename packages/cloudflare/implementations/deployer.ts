@@ -4,7 +4,6 @@ import {
   type Deployer as DeployerContract,
 } from "@notation/factory";
 import { tokens, workers } from "@notation/cloudflare/resources";
-import { scopedPhysicalName } from "@notation/resource";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
 import { kvBinding, secretBinding, jsonBindings } from "./bindings.ts";
@@ -70,9 +69,6 @@ export class Deployer
     this.token = this.add(
       new tokens.AccountToken(`token:${id}-token`, {
         config: {
-          Name: scopedPhysicalName(`${id}-token`, {
-            maxLength: tokens.TOKEN_NAME_MAX_LENGTH,
-          }),
           Policies: [
             {
               effect: "allow",
@@ -89,7 +85,7 @@ export class Deployer
     );
     this.tokenSecret = vault.secret({
       id: `${id}-token`,
-      credential: this.token.credentials.Value,
+      value: this.token.credentials.Value,
     });
 
     const accountSecrets = accounts.flatMap((account) =>

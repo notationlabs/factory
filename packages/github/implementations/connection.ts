@@ -17,8 +17,8 @@ export type ConnectionOptions = ConnectionConfig & { router: Router };
 
 /**
  * `new github.Connection(...)`: Notation Factory on GitHub, as one App whose webhook
- * is the router. Its private key is kept in the router's vault, and the
- * router is the only thing that reads it.
+ * is the router. The App's private key goes from the App to the router's
+ * vault in memory, and the router is the only thing that reads it.
  */
 export class Connection
   extends ResourceGroup<ConnectionConfig>
@@ -49,10 +49,11 @@ export class Connection
         metadata: "read",
       },
     });
-    // The App's create will write this once Notation supports a resource
-    // writing a secret value.
     const privateKey = this.router.bind(
-      this.router.vault.secret({ id: `${id}-private-key` }),
+      this.router.vault.secret({
+        id: `${id}-private-key`,
+        value: this.app.credentials.privateKey,
+      }),
     );
     this.router.store.contribute({
       connections: {

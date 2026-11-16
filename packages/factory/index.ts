@@ -1,7 +1,8 @@
 export * from "./contracts/index.ts";
 export { single } from "./lib/collect.ts";
 export { bindingName } from "./lib/binding-name.ts";
-export { generated } from "./lib/generated.ts";
+export { scopedName } from "./lib/scoped-name.ts";
+export { RandomKey, type RandomKeyInstance } from "./resources/random-key.ts";
 export {
   Container,
   type ContainerOptions,

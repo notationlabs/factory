@@ -39,9 +39,19 @@ export const App = defineResource<AppApi>({
       primaryKey: true,
       value: v.string(),
     },
+    /** The bot token, which installing the app to the workspace issues. */
+    botToken: { propertyType: "credential", value: v.string() },
+    /** The secret that Slack signs the app's requests with. */
+    signingSecret: { propertyType: "credential", value: v.string() },
   } as const)
   .defineOperations({
     create: async (params) => createApp(params),
+    rotateManually: {
+      botToken:
+        "Copy the Bot User OAuth Token from the app's OAuth & Permissions page.",
+      signingSecret:
+        "Regenerate the Signing Secret on the app's Basic Information page.",
+    },
     read: async (key) => readApp(key),
     update: async (key, _patch, params) =>
       setRequestUrl(key, params.requestUrl),

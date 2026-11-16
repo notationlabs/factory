@@ -13,7 +13,7 @@ export const single = <T>(
     throw new ContributionConflictError(
       context.resourceId,
       context.param,
-      [context.contributors[0]!, context.contributors[1]!],
+      [context.contributors[0]!(), context.contributors[1]!()],
       [items[0], items[1]],
     );
   }

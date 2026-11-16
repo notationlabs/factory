@@ -42,11 +42,10 @@ export type RouterConfig = {
 export type RouterApi = BaseResource & { output: { Url: string } };
 
 /**
- * Where the router's config is kept: any concrete resource that takes
- * contributions to it. BaseResource's own `contribute` is omitted because it
- * takes any record, which would let a contribution of any shape through.
+ * Where the router's config is kept: anything that takes contributions to
+ * it, such as a resource or a `kvJson()` document.
  */
-export type RouterConfigStore = Omit<BaseResource, "contribute"> & {
+export type RouterConfigStore = {
   contribute(values: DeepPartial<RouterConfig>): void;
 };
 

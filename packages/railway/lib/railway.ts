@@ -1,5 +1,3 @@
-import type { Redacted } from "@notation/std/sources";
-
 export const createProject = async (_params: {
   name: string;
 }): Promise<{ id: string; environmentId: string }> => {
@@ -26,7 +24,7 @@ export const createProjectToken = async (_params: {
 
 export const getProjectToken = async (_key: {
   id: string;
-}): Promise<{ id: string; value: string }> => {
+}): Promise<{ id: string }> => {
   throw new Error("not implemented: read a Railway project token");
 };
 
@@ -76,15 +74,9 @@ export type SealedVariableKey = {
   name: string;
 };
 
-export const findProject = async (_query: {
-  name: string;
-}): Promise<{ id: string; environmentId: string } | undefined> => {
-  throw new Error("not implemented: find a Railway project by name");
-};
-
 export const putSealedVariable = async (
   _key: SealedVariableKey,
-  _value: Redacted<string> | string,
+  _value: string,
 ): Promise<void> => {
   throw new Error(
     "not implemented: write the value as a shared variable, and seal it",

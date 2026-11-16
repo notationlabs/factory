@@ -1,6 +1,6 @@
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
 
@@ -9,11 +9,14 @@ const router = new cloudflare.Router("router", {
   vault,
 });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
+
 const claudeAccount = new claude.Account("claude", {
   auth: vault.secret({
     id: "claude-oauth-token",
-    source: env,
-    key: "CLAUDE_CODE_OAUTH_TOKEN",
+    value: claudeToken.credentials.value,
   }),
 });
 

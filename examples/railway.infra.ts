@@ -1,7 +1,7 @@
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
 import * as railway from "@notation/factory-railway";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new railway.Vault("vault");
 
@@ -26,11 +26,14 @@ new github.CodeHost("github", {
   connection: gh,
 });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
+
 const claudeAccount = new claude.Account("claude", {
   auth: vault.secret({
     id: "claude-oauth-token",
-    source: env,
-    key: "CLAUDE_CODE_OAUTH_TOKEN",
+    value: claudeToken.credentials.value,
   }),
 });
 

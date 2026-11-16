@@ -4,7 +4,7 @@ export const createApp = async (_params: {
   name: string;
   workspace: string;
   requestUrl: string;
-}): Promise<{ appId: string }> => {
+}): Promise<{ appId: string; botToken: string; signingSecret: string }> => {
   throw new Error(
     "not implemented: create the app from a manifest, in the browser, and install it to the workspace",
   );
@@ -12,7 +12,7 @@ export const createApp = async (_params: {
 
 export const readApp = async (_key: {
   appId: string;
-}): Promise<{ appId: string }> => {
+}): Promise<{ appId: string; botToken: string; signingSecret: string }> => {
   throw new Error("not implemented: read the app's manifest");
 };
 

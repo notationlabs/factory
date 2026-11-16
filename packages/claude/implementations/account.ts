@@ -8,7 +8,7 @@ export type AccountOptions = {
   /**
    * The OAuth token from `claude setup-token`, as a secret in the hub's
    * vault, such as
-   * `vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" })`.
+   * `vault.secret({ id: "claude-oauth-token", value: token.credentials.value })`.
    */
   auth: VaultSecret;
 };

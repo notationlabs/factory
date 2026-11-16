@@ -1,17 +1,10 @@
-import { declareSecret, PROMPT_SOURCE } from "@notation/core";
-import { ResourceGroup, scopedPhysicalName } from "@notation/resource";
+import { ResourceGroup } from "@notation/resource";
 import {
+  scopedName,
   type Vault as VaultContract,
   type VaultSecret,
   type VaultSecretOptions,
 } from "@notation/factory";
-import * as std from "@notation/std/resources";
-import {
-  deleteSealedVariable,
-  findProject,
-  putSealedVariable,
-  type SealedVariableKey,
-} from "../lib/railway.ts";
 import type { ProjectInstance } from "../resources/project.ts";
 import {
   SealedVariable,
@@ -27,70 +20,23 @@ const VARIABLE_NAME_MAX_LENGTH = 128;
  * characters that env var names allow.
  */
 const variableName = (id: string): string =>
-  scopedPhysicalName(id, { maxLength: VARIABLE_NAME_MAX_LENGTH }).replace(
-    /[^A-Za-z0-9_]/g,
-    "_",
-  );
+  scopedName(id, VARIABLE_NAME_MAX_LENGTH).replace(/[^A-Za-z0-9_]/g, "_");
 
-type ProjectRef = { resource: ProjectInstance; name: string };
-
-/**
- * One vault secret: a sealed shared variable, and a `SourceValue` when the
- * value comes from a source.
- */
+/** One vault secret, as a sealed shared variable that holds a credential. */
 export class RailwaySecret extends ResourceGroup {
   /** The sealed variable's name in the project's environment. */
   readonly name: string;
   readonly variable: SealedVariableInstance;
-  /** Records the source and key of a secret that has a source. */
-  readonly value?: std.sources.SourceValueInstance;
 
-  constructor(opts: VaultSecretOptions, project: ProjectRef) {
-    const { id, source, key } = opts;
+  constructor({ id, value }: VaultSecretOptions, project: ProjectInstance) {
     super("railway/Secret", id, { id });
     this.name = variableName(id);
-    const name = this.name;
-
-    if (source) {
-      this.value = this.add(
-        new std.sources.SourceValue(`value:${id}`, {
-          config: { Secret: id, Source: source.name, Key: key! },
-        }),
-      );
-    }
     this.variable = this.add(
       new SealedVariable(`variable:${id}`, {
-        config: {
-          name,
-          valueFrom: this.value
-            ? {
-                Secret: id,
-                Source: source!.name,
-                Key: key!,
-                Version: this.value.outputRef("Version"),
-              }
-            : { Secret: id, Source: PROMPT_SOURCE },
-        },
-        dependencies: { project: project.resource },
+        config: { name: this.name, value },
+        dependencies: { project },
       }),
     );
-
-    // `notation secret set` and `delete` run outside a deploy, so they find
-    // the project by its name rather than from the Project's output.
-    const findKey = async (): Promise<SealedVariableKey> => {
-      const found = await findProject({ name: project.name });
-      if (!found) {
-        throw new Error(`No Railway project has the name ${project.name}.`);
-      }
-      return { projectId: found.id, environmentId: found.environmentId, name };
-    };
-    declareSecret({
-      id,
-      source,
-      key,
-      set: async (value) => putSealedVariable(await findKey(), value),
-      delete: async () => deleteSealedVariable(await findKey()),
-    });
   }
 
   /** The Railway reference that a service's variable uses to read the secret. */
@@ -106,22 +52,19 @@ export class RailwaySecret extends ResourceGroup {
  */
 export class Vault extends ResourceGroup implements VaultContract<RailwaySecret> {
   readonly provider = "railway";
-  #project?: ProjectRef;
+  #project?: ProjectInstance;
   readonly #names = new Map<string, string>();
 
   constructor(id: string) {
     super("railway/Vault", id);
   }
 
-  /**
-   * Called by the router that takes this vault.
-   * @param name The project's name, which `notation secret set` looks it up by.
-   */
-  bind(project: ProjectInstance, name: string): void {
+  /** Called by the router that takes this vault. */
+  bind(project: ProjectInstance): void {
     if (this.#project) {
       throw new Error("railway.Vault is already bound to a router");
     }
-    this.#project = { resource: project, name };
+    this.#project = project;
   }
 
   secret(opts: VaultSecretOptions): RailwaySecret {

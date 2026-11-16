@@ -1,6 +1,4 @@
-import { PROMPT_SOURCE } from "@notation/core";
 import { resource, ResourceNotFoundError } from "@notation/resource";
-import { getValue } from "@notation/std/sources";
 import * as v from "valibot";
 import {
   deleteSealedVariable,
@@ -9,20 +7,6 @@ import {
 } from "../lib/railway.ts";
 import type { ProjectInstance } from "./project.ts";
 
-const valueFromSchema = v.object({
-  /** The id of the secret's declaration, which `getValue` takes. */
-  Secret: v.string(),
-  /** The name of the source, such as `infisical`, or `prompt`. */
-  Source: v.string(),
-  /** The key that the source is asked for. */
-  Key: v.optional(v.string()),
-  /** The source's version of the key. It is never derived from the value. */
-  Version: v.optional(v.string()),
-});
-
-/** Where a sealed variable's value comes from. It never holds the value. */
-export type SealedVariableValueFrom = v.InferOutput<typeof valueFromSchema>;
-
 type SealedVariableKey = {
   projectId: string;
   environmentId: string;
@@ -30,13 +14,17 @@ type SealedVariableKey = {
 };
 
 type SealedVariableParams = SealedVariableKey & {
-  valueFrom: SealedVariableValueFrom;
+  /**
+   * The value, from a credential of another resource, such as
+   * `source.credentials.value`. State holds a marker in its place.
+   */
+  value: string;
 };
 
 type SealedVariableApi = {
   Key: SealedVariableKey;
   CreateParams: SealedVariableParams;
-  UpdateParams: Pick<SealedVariableParams, "valueFrom">;
+  UpdateParams: Pick<SealedVariableParams, "value">;
   ReadResult: {};
 };
 
@@ -67,42 +55,28 @@ const sealedVariableSchema = sealedVariable.defineSchema({
     primaryKey: true,
     value: v.pipe(v.string(), v.nonEmpty()),
   },
-  valueFrom: {
+  value: {
     propertyType: "param",
     presence: "required",
-    value: valueFromSchema,
+    sensitive: true,
+    value: v.string(),
   },
 } as const);
 
 /**
- * Writes the variable's value, fetched with `getValue`. A variable whose
- * value comes from the prompt is written only when it is missing, so that a
- * value set with `notation secret set` is kept.
- */
-async function writeValue(params: SealedVariableParams): Promise<void> {
-  const { valueFrom, ...key } = params;
-  if (valueFrom.Source === PROMPT_SOURCE && (await findSealedVariable(key))) {
-    return;
-  }
-  const value = await getValue(valueFrom.Secret);
-  await putSealedVariable(key, value.unwrap());
-}
-
-/**
  * One vault secret, as a sealed shared variable in the project's
  * environment, which the router and deployer services reference. Its record
- * holds where the variable is and where its value comes from. Railway holds
- * the value, and its API never returns it.
+ * holds where the variable is, and never the value. Railway holds the value,
+ * and its API never returns it.
  *
- * Create writes the value, and so does an update when `valueFrom` changes,
- * such as when the source has a new version. Read only checks that the
- * variable exists, so a deleted one shows as drift, which the next deploy
- * creates again.
+ * Create writes the value, and so does an update when the credential has a
+ * new version. Read only checks that the variable exists, so a deleted one
+ * shows as drift, which the next deploy creates again.
  */
 export const SealedVariable = sealedVariableSchema
   .defineOperations({
-    create: async (params) => {
-      await writeValue(params);
+    create: async ({ value, ...key }) => {
+      await putSealedVariable(key, value);
     },
     read: async (key) => {
       if (!(await findSealedVariable(key))) {
@@ -112,8 +86,9 @@ export const SealedVariable = sealedVariableSchema
       }
       return {};
     },
-    update: async (_key, patch, params) => {
-      if (patch.valueFrom) await writeValue(params);
+    // `value` is undefined unless the credential has a new version.
+    update: async (key, patch) => {
+      if (patch.value !== undefined) await putSealedVariable(key, patch.value);
     },
     delete: async (key) => deleteSealedVariable(key),
   })

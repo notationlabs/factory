@@ -1,5 +1,5 @@
-import type { BindableSecret } from "@notation/cloudflare/secrets-store";
 import type { kv, r2, workers } from "@notation/cloudflare/resources";
+import type { CloudflareSecret } from "./vault.ts";
 
 type WorkerBinding = workers.WorkerBinding;
 
@@ -26,16 +26,13 @@ export const r2Binding = (bucket: r2.R2BucketInstance): WorkerBinding => ({
 // when the Worker is uploaded.
 export const secretBinding = (
   name: string,
-  secret: BindableSecret,
-): WorkerBinding => {
-  const reference = secret["~secret"]();
-  return {
-    type: "secrets_store_secret",
-    name,
-    store_id: reference.outputRef("StoreId"),
-    secret_name: reference.outputRef("Name"),
-  };
-};
+  { secret }: CloudflareSecret,
+): WorkerBinding => ({
+  type: "secrets_store_secret",
+  name,
+  store_id: secret.outputRef("StoreId"),
+  secret_name: secret.outputRef("Name"),
+});
 
 export const jsonBindings = (vars: Record<string, unknown>): WorkerBinding[] =>
   Object.entries(vars).map(([name, json]) => ({ type: "json", name, json }));

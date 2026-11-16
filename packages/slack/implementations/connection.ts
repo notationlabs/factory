@@ -18,8 +18,8 @@ export type ConnectionOptions = ConnectionConfig & { router: Router };
 
 /**
  * `new slack.Connection(...)`: Notation Factory on Slack, as one app whose events go
- * to the router. Deploy asks for its bot token and signing secret, and
- * keeps them in the router's vault. Slack is a channel only:
+ * to the router. Its bot token and signing secret go from the app to the
+ * router's vault in memory. Slack is a channel only:
  * code still lives on the code host.
  */
 export class Connection
@@ -42,10 +42,16 @@ export class Connection
       }),
     );
     const botToken = this.router.bind(
-      this.router.vault.secret({ id: `${id}-bot-token` }),
+      this.router.vault.secret({
+        id: `${id}-bot-token`,
+        value: this.app.credentials.botToken,
+      }),
     );
     const signingSecret = this.router.bind(
-      this.router.vault.secret({ id: `${id}-signing-secret` }),
+      this.router.vault.secret({
+        id: `${id}-signing-secret`,
+        value: this.app.credentials.signingSecret,
+      }),
     );
     this.router.store.contribute({
       connections: {

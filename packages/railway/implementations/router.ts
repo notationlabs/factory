@@ -1,7 +1,8 @@
 import { ResourceGroup } from "@notation/resource";
 import {
   bindingName,
-  generated,
+  RandomKey,
+  type RandomKeyInstance,
   type Router as RouterContract,
   type VaultSecret,
 } from "@notation/factory";
@@ -32,6 +33,7 @@ export class Router
 {
   readonly vault: Vault;
   readonly project: ProjectInstance;
+  readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: RailwaySecret;
   readonly api: ServiceInstance;
   readonly store: RouterConfigInstance;
@@ -43,11 +45,13 @@ export class Router
     this.project = this.add(
       new Project(`${id}-project`, { config: { name: project } }),
     );
-    this.vault.bind(this.project, project);
+    this.vault.bind(this.project);
+    this.rootKeyValue = this.add(
+      new RandomKey(`${id}-root-key`, { config: { Bytes: 32 } }),
+    );
     this.rootKey = this.vault.secret({
       id: `${id}-root-key`,
-      source: generated(),
-      key: "FACTORY_ROOT_KEY",
+      value: this.rootKeyValue.credentials.Value,
     });
     this.api = this.add(
       new Service(`${id}-service`, {

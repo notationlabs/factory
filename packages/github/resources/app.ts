@@ -89,9 +89,18 @@ export const App = defineResource<AppApi>({
       value: v.string(),
     },
     id: { propertyType: "computed", presence: "required", value: v.string() },
+    /**
+     * The App's private key, which GitHub returns once, when the manifest
+     * flow creates the App. GitHub has no API that makes another.
+     */
+    privateKey: { propertyType: "credential", value: v.string() },
   } as const)
   .defineOperations({
     create: async (params) => createApp(params),
+    rotateManually: {
+      privateKey:
+        "Generate a private key on the App's settings page, under Private keys.",
+    },
     read: async (key) => readApp(key),
     update: async (key, patch, params) => {
       if (patch.events !== undefined || patch.permissions !== undefined) {

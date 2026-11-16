@@ -9,7 +9,7 @@
 | Used in | Exports |
 | --- | --- |
 | `.factory/config.ts` | `Container`, `Policy`, `Trigger` |
-| `factory.infra.ts` | `generated` |
+| `factory.infra.ts` | `RandomKey` |
 | Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `bindingName` |
 
 Plugins add the vendor-specific resources alongside it. Each has one entrypoint, used in both config files:
@@ -101,7 +101,7 @@ Declare the central hub graph:
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
 const router = new cloudflare.Router("router", {
@@ -111,29 +111,31 @@ const router = new cloudflare.Router("router", {
 const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }),
 });
 new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
 | Export | Role |
 | --- | --- |
-| `generated(bytes?)` | A Notation source of random values, such as the root key. Each secret that uses it gets its own value of `bytes` random bytes in hex, 32 by default. The value is written once, when the secret is created. The key is not used |
+| `RandomKey` | A resource whose credential `Value` is `Bytes` random bytes in hex, such as the root key. Deploy makes the value when it creates the key, and never records it. When a resource that takes the value needs it again and deploy holds none, deploy rotates the key and writes every resource that takes it |
+| `scopedName(name, maxLength)` | Makes `<app>--<stage>--<name>` for a resource that Notation doesn't name itself, such as a KV namespace's title. A name longer than `maxLength` is cut, and ends in a hash |
 | `bindingName(id)` | Makes a binding name from a secret's id: upper case, with each character other than a letter, a digit or `_` replaced by `_`, and `_` in front if it starts with a digit. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. `router.bind(secret)` uses it when it is given no name |
 
-`vault.secret({ id, source?, key? })` declares a secret in the hub's vault. A secret's value comes from a Notation source and a key, `{ source, key }`, such as `env` or `dotenv(path)` from `@notation/std/sources`. With no source, `factory infra up` asks for the value on a terminal, and `notation secret set <id>` sets it. The provider holds the value, and the vault never reads it back. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
+`vault.secret({ id, value })` declares a secret in the hub's vault. `value` is a Notation credential: the value of a source, such as `sources.Env` from `@notation/std/resources`, or a key that another resource issues, such as a GitHub App's private key. The provider holds the value, and the vault never reads it back. See [Secrets](../manual/secrets.md#credentials).
 
 ## Contracts
 
 Each plugin implements some of these, so that one provider can be swapped for another. A contract is an interface: the fields and methods every provider's version has, so other resources can rely on them whichever provider built it.
 
 ```ts
-// Where a secret's value comes from. With no source, deploy asks for it.
-type SecretValueFrom = { source: Source; key: string } | { source?: undefined; key?: undefined };
-
-type VaultSecretOptions = SecretValueFrom & {
-  id: string; // keys the secret in state; `notation secret set <id>` takes it
+type VaultSecretOptions = {
+  id: string;    // keys the secret in state
+  value: string; // a credential, such as `source.credentials.value`
 };
 
 // A secret that a vault declares. On Cloudflare, a CloudflareSecret.
@@ -148,7 +150,7 @@ interface Vault<S extends VaultSecret = VaultSecret> {
 
 // Receives every connection's deliveries, matches triggers, relays channel
 // replies and mints code host tokens. `api` has the router's `Url`; `store`
-// is where its config is contributed to. `rootKey` is the secret every other
+// is where its config is contributed to, such as a `kvJson()` document. `rootKey` is the secret every other
 // key is derived from. bind() binds a secret from `vault` to the router, and
 // returns its binding name, made from the secret's id unless `name` is given.
 interface Router {
@@ -221,7 +223,7 @@ The contracts don't hand each other their config. They contribute to two configs
 
 | Config | Kept in | Contributed by |
 | --- | --- | --- |
-| The router's | `router.store` (Cloudflare: a KV entry; Railway: a file on the router's volume) | Each `Connection` (`connections`), the `CodeHost` (`codeHost`) and the `OperatorAuth` (`operators`) |
+| The router's | `router.store` (Cloudflare: a `kvJson()` document in KV, checked against a schema at plan; Railway: a file on the router's volume) | Each `Connection` (`connections`), the `CodeHost` (`codeHost`) and the `OperatorAuth` (`operators`) |
 | An outpost's | One entry per repo, which the deployer applies | Its channels, containers, policies, agents and triggers, keyed by id |
 
 An infra has one code host and one operator auth. A second one is a conflict that names both.

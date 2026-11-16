@@ -30,13 +30,13 @@ Deploy infrastructure changes and reconcile subscribed outposts:
 factory infra up [--dry-run] [--prune]
 ```
 
-Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and syncs all subscribed repositories. A secret with a source is written from its source: `env` and `dotenv` on every deploy, `generated()` once. A secret without a source is asked for on a terminal when it's created. See [Secrets](./secrets.md#where-a-value-comes-from).
+Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and syncs all subscribed repositories. Each secret is written when its credential has a new version: a `sources.Env` without `track` on every deploy, with `track` when its value changes, and a key that a resource issues once, when the resource is created. See [Secrets](./secrets.md#when-a-value-is-written).
 
 | Step | Authenticates with |
 | --- | --- |
 | Create and deploy the hub | The container provider's sign-in: Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN` |
 | Create GitHub Apps and Slack apps | Your `gh` login and your browser |
-| Write secrets to the vault | Each secret's source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `env`; a hidden prompt for a secret without a source |
+| Write secrets to the vault | Each source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `sources.Env` |
 | Read and set App webhooks, sync repos | Operator auth; the router does the work with the connection's credentials |
 
 | Flag | Effect |

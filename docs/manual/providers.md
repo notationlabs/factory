@@ -92,10 +92,8 @@ The provider plugins don't yet do all that these pages describe:
 
 | Gap | Effect |
 | --- | --- |
-| The GitHub App's private key has to be set by hand | Generate a key on the App's settings page and run `notation secret set <connection id>-private-key`. Later, the App's create will write it, once Notation supports a resource writing a secret value |
 | The router image is a placeholder | `cloudflare.Router` builds its image from `router-image/Dockerfile` in `@notation/factory-cloudflare`. That Dockerfile only runs `sleep`, because the router's container doesn't exist yet |
 | The router only matches deliveries | The router asks each channel provider to verify and parse a delivery, reads the outpost of the delivery's repo from KV, and returns the triggers it matches. It doesn't run them yet. Only GitHub implements the router's channel contract, and it doesn't check `github.team(...)`. A channel matches only when its `scope` is set and equals the delivery's, so the deployer will have to fill in the default scope. A channel scoped to another repo matches only deliveries that reach that repo's outpost |
-| Nothing calls the router's GitHub sync yet | After a deploy, and after setting an App's private key, run `curl -X POST <Url>/sync` to set the App's webhook URL and secret. Later, `factory infra up` will call it |
+| Nothing calls the router's GitHub sync yet | After a deploy, run `curl -X POST <Url>/sync` to set the App's webhook URL and secret. Later, `factory infra up` will call it |
 | The deployer Worker is a placeholder | `pnpm build` in `@notation/factory-cloudflare` bundles the router Worker to `dist/router/index.mjs`, and a placeholder deployer to `dist/deployer/index.mjs`. The package doesn't publish the bundles yet |
-| The Railway deployer doesn't receive its project token | `railway.Deployer` creates a project token, but doesn't give its value to the deployer service. Railway returns the value only when it creates the token, and Notation doesn't yet support a resource writing a secret value |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

@@ -16,7 +16,7 @@ Declare the hub for the `acme` organization:
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
 const router = new cloudflare.Router("router", {
@@ -28,8 +28,11 @@ const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", route
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] }); // <-- who may run `factory infra status`
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }),
 });
 
 new cloudflare.Deployer("deployer", {
@@ -51,13 +54,7 @@ factory infra up
 
 `factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook`, where `Url` is the router's `Url` output.
 
-The App's private key has to be set by hand for now. Generate a private key on the App's settings page, then write it to the vault:
-
-```bash
-notation secret set gh-private-key < acme-agents.private-key.pem
-```
-
-See [Secrets](./secrets.md#the-secrets-in-the-vault) and [Known gaps](./providers.md#known-gaps).
+GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
 
 ## 2. Declare an outpost (`.factory/`)
 
@@ -82,7 +79,6 @@ Wire `@claude` mentions from collaborators to that container:
 import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
-import { env } from "@notation/std/sources";
 
 const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
 

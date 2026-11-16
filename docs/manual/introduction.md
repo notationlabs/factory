@@ -21,8 +21,11 @@ const router = new cloudflare.Router("router", {
 const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }),
 });
 
 new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });

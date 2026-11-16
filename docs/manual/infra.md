@@ -7,7 +7,7 @@ import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
 import * as github from "@notation/factory-github";
 import * as slack from "@notation/factory-slack";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
 const router = new cloudflare.Router("router", {
@@ -26,8 +26,11 @@ new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router }
 
 new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- what outposts' Claude agents run on
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }), // <-- what outposts' Claude agents run on
 });
 
 new cloudflare.Deployer("deployer", {

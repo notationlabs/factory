@@ -13,7 +13,7 @@ Give the hub the credentials Claude Code runs on:
 ```ts [factory.infra.ts]
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
-import { env } from "@notation/std/sources";
+import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
 const router = new cloudflare.Router("router", {
@@ -21,14 +21,17 @@ const router = new cloudflare.Router("router", {
   vault,
 });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }), // <-- from `claude setup-token`
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }), // <-- from `claude setup-token`
 });
 
 new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
-`auth` is a secret that you declare in the hub's vault with `vault.secret(...)`. You choose its id. Here, `factory infra up` reads `CLAUDE_CODE_OAUTH_TOKEN` from your environment and writes it to the vault on every deploy. Without a source, `vault.secret({ id: "claude-oauth-token" })` makes `factory infra up` ask for the token, and `notation secret set claude-oauth-token` sets it. See [Secrets](../manual/secrets.md#where-a-value-comes-from).
+`auth` is a secret that you declare in the hub's vault with `vault.secret(...)`. You choose its id. Its value is a credential. Here, the `sources.Env` source reads `CLAUDE_CODE_OAUTH_TOKEN` from your environment, and with `track: "scrypt"` `factory infra up` writes it to the vault only when it changes. Any other source works the same way, such as `sources.Dotenv` or `InfisicalSecret`. See [Secrets](../manual/secrets.md#credentials).
 
 The account's `secrets` holds the token under the env var name `CLAUDE_CODE_OAUTH_TOKEN`. Only the deployer binds it, under that name. The deployer injects it into every container that lists `claude.runtime`, and no other.
 

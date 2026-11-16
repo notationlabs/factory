@@ -14,7 +14,7 @@ An organisation has one hub and one outpost per repo.
 | Contains | A router, a deployer, a vault, connections and agent accounts | Channels, containers, policies, agents and triggers |
 | Deployed by | Notation | The hub's deployer |
 
-The router receives events from each connection. The deployer provisions containers. The vault holds secrets. The router and the deployer each bind only the secrets they use. A secret's value comes from a Notation [source](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md), such as `env` from `@notation/std/sources`, or from `notation secret set`.
+The router receives events from each connection. The deployer provisions containers. The vault holds secrets. The router and the deployer each bind only the secrets they use. A secret's value is a Notation [credential](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md): the value of a source, such as `sources.Env` from `@notation/std/resources`, or a key that a resource issues, such as a GitHub App's private key.
 
 ## Plugins
 
@@ -45,8 +45,11 @@ const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", route
 new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
 new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
 
+const claudeToken = new sources.Env("claude-oauth-token", {
+  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
+});
 const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", source: env, key: "CLAUDE_CODE_OAUTH_TOKEN" }),
+  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }),
 });
 new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```

@@ -8,7 +8,7 @@ import {
   scopedName,
   type VaultSecret,
 } from "@notation/factory";
-import { KVJsonGroup } from "@notation/cloudflare/kv";
+import { kvJson, type KVJsonGroup } from "@notation/cloudflare/kv";
 import { containers, kv, r2, workers } from "@notation/cloudflare/resources";
 import type { fs } from "@notation/std/resources";
 import * as v from "valibot";
@@ -145,12 +145,14 @@ export class Router
       }),
     );
 
-    this.store = new KVJsonGroup({
-      id: `${id}-config`,
-      namespace: this.kv,
-      key: ROUTER_CONFIG_KEY,
-      schema: RouterConfigSchema,
-    });
+    this.store = this.add(
+      kvJson({
+        id: `${id}-config`,
+        namespace: this.kv,
+        key: ROUTER_CONFIG_KEY,
+        schema: RouterConfigSchema,
+      }),
+    );
   }
 
   bind(secret: VaultSecret, name = bindingName(secret.id)): string {

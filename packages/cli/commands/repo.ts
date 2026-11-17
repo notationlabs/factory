@@ -62,13 +62,70 @@ const outpostRepo = async (dir: string, given?: string) => {
   return githubRepo(dir);
 };
 
+/** The outcome of the repo's last deploy, which the hub writes to the repo's `FACTORY_STATUS` variable. */
+type FactoryStatus = {
+  state: "deployed" | "failed";
+  ref?: string;
+  error?: string;
+  at: string;
+};
+
+/** The repo's `FACTORY_STATUS`, if the hub has written it. */
+const readStatus = async (repo: string): Promise<FactoryStatus | undefined> => {
+  try {
+    return JSON.parse(await output("gh", ["variable", "get", "FACTORY_STATUS", "--repo", repo]));
+  } catch {
+    return undefined;
+  }
+};
+
+/** Prints the status, and sets a failed exit code if the deploy failed. */
+const report = (repo: string, status: FactoryStatus) => {
+  const from = status.ref ? ` from ${status.ref.slice(0, 7)}` : "";
+  if (status.state === "deployed") {
+    console.log(`${repo}'s outpost is deployed${from}.`);
+    return;
+  }
+  console.log(`${repo}'s outpost failed to deploy${from}:\n${status.error ?? "no reason given"}`);
+  process.exitCode = 1;
+};
+
+const POLL_MS = 3000;
+const WAIT_MS = 120_000;
+
+/** Waits for a status written after `since`. */
+const waitForStatus = async (repo: string, since: Date) => {
+  const deadline = Date.now() + WAIT_MS;
+  while (Date.now() < deadline) {
+    const status = await readStatus(repo);
+    if (status && new Date(status.at) > since) return status;
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+  return undefined;
+};
+
+/** Prints the outpost's `FACTORY_STATUS`. */
+export const repoStatus = async ({ repo: given }: { repo?: string }) => {
+  const repo = await outpostRepo(await outpostDir(), given);
+  const status = await readStatus(repo);
+  if (!status) {
+    console.log(`The hub hasn't deployed ${repo}. Run \`factory repo install\` in it.`);
+    return;
+  }
+  report(repo, status);
+};
+
 /**
- * Opens GitHub's page to install each connection's App on the outpost's repo.
+ * Installs the outpost's repo on the hub:
+ * 1. Opens GitHub's page to install each connection's App on the repo.
+ * 2. Waits for the hub to deploy the repo's outpost, which GitHub's install
+ *    event starts, and prints the outcome.
  */
 export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   const dir = await outpostDir();
   const config = join(dir, ".factory", "config.ts");
   const repo = await outpostRepo(dir, given);
+  const since = new Date();
   const names = await githubConnections(config);
   if (names.length === 0) {
     console.log(".factory/config.ts uses no GitHub connection, so there's nothing to install.");
@@ -91,5 +148,10 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   } finally {
     prompt.close();
   }
-  console.log(`\n${repo} is installed. GitHub now sends its events to the hub.`);
+  console.log(`\nWaiting for the hub to deploy ${repo}…`);
+  const status = await waitForStatus(repo, since);
+  if (status) return report(repo, status);
+  console.log(
+    `The hub hasn't deployed ${repo} yet. GitHub only tells the hub about a new install. If the App was already installed on ${repo}, push to .factory/ on the default branch to deploy it, then run \`factory repo status\`.`,
+  );
 };

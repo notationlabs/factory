@@ -12,7 +12,7 @@ import {
   workerLoader,
 } from "@notation/cloudflare/workers";
 import * as v from "valibot";
-import { KV_BINDING } from "./bindings.ts";
+import { DEPLOYER_BINDING, KV_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import type { Router } from "./router.ts";
 import {
@@ -113,6 +113,8 @@ export class Deployer
         ),
       }),
     });
+    // The router hands the deployer the repos that a push or an install changed.
+    addBindings(router.worker, { [DEPLOYER_BINDING]: this.worker });
     for (const account of accounts) {
       for (const [name, secret] of Object.entries(account.secrets)) {
         assertCloudflareSecret(secret);

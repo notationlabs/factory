@@ -11,12 +11,17 @@ export type {
   ChannelContext,
   ChannelModule,
   Delivery,
+  FactoryStatus,
   Received,
   RemoteChannel,
+  SourceChange,
+  SourceFiles,
 } from "./channel.ts";
 export {
+  FACTORY_DIR,
   handle,
   outpostKey,
+  type RemoteDeployer,
   type RouterStore,
   type TriggerMatch,
   webhookPath,

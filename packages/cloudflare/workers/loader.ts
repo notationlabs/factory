@@ -30,7 +30,9 @@ const sha256 = async (text: string) => {
  * id, so the id is a hash of the program: the same files reuse an isolate,
  * and changed files get a new one.
  */
-export const loaderContext = (loader: WorkerLoader): DeployerContext => ({
+export const loaderContext = (
+  loader: WorkerLoader,
+): Pick<DeployerContext, "evaluate"> => ({
   async evaluate(program: Program) {
     const modules: Record<string, { js: string }> = {
       [HOST]: { js: hostModule(program.main) },

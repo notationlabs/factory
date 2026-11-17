@@ -1,5 +1,7 @@
 import { transform } from "sucrase";
 import type { OutpostConfig } from "../contracts/outpost.ts";
+import type { FactoryStatus, SourceFiles } from "../router/channel.ts";
+import { FACTORY_DIR } from "../router/handle.ts";
 import sdk from "./sdk.gen.ts";
 import { SDK_COLLECT, SDK_DIR, SDK_PACKAGES } from "./sdk.ts";
 
@@ -16,10 +18,10 @@ export interface DeployerContext {
    * returns what its main function returns. Throws the program's error.
    */
   evaluate(program: Program): Promise<unknown>;
+  /** Stores the repo's outpost config, where the router reads it. */
+  putOutpost(repo: string, outpost: OutpostConfig): Promise<void>;
+  deleteOutpost(repo: string): Promise<void>;
 }
-
-/** The directory that a repo's outpost files are under, in the repo and among the modules. */
-const FACTORY_DIR = ".factory";
 
 const MAIN = "main.js";
 
@@ -73,11 +75,35 @@ export const outpostProgram = (files: Record<string, string>): Program => {
 export const evaluateOutpost = async (
   repo: string,
   files: Record<string, string>,
-  context: DeployerContext,
+  context: Pick<DeployerContext, "evaluate">,
 ): Promise<OutpostConfig> => {
   const outpost = (await context.evaluate(outpostProgram(files))) as OutpostConfig;
   for (const channel of Object.values(outpost.channels ?? {})) {
     channel.scope ??= repo;
   }
   return outpost;
+};
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Deploys a repo's outpost from its `.factory/` files. A repo with no
+ * `.factory/config.ts` loses its outpost. A config that fails leaves the
+ * outpost as it was.
+ */
+export const deploy = async (
+  repo: string,
+  { ref, files }: SourceFiles,
+  context: DeployerContext,
+): Promise<FactoryStatus> => {
+  if (!("config.ts" in files)) {
+    await context.deleteOutpost(repo);
+    return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/config.ts.`, at: new Date().toISOString() };
+  }
+  try {
+    await context.putOutpost(repo, await evaluateOutpost(repo, files, context));
+    return { state: "deployed", ref, at: new Date().toISOString() };
+  } catch (error) {
+    return { state: "failed", ref, error: message(error), at: new Date().toISOString() };
+  }
 };

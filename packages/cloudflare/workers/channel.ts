@@ -1,5 +1,9 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import type { ChannelContext, Delivery } from "@notation/factory/router";
+import type {
+  ChannelContext,
+  Delivery,
+  FactoryStatus,
+} from "@notation/factory/router";
 import { channel } from "factory:channel";
 import type { SecretsStoreSecret } from "./types.ts";
 
@@ -38,5 +42,17 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
 
   sync(url: string) {
     return channel(context(this.env)).sync(url);
+  }
+
+  read(repo: string, dir: string, ref?: string) {
+    const { read } = channel(context(this.env));
+    if (!read) throw new Error("This connection's channel can't read repos.");
+    return read(repo, dir, ref);
+  }
+
+  writeStatus(repo: string, status: FactoryStatus) {
+    const { writeStatus } = channel(context(this.env));
+    if (!writeStatus) throw new Error("This connection's channel can't write a repo's status.");
+    return writeStatus(repo, status);
   }
 }

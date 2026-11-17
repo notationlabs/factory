@@ -19,6 +19,7 @@ export default defineConfig({
         published("github"),
         published("slack"),
         published("claude"),
+        published("railway"),
       ],
     }),
   ],

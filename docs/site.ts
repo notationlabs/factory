@@ -70,6 +70,7 @@ export default {
             { label: "@notation/factory-slack", slug: "reference/slack" },
             { label: "@notation/factory-claude", slug: "reference/claude" },
             { label: "@notation/factory-cloudflare", slug: "reference/cloudflare" },
+            { label: "@notation/factory-railway", slug: "reference/railway" },
           ],
         },
       ],

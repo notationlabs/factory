@@ -34,7 +34,7 @@ Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs yo
 
 | Step | Authenticates with |
 | --- | --- |
-| Create and deploy the hub | The container provider's sign-in: Wrangler login or `CLOUDFLARE_API_TOKEN` |
+| Create and deploy the hub | The container provider's sign-in: Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN` |
 | Create GitHub Apps and Slack apps | Your `gh` login and your browser |
 | Write secrets to the vault | Each source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `sources.Env` |
 | Read and set App webhooks, sync repos | Operator auth; the router does the work with the connection's credentials |

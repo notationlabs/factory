@@ -28,6 +28,7 @@ In each outpost repository, add `@notation/factory` and the plugins `.factory/co
 | --- | --- |
 | [`@notation/factory`](../reference/core.md) | Both |
 | [`@notation/factory-cloudflare`](../reference/cloudflare.md) | `factory.infra.ts` |
+| [`@notation/factory-railway`](../reference/railway.md) | `factory.infra.ts` |
 | [`@notation/factory-github`](../reference/github.md) | Both |
 | [`@notation/factory-slack`](../reference/slack.md) | Both |
 | [`@notation/factory-claude`](../reference/claude.md) | Both |
@@ -41,3 +42,4 @@ Some plugins need a vendor CLI on your machine, signed in:
 | `@notation/factory-github` | `gh` | `gh auth login` |
 | `@notation/factory-claude` | `claude`, for the `CLAUDE_CODE_OAUTH_TOKEN` its `Account` reads | `claude setup-token` |
 | `@notation/factory-cloudflare` | `npx wrangler@4` | `npx wrangler login` |
+| `@notation/factory-railway` | `railway`, for `factory container ssh` and `resume` | `railway login` |

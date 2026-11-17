@@ -20,6 +20,7 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 | [`@notation/factory-slack`](./slack.md) | `Connection` | `Connection.get`, selectors, author sets |
 | [`@notation/factory-claude`](./claude.md) | `Account` | `Agent`, `runtime` |
 | [`@notation/factory-cloudflare`](./cloudflare.md) | `Vault`, `Router`, `Deployer`, `OperatorAuth` | |
+| [`@notation/factory-railway`](./railway.md) | `Vault`, `Router`, `Deployer` | |
 
 ## Outpost primitives (`.factory/config.ts`)
 
@@ -234,7 +235,7 @@ The contracts don't hand each other their config. They contribute to two configs
 
 | Config | Kept in | Contributed by |
 | --- | --- | --- |
-| The router's | `router.store` (a `kvJson()` document in KV, checked against a schema at plan) | Each `Connection` (`connections`), the `CodeHost` (`codeHost`) and the `OperatorAuth` (`operators`) |
+| The router's | `router.store` (Cloudflare: a `kvJson()` document in KV, checked against a schema at plan; Railway: a file on the router's volume) | Each `Connection` (`connections`), the `CodeHost` (`codeHost`) and the `OperatorAuth` (`operators`) |
 | An outpost's | One entry per repo, which the deployer applies | Its channels, containers, policies, agents and triggers, keyed by id |
 
 An infra has one code host and one operator auth. A second one is a conflict that names both.

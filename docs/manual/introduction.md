@@ -3,7 +3,7 @@
 Notation Factory runs coding agents in remote containers and connects them to the places your team talks:
 
 - **Listens** to messages on your communication channels (_GitHub issues, Slack, etc._)
-- **Dispatches** agents into remote outposts (_Cloudflare Containers_)
+- **Dispatches** agents into remote outposts (_Cloudflare Containers, Railway, E2B, etc._)
 - **Connects** you directly to remote agents over a secure line (_SSH, Tailscale, etc._)
 
 

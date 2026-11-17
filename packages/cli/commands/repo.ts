@@ -66,7 +66,7 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
       await gh(`apps/${slug}`).catch(() => {
         throw new Error(`There's no GitHub App ${slug}. Run \`factory infra up\` in the hub's repo first.`);
       });
-      const url = `https://github.com/apps/${slug}/installations/new/permissions?target_id=${owner.id}&repository_ids[]=${repoId}`;
+      const url = `https://github.com/apps/${slug}/installations/new/permissions?suggested_target_id=${owner.id}&repository_ids[]=${repoId}`;
       console.log(`Install the GitHub App ${slug} on ${repo}:\n  ${url}`);
       openBrowser(url);
       await prompt.question("Press Enter when it's installed. ");

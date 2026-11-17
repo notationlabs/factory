@@ -14,9 +14,7 @@ Nothing. Pick from Next.
 
 ## Next
 
-- [ ] **Build images off the local machine.** `factory infra up` builds the hub image with local Docker, and a slow uplink makes the first push take a long time. Options:
-  - Workers Builds builds and pushes the image. It needs Cloudflare's Git integration on the hub's repo. It also needs `$durableObject` to accept an image reference, or Factory has to declare the `ContainerApplication` itself.
-  - A prebuilt image that CI pushes on release. It needs a Docker Hub organisation.
+- [ ] **Build images off the local machine.** `factory infra up` builds the hub image with local Docker, and a slow uplink makes the first push take a long time. Decided: Workers Builds, the same machinery as stage 2, rather than a prebuilt image that CI pushes. A prebuilt image would have to hold every runtime, and stage 2 needs Workers Builds anyway. notationlabs/notation#175 asks for prebuilt images in `$durableObject`, which Factory won't use for now.
 - [ ] **Stage 2: build each repo's `.factory/Dockerfile`.** This goes through Workers Builds and needs:
   - Cloudflare's GitHub App installed on every subscribed repo.
   - A user-scoped API token. The Workers Builds API rejects account tokens, and the deployer's token is an account token.

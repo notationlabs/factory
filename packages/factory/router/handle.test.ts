@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
 import { handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, signTicket } from "./run.ts";
+import { type Run, signTicket, signTokenTicket } from "./run.ts";
 
 const ROOT_KEY = "root";
 
@@ -271,6 +271,10 @@ test("a match whose author may start a run hands the deployer a run, with its br
     { policy: "code", repo: "acme/api", token: 'token:acme/api:{"contents":"write"}' },
     { policy: "docs", repo: "acme/docs", token: 'token:acme/docs:{"contents":"read"}' },
   ]);
+  assert.equal(run!.refresh.url, "https://router.test/tokens");
+  assert.equal(run!.refresh.ticket.repo, "acme/api");
+  assert.equal(run!.refresh.ticket.container, "dev");
+  assert.equal(run!.refresh.signature, await signTokenTicket(ROOT_KEY, run!.refresh.ticket));
   assert.equal(run!.reply.url, "https://router.test/relay");
   assert.deepEqual(run!.reply.ticket.thread, { repo: "acme/api" });
   assert.equal(run!.reply.signature, await signTicket(ROOT_KEY, run!.reply.ticket));
@@ -316,4 +320,35 @@ test("relay posts a reply with a ticket the router signed through the ticket's c
   const expired = { ...ticket, expires: Date.now() - 1 };
   assert.equal((await relay(s, { ticket: expired, signature: await signTicket(ROOT_KEY, expired), text: "x" })).status, 401);
   assert.equal(replies.length, 1);
+});
+
+const refresh = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/tokens", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("tokens mints a container's policy tokens again with a ticket the router signed", async () => {
+  const s = runStore(accepted(), {});
+  const ticket = { repo: "acme/api", container: "dev", expires: Date.now() + 60_000 };
+  const signature = await signTokenTicket(ROOT_KEY, ticket);
+
+  const response = await refresh(s, { ticket, signature });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), [
+    { policy: "code", repo: "acme/api", token: 'token:acme/api:{"contents":"write"}' },
+    { policy: "docs", repo: "acme/docs", token: 'token:acme/docs:{"contents":"read"}' },
+  ]);
+
+  const forged = { ...ticket, repo: "acme/other" };
+  assert.equal((await refresh(s, { ticket: forged, signature })).status, 401);
+  const expired = { ...ticket, expires: Date.now() - 1 };
+  assert.equal((await refresh(s, { ticket: expired, signature: await signTokenTicket(ROOT_KEY, expired) })).status, 401);
+  // A reply ticket's signature doesn't sign a token ticket.
+  assert.equal((await refresh(s, { ticket, signature: await signTicket(ROOT_KEY, ticket as never) })).status, 401);
+});
+
+test("tokens refuses a container that the repo's outpost no longer has", async () => {
+  const s = runStore(accepted(), {});
+  const ticket = { repo: "acme/api", container: "gone", expires: Date.now() + 60_000 };
+  const response = await refresh(s, { ticket, signature: await signTokenTicket(ROOT_KEY, ticket) });
+  assert.equal(response.status, 404);
+  assert.match((await response.json()).error, /no container gone/);
 });

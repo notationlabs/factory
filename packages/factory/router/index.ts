@@ -37,5 +37,10 @@ export {
   type ReplyTicket,
   type Run,
   signTicket,
+  signTokenTicket,
+  type TokenRequest,
+  type Tokens,
+  type TokenTicket,
   verifyTicket,
+  verifyTokenTicket,
 } from "./run.ts";

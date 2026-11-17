@@ -7,6 +7,15 @@ export type ReplyTicket = { connection: string; thread: unknown; expires: number
 /** What the runner posts to a run's `reply.url`. */
 export type Relay = { ticket: ReplyTicket; signature: string; text: string };
 
+/** Which container's policy tokens the router mints again: a container of the repo's outpost. `expires` is in ms since the epoch. */
+export type TokenTicket = { repo: string; container: string; expires: number };
+
+/** What the runner posts to a run's `refresh.url`. The router answers with `Tokens`. */
+export type TokenRequest = { ticket: TokenTicket; signature: string };
+
+/** A token for each of a container's code host policies. */
+export type Tokens = { policy: string; repo: string; token: string }[];
+
 /** What a container's runner needs for one trigger match. */
 export type Run = {
   id: string;
@@ -24,22 +33,33 @@ export type Run = {
   /** A read-only token for cloning the repo. */
   cloneToken: string;
   /** A token for each of the container's code host policies. */
-  tokens: { policy: string; repo: string; token: string }[];
+  tokens: Tokens;
+  /** The runner posts a `TokenRequest` with this ticket and signature to `url` for new tokens, before the old ones expire. */
+  refresh: { url: string; ticket: TokenTicket; signature: string };
   /** The runner posts a `Relay` with this ticket and signature to `url`. */
   reply: { url: string; ticket: ReplyTicket; signature: string };
 };
 
-/** How long a container may reply to a run. */
+/** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */
 export const REPLY_TTL_MS = 24 * 60 * 60 * 1000;
 
-const relayKey = (rootKey: string) => deriveKey(rootKey, "router:relay");
+const sign = async (rootKey: string, purpose: string, ticket: { expires: number }) =>
+  hmacHex(await deriveKey(rootKey, purpose), JSON.stringify(ticket));
 
-export const signTicket = async (rootKey: string, ticket: ReplyTicket) =>
-  hmacHex(await relayKey(rootKey), JSON.stringify(ticket));
+const verify = async (rootKey: string, purpose: string, ticket: { expires: number }, signature: string) =>
+  ticket.expires > Date.now() && timingSafeEqual(signature, await sign(rootKey, purpose, ticket));
+
+export const signTicket = (rootKey: string, ticket: ReplyTicket) => sign(rootKey, "router:relay", ticket);
 
 /** Whether the router signed `ticket`, and it hasn't expired. */
-export const verifyTicket = async (rootKey: string, ticket: ReplyTicket, signature: string) =>
-  ticket.expires > Date.now() && timingSafeEqual(signature, await signTicket(rootKey, ticket));
+export const verifyTicket = (rootKey: string, ticket: ReplyTicket, signature: string) =>
+  verify(rootKey, "router:relay", ticket, signature);
+
+export const signTokenTicket = (rootKey: string, ticket: TokenTicket) => sign(rootKey, "router:tokens", ticket);
+
+/** Whether the router signed `ticket`, and it hasn't expired. */
+export const verifyTokenTicket = (rootKey: string, ticket: TokenTicket, signature: string) =>
+  verify(rootKey, "router:tokens", ticket, signature);
 
 /** A git branch name the runner can check out: no `..`, no leading `-` or `/`, and only letters, digits and `._/-`. */
 export const isBranchName = (name: string) =>

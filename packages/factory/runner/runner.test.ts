@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import type { Relay, Run } from "../router/run.ts";
+import type { Relay, Run, TokenRequest } from "../router/run.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "factory-runner-")));
 const bin = join(root, "bin");
@@ -16,12 +16,16 @@ const port = 40000 + Math.floor(Math.random() * 20000);
 
 const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
 
-// A fake Claude Code: it records how it was called, and writes a transcript
-// for a session named after its working directory. It fails, or edits the
-// worktree, when the prompt says so.
+// A fake Claude Code: it records how it was called and the token that gh
+// gets, and writes a transcript for a session named after its working
+// directory. It fails, edits the worktree, or waits for the runner to
+// refresh its tokens, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$2"
-printf '%s\\n' "$(pwd)" "$GH_TOKEN" "$*" >> "${calls}"
+case "$prompt" in
+  wait*) sleep 1 ;;
+esac
+printf '%s\\n' "$(pwd)" "$(gh)" "$*" >> "${calls}"
 session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.claude/projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$HOME/.claude/projects/-p-$(basename "$(pwd)")/$session.jsonl"
@@ -33,11 +37,20 @@ case "$prompt" in
     git commit -q -m "local work"
     echo draft > notes.txt
     rm README.md ;;
+  wait*) printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill | grep password= >> "${calls}" ;;
 esac
 echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
+/** A fake gh, which prints the token it gets. */
+const FAKE_GH = `#!/bin/sh
+echo "$GH_TOKEN"
+`;
+
 const replies: Relay[] = [];
+/** The token that the fake router mints when the runner asks for new tokens. */
+let freshToken = "push-token";
+const tokenRequests: TokenRequest[] = [];
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
@@ -60,6 +73,7 @@ before(async () => {
   mkdirSync(bin);
   mkdirSync(home);
   writeFileSync(join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
+  writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
 
   const work = join(root, "work");
   mkdirSync(join(work, ".factory"), { recursive: true });
@@ -87,6 +101,11 @@ before(async () => {
         response.statusCode = object ? 200 : 404;
         return response.end(object);
       }
+      if (pathname === "/tokens") {
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as TokenRequest;
+        tokenRequests.push(body);
+        return response.end(JSON.stringify([{ policy: "code", repo: body.ticket.repo, token: freshToken }]));
+      }
       replies.push(JSON.parse(Buffer.concat(chunks).toString()));
       waiting?.();
       response.end("{}");
@@ -113,6 +132,7 @@ const startRunner = async () => {
       FACTORY_DATA: data,
       FACTORY_RUNNER_PORT: String(port),
       FACTORY_STATE_URL: `${serverUrl()}/state`,
+      FACTORY_TOKEN_REFRESH_MS: "300",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
@@ -148,6 +168,11 @@ const run = (over: Partial<Run> = {}): Run => ({
   worktree: { branch: "issue-1" },
   cloneToken: "clone-token",
   tokens: [{ policy: "code", repo: "acme/api", token: "push-token" }],
+  refresh: {
+    url: `${serverUrl()}/tokens`,
+    ticket: { repo: "acme/api", container: "dev", expires: Date.now() + 60_000 },
+    signature: "token-sig",
+  },
   reply: {
     url: `${serverUrl()}/relay`,
     ticket: { connection: "github/x", thread: { issue: 1 }, expires: Date.now() + 60_000 },
@@ -229,6 +254,19 @@ test("a snapshot that can't be restored leaves a note, and the run starts from t
   const reply = await nextReply();
   assert.match(reply.text, /^done\n\n> Factory couldn't restore this worktree's saved state/);
   assert.equal(sh(join(data, "worktrees", "acme-api", "issue-10"), "log", "-1", "--format=%s"), "init");
+});
+
+test("during a long run, the runner refreshes the tokens that gh and git read", async () => {
+  freshToken = "fresh-token";
+  tokenRequests.length = 0;
+  await post(run({ conversation: { id: "github:acme/api#11", prompt: "wait for it" } }));
+  assert.equal((await nextReply()).text, "done");
+  const lines = readFileSync(calls, "utf8").trim().split("\n").slice(-4);
+  assert.equal(lines[1], "fresh-token");
+  assert.equal(lines[3], "password=fresh-token");
+  const { ticket, signature } = tokenRequests[0]!;
+  assert.deepEqual([ticket.repo, ticket.container, signature], ["acme/api", "dev", "token-sig"]);
+  assert.equal(readFileSync(join(data, "github", "code"), "utf8"), "fresh-token");
 });
 
 test("status counts the runs that are running or queued", async () => {

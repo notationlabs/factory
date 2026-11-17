@@ -117,6 +117,8 @@ export class Router
         namespace: this.kv,
         key: ROUTER_CONFIG_KEY,
         schema: RouterConfigSchema,
+        // A hub with no connections and no operator auth contributes nothing.
+        value: {},
       }),
     );
   }

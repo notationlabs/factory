@@ -38,6 +38,8 @@ export const openBrowser = (url: string) => {
 export type FactoryConfig = {
   /** A command prefix that sets credentials in the environment, such as `op run --env-file .env --`. */
   loadEnv?: string;
+  /** An outpost's repo, as `owner/name`, when its git remote doesn't name it. */
+  repo?: string;
 };
 
 /** Reads `factory.config.ts` in `dir`, if there is one. */

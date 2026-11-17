@@ -18,6 +18,14 @@ export default {
 };
 ```
 
+In a subscriber repo, `factory.config.ts` can name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
+
+```ts [factory.config.ts]
+export default {
+  repo: "acme/webapp",
+};
+```
+
 `factory` runs the command once when it starts and adopts the environment it sets.
 
 ## `factory infra`

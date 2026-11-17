@@ -14,11 +14,12 @@ Nothing. Pick from Next.
 
 ## Next
 
-- [ ] **Stage 2: build each repo's outpost image with Workers Builds.** Workers Builds builds the repo's `.factory/Dockerfile`, or the default Dockerfile when the repo has none, so `factory infra up` no longer builds the outpost image with local Docker. Until then it does, and a slow uplink makes the first push take a long time. notationlabs/notation#175 asks for prebuilt images in `$durableObject`, which Factory won't use for now. First, check that a Dockerfile builds in Workers Builds: Cloudflare's docs say it does, but no Workers Builds page mentions Docker. Stage 2 needs:
-  - Cloudflare's GitHub App installed on every subscribed repo.
-  - A user-scoped API token. The Workers Builds API rejects account tokens, and the deployer's token is an account token.
-  - A Worker script and a container application for each outpost container, because a container application belongs to one Durable Object namespace.
-  - A build command that generates the wrangler config inside the build.
+- [ ] **Stage 2: build each repo's outpost image with Workers Builds.** Workers Builds builds the repo's `.factory/Dockerfile`, or the default Dockerfile when the repo has none, so `factory infra up` no longer builds the outpost image with local Docker. Until then it does, and a slow uplink makes the first push take a long time. notationlabs/notation#175 asks for prebuilt images in `$durableObject`, which Factory won't use for now. Workers Builds builds from a Cloudflare Artifacts repo, so no forge needs Cloudflare's app. For each outpost container, the deploy:
+  1. Pushes the repo's checkout and the generated files, such as the wrangler config, to an Artifacts repo. The production branch must be `main`.
+  2. Creates a Worker script, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. A container application belongs to one Durable Object namespace, so each container needs its own Worker and container name.
+  3. Starts a build, which builds the Dockerfile, pushes the image to the account's registry and runs `wrangler deploy`.
+
+  The Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. The deploy opens the dashboard's create-token page with the permissions filled in, and registers the token as the build token. Tested live: a Dockerfile builds in Workers Builds, and the API connects an Artifacts repo. `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
 
   Until then, `FACTORY_STATUS` should say the Dockerfile is ignored.
 

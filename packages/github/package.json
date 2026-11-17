@@ -23,7 +23,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@notation/resource": "0.26.0",
+    "@notation/resource": "0.27.0",
     "valibot": "^1.1.0"
   },
   "peerDependencies": {

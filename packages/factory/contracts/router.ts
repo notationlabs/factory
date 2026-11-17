@@ -1,8 +1,4 @@
-import type {
-  BaseResource,
-  DeepPartial,
-  ResourceGroup,
-} from "@notation/resource";
+import type { BaseResource, DeepInput, ResourceGroup } from "@notation/resource";
 import type { Vault, VaultSecret } from "./vault.ts";
 
 /**
@@ -41,12 +37,26 @@ export type RouterConfig = {
 /** Where the router is reached: any concrete resource with a `Url` output. */
 export type RouterApi = BaseResource & { output: { Url: string } };
 
+type ConfigPartial<T> = T extends readonly unknown[]
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: ConfigPartial<T[K]> }
+    : T;
+
+/**
+ * A contribution to the router's config: any object key can be left out, and
+ * an array is given whole. Any value can be a ref.
+ */
+export type RouterConfigContribution = {
+  [K in keyof RouterConfig]?: DeepInput<ConfigPartial<RouterConfig[K]>>;
+};
+
 /**
  * Where the router's config is kept: anything that takes contributions to
  * it, such as a resource or a `kvJson()` document.
  */
 export type RouterConfigStore = {
-  contribute(values: DeepPartial<RouterConfig>): void;
+  contribute(values: RouterConfigContribution): void;
 };
 
 /**

@@ -7,10 +7,18 @@ export type {
 } from "../contracts/index.ts";
 export type {
   AuthorCheck,
-  ChannelProvider,
+  Channel,
+  ChannelContext,
+  ChannelModule,
   Delivery,
   Received,
-  RouterContext,
+  RemoteChannel,
 } from "./channel.ts";
-export { handle, outpostKey, type RouterStore, type TriggerMatch } from "./handle.ts";
+export {
+  handle,
+  outpostKey,
+  type RouterStore,
+  type TriggerMatch,
+  webhookPath,
+} from "./handle.ts";
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";

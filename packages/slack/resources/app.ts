@@ -1,9 +1,8 @@
 import { defineResource } from "@notation/resource";
-import type { RouterApi } from "@notation/factory";
 import * as v from "valibot";
 import { createApp, readApp, setRequestUrl } from "../lib/app.ts";
 
-/** One Slack app, which backs a connection. Its Events API request URL is the router's webhook. */
+/** One Slack app, which backs a connection. Its Events API request URL is the connection's webhook path on the router. */
 type AppApi = {
   Key: { appId: string };
   CreateParams: { name: string; workspace: string; requestUrl: string };
@@ -60,10 +59,6 @@ export const App = defineResource<AppApi>({
         "The Slack app is protected: delete it on its settings page",
       );
     },
-  })
-  .requireDependencies<{ router: RouterApi }>()
-  .deriveParams(({ deps }) => ({
-    requestUrl: `${deps.router.output.Url}/webhook`,
-  }));
+  });
 
 export type AppInstance = InstanceType<typeof App>;

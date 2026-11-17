@@ -1,4 +1,3 @@
-import type { RouterApi } from "@notation/factory";
 import { defineResource } from "@notation/resource";
 import * as v from "valibot";
 import {
@@ -116,10 +115,6 @@ export const App = defineResource<AppApi>({
         "GitHub has no API to delete an App: delete it on its settings page",
       );
     },
-  })
-  .requireDependencies<{ router: RouterApi }>()
-  .deriveParams(({ deps }) => ({
-    hookUrl: `${deps.router.output.Url}/webhook`,
-  }));
+  });
 
 export type AppInstance = InstanceType<typeof App>;

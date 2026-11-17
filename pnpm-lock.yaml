@@ -82,6 +82,9 @@ importers:
 
   packages/cloudflare:
     dependencies:
+      '@notation/build':
+        specifier: 0.26.0
+        version: 0.26.0(typescript@7.0.2)
       '@notation/cloudflare':
         specifier: 0.26.0
         version: 0.26.0(typescript@7.0.2)
@@ -101,12 +104,6 @@ importers:
       '@notation/factory':
         specifier: workspace:*
         version: link:../factory
-      '@notation/factory-github':
-        specifier: workspace:*
-        version: link:../github
-      esbuild:
-        specifier: ^0.25.12
-        version: 0.25.12
 
   packages/factory:
     dependencies:

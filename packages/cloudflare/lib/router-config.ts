@@ -7,6 +7,7 @@ const connectionEntry = v.object({
   provider: v.string(),
   source: v.string(),
   credentials: v.record(v.string(), v.string()),
+  channel: v.optional(v.string()),
 });
 
 const codeHostEntry = v.object({

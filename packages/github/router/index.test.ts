@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
-import type { Delivery, RouterContext } from "@notation/factory/router";
-import { channel, type GithubEvent, mentions, verifySignature, webhookSecret } from "./index.ts";
+import type { Delivery } from "@notation/factory/router";
+import { channel as github, type GithubEvent, mentions, verifySignature, webhookSecret } from "./index.ts";
 
 const encode = (s: string) => new TextEncoder().encode(s);
 
@@ -18,21 +18,15 @@ test("verifySignature accepts GitHub's example and rejects a changed body", asyn
 
 const ROOT_KEY = "test-root-key";
 
-const ctx: RouterContext = {
-  config: {
-    connections: {
-      "slack/acme-agents": { provider: "slack", source: "123", credentials: {} },
-      "github/acme-agents": { provider: "github", source: "123", credentials: {} },
-    },
-  },
-  secret: async () => "",
-  rootKey: async () => ROOT_KEY,
-};
+const channel = github({
+  secret: async (name) => (name === "ROOT_KEY" ? ROOT_KEY : ""),
+  value: (name) => (name === "APP_ID" ? "123" : ""),
+});
 
 const request = async (event: string, payload: object, { appId = "123", sign = true } = {}) => {
   const body = JSON.stringify(payload);
   const secret = sign ? await webhookSecret(ROOT_KEY, appId) : "wrong";
-  return new Request("https://router.test/webhook", {
+  return new Request("https://router.test/webhook/github/acme-agents", {
     method: "POST",
     headers: {
       "x-github-event": event,
@@ -51,13 +45,12 @@ const commentPayload = {
   comment: { body: "@claude fix", user: { login: "alice" }, author_association: "NONE" },
 };
 
-test("receive finds the GitHub connection by App id and parses a signed comment", async () => {
-  const received = await channel.receive(await request("issue_comment", commentPayload), ctx);
+test("receive parses a signed comment to its App", async () => {
+  const received = await channel.receive(await request("issue_comment", commentPayload));
   assert.deepEqual(received, {
     status: "accepted",
     delivery: {
       id: "d1",
-      connection: "acme-agents",
       scope: "acme/api",
       repo: "acme/api",
       event: "issue_comment",
@@ -72,18 +65,17 @@ test("receive finds the GitHub connection by App id and parses a signed comment"
   });
 });
 
-test("receive rejects a bad signature and an unknown App, and ignores a ping", async () => {
-  const bad = await channel.receive(await request("issue_comment", commentPayload, { sign: false }), ctx);
+test("receive rejects a bad signature and another App's delivery, and ignores a ping", async () => {
+  const bad = await channel.receive(await request("issue_comment", commentPayload, { sign: false }));
   assert.equal(bad.status, "rejected");
-  const unknown = await channel.receive(await request("issue_comment", commentPayload, { appId: "9" }), ctx);
+  const unknown = await channel.receive(await request("issue_comment", commentPayload, { appId: "9" }));
   assert.equal(unknown.status, "rejected");
-  const ping = await channel.receive(await request("ping", { zen: "hi" }), ctx);
+  const ping = await channel.receive(await request("ping", { zen: "hi" }));
   assert.equal(ping.status, "ignored");
 });
 
 const delivery = (data: Partial<GithubEvent>): Delivery<GithubEvent> => ({
   id: "d1",
-  connection: "acme-agents",
   scope: "acme/api",
   repo: "acme/api",
   event: "issue_comment",

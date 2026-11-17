@@ -149,8 +149,10 @@ const startRunner = async () => {
 /** Stops the runner, and deletes what a container loses when it sleeps. */
 const sleepContainer = async () => {
   const exited = new Promise((resolve) => runner.once("exit", resolve));
-  runner.kill();
-  await exited;
+  runner.kill("SIGTERM");
+  // An exit code, not a signal, shows that the runner handled SIGTERM. As
+  // a container's PID 1, it would ignore it otherwise.
+  assert.equal(await exited, 0);
   rmSync(data, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });
   mkdirSync(home);

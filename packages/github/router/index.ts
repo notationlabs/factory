@@ -1,9 +1,9 @@
 import {
   type AuthorCheck,
-  type ChannelProvider,
+  type Channel,
+  type ChannelContext,
   deriveKey,
   hmacHex,
-  type RouterConfig,
   timingSafeEqual,
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
@@ -23,13 +23,9 @@ export const verifySignature = async (
   return timingSafeEqual(header.slice(7), await hmacHex(secret, body));
 };
 
-/** The GitHub connections in the router's config, by App id. */
-const connections = (config: Partial<RouterConfig>) =>
-  Object.entries(config.connections ?? {}).flatMap(([key, entry]) =>
-    entry.provider === "github"
-      ? [{ name: key.slice("github/".length), appId: entry.source, entry }]
-      : [],
-  );
+/** The names of what a GitHub channel reads from its context. */
+export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY" } as const;
+export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
 
 /** The parts of an issue or comment event that selectors read. */
 export type GithubEvent = {
@@ -117,69 +113,57 @@ const checkAuthor = (
   return teams.length ? { result: "check", sets: teams } : { result: "denied" };
 };
 
-/** GitHub Apps' webhooks. A delivery's scope is its repo. */
-export const channel: ChannelProvider<GithubEvent> = {
-  provider: "github",
-
-  receives: (request) => request.headers.has("x-github-event"),
-
-  async receive(request, ctx) {
-    const appId = request.headers.get("x-github-hook-installation-target-id");
-    const connection = connections(ctx.config).find((c) => c.appId === appId);
-    if (!connection) {
-      return { status: "rejected", reason: `no connection for App ${appId}` };
-    }
-
-    const body = new Uint8Array(await request.arrayBuffer());
-    const secret = await webhookSecret(await ctx.rootKey(), connection.appId);
-    const signature = request.headers.get("x-hub-signature-256");
-    if (!(await verifySignature(secret, body, signature))) {
-      return { status: "rejected", reason: "bad signature" };
-    }
-
-    const event = request.headers.get("x-github-event")!;
-    const payload = JSON.parse(new TextDecoder().decode(body));
-    const repo: string | undefined = payload.repository?.full_name;
-    const data = parse(event, payload);
-    if (!repo || !data) return { status: "ignored", reason: event };
-    return {
-      status: "accepted",
-      delivery: {
-        id: request.headers.get("x-github-delivery") ?? "",
-        connection: connection.name,
-        scope: repo,
-        repo,
-        event,
-        data,
-      },
-    };
-  },
-
-  match(selector, delivery) {
-    const s = selector as Selector;
-    return selects(s, delivery.data)
-      ? checkAuthor(s.from, delivery.data)
-      : undefined;
-  },
-
-  async sync(ctx) {
-    const results: Record<string, string> = {};
-    for (const { name, appId, entry } of connections(ctx.config)) {
-      try {
-        await setWebhookConfig({
-          appId,
-          privateKey: await ctx.secret(entry.credentials.privateKey!),
-          rootKey: await ctx.rootKey(),
-          url: ctx.url,
-        });
-        results[`github/${name}`] = "ok";
-      } catch (error) {
-        results[`github/${name}`] =
-          error instanceof Error ? error.message : String(error);
+/** One GitHub App's webhook. A delivery's scope is its repo. */
+export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
+  const appId = ctx.value(CHANNEL_VALUES.appId);
+  const rootKey = () => ctx.secret(CHANNEL_SECRETS.rootKey);
+  return {
+    async receive(request) {
+      const target = request.headers.get("x-github-hook-installation-target-id");
+      if (target !== appId) {
+        return { status: "rejected", reason: `delivery for App ${target}, not ${appId}` };
       }
-    }
-    return results;
-  },
+
+      const body = new Uint8Array(await request.arrayBuffer());
+      const secret = await webhookSecret(await rootKey(), appId);
+      const signature = request.headers.get("x-hub-signature-256");
+      if (!(await verifySignature(secret, body, signature))) {
+        return { status: "rejected", reason: "bad signature" };
+      }
+
+      const event = request.headers.get("x-github-event") ?? "";
+      const payload = JSON.parse(new TextDecoder().decode(body));
+      const repo: string | undefined = payload.repository?.full_name;
+      const data = parse(event, payload);
+      if (!repo || !data) return { status: "ignored", reason: event };
+      return {
+        status: "accepted",
+        delivery: {
+          id: request.headers.get("x-github-delivery") ?? "",
+          scope: repo,
+          repo,
+          event,
+          data,
+        },
+      };
+    },
+
+    match(selector, delivery) {
+      const s = selector as Selector;
+      return selects(s, delivery.data)
+        ? checkAuthor(s.from, delivery.data)
+        : undefined;
+    },
+
+    async sync(url) {
+      await setWebhookConfig({
+        appId,
+        privateKey: await ctx.secret(CHANNEL_SECRETS.privateKey),
+        rootKey: await rootKey(),
+        url,
+      });
+    },
+  };
 };
 
 const GITHUB_API = "https://api.github.com";

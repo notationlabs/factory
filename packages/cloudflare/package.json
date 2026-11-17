@@ -12,20 +12,17 @@
   "exports": {
     ".": "./implementations/index.ts"
   },
-  "scripts": {
-    "build": "node scripts/build.mjs"
-  },
   "files": [
-    "dist",
     "implementations",
     "lib",
     "resources",
-    "router-image"
+    "workers"
   ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
+    "@notation/build": "0.26.0",
     "@notation/cloudflare": "0.26.0",
     "@notation/core": "0.26.0",
     "@notation/resource": "0.26.0",
@@ -36,8 +33,6 @@
     "@notation/factory": "workspace:^"
   },
   "devDependencies": {
-    "@notation/factory": "workspace:*",
-    "@notation/factory-github": "workspace:*",
-    "esbuild": "^0.25.12"
+    "@notation/factory": "workspace:*"
   }
 }

@@ -1,8 +1,9 @@
-import { ResourceGroup } from "@notation/resource";
+import { ResourceGroup, text } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
 } from "@notation/factory";
+import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
 import { ConnectionRef } from "./connection-ref.ts";
@@ -37,8 +38,11 @@ export class Connection
     this.router = router;
     this.app = this.add(
       new App(`${id}-app`, {
-        config: { name, workspace },
-        dependencies: { router: router.api },
+        config: {
+          name,
+          workspace,
+          requestUrl: text`${router.url}${webhookPath(`slack/${name}`)}`,
+        },
       }),
     );
     const botToken = this.router.bind(

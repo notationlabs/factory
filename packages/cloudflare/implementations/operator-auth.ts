@@ -25,8 +25,12 @@ export class OperatorAuth
     super("cloudflare/OperatorAuth", id, config);
     this.application = this.add(
       new AccessApplication(`${id}-access`, {
-        config: { Name: `${router.project}-operators`, Emails: emails },
-        dependencies: { router: router.subdomain },
+        config: {
+          AccountId: router.kv.outputRef("AccountId"),
+          Name: `${router.project}-operators`,
+          Domain: router.url.map((url) => `${new URL(url).host}/admin`),
+          Emails: emails,
+        },
       }),
     );
     router.store.contribute({

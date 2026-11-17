@@ -24,7 +24,7 @@ export type {
   OperatorsEntry,
   RepoPattern,
   Router,
-  RouterApi,
+  RouterChannelOptions,
   RouterConfig,
   RouterConfigContribution,
   RouterConfigStore,

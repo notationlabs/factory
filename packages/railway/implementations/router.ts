@@ -1,9 +1,10 @@
-import { ResourceGroup } from "@notation/resource";
+import { type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   bindingName,
   RandomKey,
   type RandomKeyInstance,
   type Router as RouterContract,
+  type RouterChannelOptions,
   type VaultSecret,
 } from "@notation/factory";
 import * as v from "valibot";
@@ -35,7 +36,8 @@ export class Router
   readonly project: ProjectInstance;
   readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: RailwaySecret;
-  readonly api: ServiceInstance;
+  readonly service: ServiceInstance;
+  readonly url: OutputRef<string>;
   readonly store: RouterConfigInstance;
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
@@ -53,23 +55,30 @@ export class Router
       id: `${id}-root-key`,
       value: this.rootKeyValue.credentials.Value,
     });
-    this.api = this.add(
+    this.service = this.add(
       new Service(`${id}-service`, {
         config: { name: "factory-router", public: true, volume: "/data" },
         dependencies: { project: this.project },
       }),
     );
+    this.url = this.service.outputRef("Url");
     this.bind(this.rootKey, "FACTORY_ROOT_KEY");
     this.store = this.add(
       new RouterConfig(`${id}-config`, {
         config: { path: "/data/config.json" },
-        dependencies: { service: this.api },
+        dependencies: { service: this.service },
       }),
     );
   }
 
   bind(secret: VaultSecret, name = bindingName(secret.id)): string {
-    bindSecret(this.api, name, secret);
+    bindSecret(this.service, name, secret);
     return name;
+  }
+
+  channel({ connection }: RouterChannelOptions): void {
+    throw new Error(
+      `The Railway router ${this.id} can't run the channel of ${connection} yet: its service has no router code.`,
+    );
   }
 }

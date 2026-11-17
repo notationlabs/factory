@@ -1,31 +1,33 @@
-import { ResourceGroup } from "@notation/resource";
+import { type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   bindingName,
   RandomKey,
   type RandomKeyInstance,
   type Router as RouterContract,
-  type RouterApi,
+  type RouterChannelOptions,
   scopedName,
   type VaultSecret,
 } from "@notation/factory";
 import { kvJson, type KVJsonGroup } from "@notation/cloudflare/kv";
-import { containers, kv, r2, workers } from "@notation/cloudflare/resources";
-import type { fs } from "@notation/std/resources";
+import { kv, r2 } from "@notation/cloudflare/resources";
+import {
+  addBindings,
+  type Bindings,
+  type Worker,
+  worker,
+} from "@notation/cloudflare/workers";
 import * as v from "valibot";
 import {
   ROUTER_CONFIG_KEY,
   RouterConfigSchema,
 } from "../lib/router-config.ts";
-import { kvBinding, r2Binding, secretBinding } from "./bindings.ts";
-import { COMPATIBILITY_DATE, routerImageContext, workerCode } from "./code.ts";
+import { KV_BINDING, R2_BINDING } from "./bindings.ts";
+import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import {
   assertCloudflareSecret,
   type CloudflareSecret,
   type Vault,
 } from "./vault.ts";
-
-const CONTAINER_NAMESPACE = "router-container";
-const CONTAINER_CLASS = "RouterContainer";
 
 const routerConfig = v.object({
   project: v.string(),
@@ -34,11 +36,19 @@ export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
 
 export type RouterOptions = RouterGroupConfig & { vault: Vault };
 
+/** A Worker id from `parts`: lowercase letters, digits and single hyphens. */
+const workerId = (...parts: string[]) =>
+  parts
+    .join("-")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
 /**
- * `new cloudflare.Router(...)`: an always-on Worker with a `standard-1`
- * container built from the image this package ships, the project's KV
- * namespace and R2 bucket, and the KV entry its config is contributed to.
- * It generates the root key, and keeps it in the vault.
+ * `new cloudflare.Router(...)`: a Worker, the project's KV namespace and R2
+ * bucket, and the KV entry its config is contributed to. It generates the
+ * root key, and keeps it in the vault. Each connection's channel is a Worker
+ * of its own, which the router binds as a service.
  */
 export class Router
   extends ResourceGroup<RouterGroupConfig>
@@ -50,13 +60,14 @@ export class Router
   readonly rootKey: CloudflareSecret;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
-  readonly code: fs.FileInstance;
-  readonly script: workers.WorkerScriptInstance;
-  readonly subdomain: workers.WorkerSubdomainInstance;
-  readonly image: containers.ContainerImageInstance;
-  readonly container: containers.ContainerApplicationInstance;
-  readonly api: RouterApi;
+  readonly worker: Worker;
+  readonly url: OutputRef<string>;
   readonly store: KVJsonGroup<typeof RouterConfigSchema>;
+  /** The bundle of each provider's channel, which its connections share. */
+  readonly #channelBundles = new Map<
+    string,
+    { module: string; bundle: ReturnType<typeof workerBundle> }
+  >();
 
   constructor(id: string, { vault, ...config }: RouterOptions) {
     const { project } = v.parse(routerConfig, config);
@@ -87,63 +98,18 @@ export class Router
       }),
     );
 
-    this.code = this.add(workerCode(`${id}-worker`, "router"));
-    this.script = this.add(
-      new workers.WorkerScript(`${id}-worker`, {
-        config: {
-          CompatibilityDate: COMPATIBILITY_DATE,
-          Bindings: [
-            kvBinding(this.kv),
-            r2Binding(this.bucket),
-            {
-              type: "durable_object_namespace",
-              name: "ROUTER_CONTAINER",
-              class_name: CONTAINER_CLASS,
-            },
-          ],
-          DurableObjectNamespaces: [
-            {
-              id: CONTAINER_NAMESPACE,
-              className: CONTAINER_CLASS,
-              container: true,
-            },
-          ],
-        },
-        dependencies: { code: this.code },
+    const router = worker({
+      id: workerId(id),
+      compatibilityDate: COMPATIBILITY_DATE,
+      code: workerBundle(`${id}-router`, "router"),
+      bindings: () => ({
+        [KV_BINDING]: this.kv,
+        [R2_BINDING]: this.bucket,
+        FACTORY_ROOT_KEY: this.rootKey.secret,
       }),
-    );
-    this.bind(this.rootKey, "FACTORY_ROOT_KEY");
-
-    this.subdomain = this.add(
-      new workers.WorkerSubdomain(`${id}-subdomain`, {
-        dependencies: { script: this.script },
-      }),
-    );
-    this.api = this.subdomain;
-
-    // The tag is a hash of the build context, so every project shares one
-    // repository.
-    this.image = this.add(
-      new containers.ContainerImage(`${id}-image`, {
-        config: { Repository: "factory-router", Context: routerImageContext() },
-      }),
-    );
-
-    this.container = this.add(
-      new containers.ContainerApplication(`${id}-container`, {
-        config: {
-          // Cloudflare refuses an application name with two dashes in a row.
-          Name: scopedName(`${project}-router`, 253).replace(/-{2,}/g, "-"),
-          HostedNamespaceId: CONTAINER_NAMESPACE,
-          MaxInstances: 1,
-          Configuration: {
-            image: this.image.outputRef("Image"),
-            instance_type: "standard-1",
-          },
-        },
-        dependencies: { script: this.script },
-      }),
-    );
+    });
+    this.worker = router;
+    this.url = router.url;
 
     this.store = this.add(
       kvJson({
@@ -157,7 +123,49 @@ export class Router
 
   bind(secret: VaultSecret, name = bindingName(secret.id)): string {
     assertCloudflareSecret(secret);
-    this.script.contribute({ Bindings: [secretBinding(name, secret)] });
+    addBindings(this.worker, { [name]: secret.secret });
     return name;
+  }
+
+  /**
+   * Runs the connection's channel as a Worker with no URL, which binds the
+   * channel's secrets and values under their own names. The router binds
+   * it as `CHANNEL_<connection>`.
+   */
+  channel({ connection, module, secrets = {}, values = {} }: RouterChannelOptions) {
+    const provider = connection.split("/")[0]!;
+    const code = this.#channelBundle(provider, module);
+    const bindings: Bindings = { ...values };
+    for (const [name, secret] of Object.entries(secrets)) {
+      assertCloudflareSecret(secret);
+      bindings[name] = secret.secret;
+    }
+    const channel = worker({
+      id: workerId(this.id, connection),
+      compatibilityDate: COMPATIBILITY_DATE,
+      code,
+      url: false,
+      bindings: () => bindings,
+    });
+    const name = `CHANNEL_${bindingName(connection)}`;
+    addBindings(this.worker, { [name]: channel });
+    this.store.contribute({ connections: { [connection]: { channel: name } } });
+  }
+
+  #channelBundle(provider: string, module: string) {
+    const existing = this.#channelBundles.get(provider);
+    if (existing) {
+      if (existing.module !== module) {
+        throw new Error(
+          `The router ${this.id} runs the ${provider} channel from ${existing.module}, so it can't also run one from ${module}.`,
+        );
+      }
+      return existing.bundle;
+    }
+    const bundle = workerBundle(`${this.id}-channel-${provider}`, "channel", {
+      "factory:channel": `export { channel } from ${JSON.stringify(module)};`,
+    });
+    this.#channelBundles.set(provider, { module, bundle });
+    return bundle;
   }
 }

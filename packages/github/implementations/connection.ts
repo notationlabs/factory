@@ -1,10 +1,13 @@
-import { ResourceGroup } from "@notation/resource";
+import { fileURLToPath } from "node:url";
+import { ResourceGroup, text } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
 } from "@notation/factory";
+import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
+import { CHANNEL_SECRETS, CHANNEL_VALUES } from "../router/index.ts";
 import { ConnectionRef } from "./connection-ref.ts";
 
 const connectionConfig = v.object({
@@ -16,9 +19,10 @@ export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 export type ConnectionOptions = ConnectionConfig & { router: Router };
 
 /**
- * `new github.Connection(...)`: Notation Factory on GitHub, as one App whose webhook
- * is the router. The App's private key goes from the App to the router's
- * vault in memory, and the router is the only thing that reads it.
+ * `new github.Connection(...)`: Notation Factory on GitHub, as one App whose
+ * webhook is the connection's path on the router. The router runs the
+ * connection's channel, which reads the App's private key. The key goes from
+ * the App to the router's vault in memory.
  */
 export class Connection
   extends ResourceGroup<ConnectionConfig>
@@ -33,10 +37,14 @@ export class Connection
     super("github/Connection", id, config);
     this.name = name;
     this.router = router;
+    const key = `github/${name}`;
     this.app = this.add(
       new App(`${id}-app`, {
-        config: { name, org },
-        dependencies: { router: router.api },
+        config: {
+          name,
+          org,
+          hookUrl: text`${router.url}${webhookPath(key)}`,
+        },
       }),
     );
     this.app.contribute({
@@ -49,18 +57,24 @@ export class Connection
         metadata: "read",
       },
     });
-    const privateKey = this.router.bind(
-      this.router.vault.secret({
-        id: `${id}-private-key`,
-        value: this.app.credentials.privateKey,
-      }),
-    );
-    this.router.store.contribute({
+    router.channel({
+      connection: key,
+      module: fileURLToPath(new URL("../router/index.ts", import.meta.url)),
+      secrets: {
+        [CHANNEL_SECRETS.rootKey]: router.rootKey,
+        [CHANNEL_SECRETS.privateKey]: router.vault.secret({
+          id: `${id}-private-key`,
+          value: this.app.credentials.privateKey,
+        }),
+      },
+      values: { [CHANNEL_VALUES.appId]: this.app.outputRef("id") },
+    });
+    router.store.contribute({
       connections: {
-        [`github/${name}`]: {
+        [key]: {
           provider: "github",
           source: this.app.outputRef("id"),
-          credentials: { privateKey },
+          credentials: {},
         },
       },
     });

@@ -1,5 +1,4 @@
 import { resource } from "@notation/resource";
-import type { workers } from "@notation/cloudflare/resources";
 import * as v from "valibot";
 import {
   createApplication,
@@ -70,14 +69,6 @@ export const AccessApplication = accessApplicationSchema
     update: async (key, _patch, { Domain, Emails }) =>
       updateApplication(key, { Domain, Emails }),
     delete: async (key) => deleteApplication(key),
-  })
-  .requireDependencies<{ router: workers.WorkerSubdomainInstance }>()
-  .deriveParams(({ deps }) => {
-    const url = new URL(deps.router.output.Url);
-    return {
-      AccountId: deps.router.output.AccountId,
-      Domain: `${url.host}/admin`,
-    };
   });
 
 export type AccessApplicationInstance = InstanceType<typeof AccessApplication>;

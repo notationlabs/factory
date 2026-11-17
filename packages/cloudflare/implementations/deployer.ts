@@ -3,11 +3,16 @@ import {
   type Account,
   type Deployer as DeployerContract,
 } from "@notation/factory";
-import { tokens, workers } from "@notation/cloudflare/resources";
-import type { fs } from "@notation/std/resources";
+import { tokens } from "@notation/cloudflare/resources";
+import {
+  addBindings,
+  json,
+  type Worker,
+  worker,
+} from "@notation/cloudflare/workers";
 import * as v from "valibot";
-import { kvBinding, secretBinding, jsonBindings } from "./bindings.ts";
-import { COMPATIBILITY_DATE, workerCode } from "./code.ts";
+import { KV_BINDING } from "./bindings.ts";
+import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import type { Router } from "./router.ts";
 import {
   assertCloudflareSecret,
@@ -47,8 +52,7 @@ export class Deployer
   readonly token: tokens.AccountTokenInstance;
   /** Holds the token's value. */
   readonly tokenSecret: CloudflareSecret;
-  readonly code: fs.FileInstance;
-  readonly script: workers.WorkerScriptInstance;
+  readonly worker: Worker;
 
   constructor(
     id: string,
@@ -88,34 +92,29 @@ export class Deployer
       value: this.token.credentials.Value,
     });
 
-    const accountSecrets = accounts.flatMap((account) =>
-      Object.entries(account.secrets).map(([name, secret]) => {
+    this.worker = worker({
+      id,
+      compatibilityDate: COMPATIBILITY_DATE,
+      code: workerBundle(`${id}-deployer`, "deployer"),
+      url: false,
+      bindings: () => ({
+        [KV_BINDING]: router.kv,
+        CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,
+        FACTORY_ROOT_KEY: router.rootKey.secret,
+        CLOUDFLARE_ACCOUNT_ID: json(accountId),
+        KNOWN_HOSTS: json(knownHosts),
+        ACCOUNTS: json(
+          Object.fromEntries(
+            accounts.map((a) => [a.runtime, Object.keys(a.secrets)]),
+          ),
+        ),
+      }),
+    });
+    for (const account of accounts) {
+      for (const [name, secret] of Object.entries(account.secrets)) {
         assertCloudflareSecret(secret);
-        return secretBinding(name, secret);
-      }),
-    );
-
-    this.code = this.add(workerCode(`${id}-worker`, "deployer"));
-    this.script = this.add(
-      new workers.WorkerScript(`${id}-worker`, {
-        config: {
-          CompatibilityDate: COMPATIBILITY_DATE,
-          Bindings: [
-            kvBinding(router.kv),
-            secretBinding("CLOUDFLARE_API_TOKEN", this.tokenSecret),
-            secretBinding("FACTORY_ROOT_KEY", router.rootKey),
-            ...accountSecrets,
-            ...jsonBindings({
-              CLOUDFLARE_ACCOUNT_ID: accountId,
-              KNOWN_HOSTS: knownHosts,
-              ACCOUNTS: Object.fromEntries(
-                accounts.map((a) => [a.runtime, Object.keys(a.secrets)]),
-              ),
-            }),
-          ],
-        },
-        dependencies: { code: this.code },
-      }),
-    );
+        addBindings(this.worker, { [name]: secret.secret });
+      }
+    }
   }
 }

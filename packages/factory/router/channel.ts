@@ -1,11 +1,10 @@
-import type { RouterConfig } from "../contracts/router.ts";
-
-/** What the router gives a channel provider: its config, and the secrets bound to it. */
-export type RouterContext = {
-  config: Partial<RouterConfig>;
-  /** The value of the secret bound to the router as `name`. */
+/**
+ * What a platform gives a channel: the secrets and values that the
+ * connection declared for it, by name.
+ */
+export type ChannelContext = {
   secret(name: string): Promise<string>;
-  rootKey(): Promise<string>;
+  value(name: string): string;
 };
 
 /**
@@ -14,7 +13,6 @@ export type RouterContext = {
  */
 export type Delivery<E> = {
   id: string;
-  connection: string;
   /** What a channel's `scope` is compared with, such as `owner/repo` for GitHub. */
   scope: string;
   /** The repo whose outpost the delivery may be for. */
@@ -39,17 +37,24 @@ export type AuthorCheck =
   | { result: "check"; sets: unknown[] };
 
 /**
- * A platform's deliveries, as the router handles them. The router knows only
- * this contract: each provider's package implements it.
+ * One connection's deliveries, as the router handles them. A provider's
+ * package implements it, and each platform decides where it runs.
  */
-export interface ChannelProvider<E = unknown> {
-  readonly provider: string;
-  /** Whether a request to `/webhook` is this platform's. */
-  receives(request: Request): boolean;
-  /** Finds the delivery's connection, checks its signature and parses it. */
-  receive(request: Request, ctx: RouterContext): Promise<Received<E>>;
+export interface Channel<E = unknown> {
+  /** Checks the delivery's signature and parses it. */
+  receive(request: Request): Promise<Received<E>>;
   /** Whether `selector` selects the delivery, and if so, whether its author may start a run. */
   match(selector: unknown, delivery: Delivery<E>): AuthorCheck | undefined;
-  /** Sets up the platform side of each of the provider's connections, such as a webhook. */
-  sync?(ctx: RouterContext & { url: string }): Promise<Record<string, string>>;
+  /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */
+  sync(url: string): Promise<void>;
 }
+
+/** What a channel module exports. */
+export type ChannelModule = { channel(ctx: ChannelContext): Channel<any> };
+
+/** A channel as the router calls it, where each call may cross to another process. */
+export type RemoteChannel<E = unknown> = {
+  [K in keyof Channel<E>]: (
+    ...args: Parameters<Channel<E>[K]>
+  ) => Promise<Awaited<ReturnType<Channel<E>[K]>>>;
+};

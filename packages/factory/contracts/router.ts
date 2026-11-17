@@ -1,10 +1,16 @@
-import type { BaseResource, DeepInput, ResourceGroup } from "@notation/resource";
+import type {
+  DeepInput,
+  Input,
+  OutputRef,
+  ResourceGroup,
+} from "@notation/resource";
 import type { Vault, VaultSecret } from "./vault.ts";
 
 /**
- * In the router's config: how to verify a connection's deliveries (`source`,
- * e.g. a GitHub App's id), and the binding names of the vault secrets that
- * hold its credentials.
+ * In the router's config: where a connection's deliveries come from
+ * (`source`, e.g. a GitHub App's id), the binding names of the vault secrets
+ * that the router reads for it, and the name the router reaches its channel
+ * by.
  * Keyed by `<provider>/<name>`: outposts look a connection up by name, from
  * its provider's package, so a GitHub App and a Slack app may share a name.
  */
@@ -12,6 +18,7 @@ export type ConnectionEntry = {
   provider: string;
   source: string;
   credentials: Record<string, string>;
+  channel?: string;
 };
 
 /** Repos a code host serves: all of `owner`'s, or just `owner/repo`. */
@@ -33,9 +40,6 @@ export type RouterConfig = {
   codeHost: CodeHostEntry;
   operators: OperatorsEntry;
 };
-
-/** Where the router is reached: any concrete resource with a `Url` output. */
-export type RouterApi = BaseResource & { output: { Url: string } };
 
 type ConfigPartial<T> = T extends readonly unknown[]
   ? T
@@ -59,6 +63,18 @@ export type RouterConfigStore = {
   contribute(values: RouterConfigContribution): void;
 };
 
+/** A connection's channel, which the router runs and calls for each delivery to the connection. */
+export type RouterChannelOptions = {
+  /** The connection's key in the router's config, such as `github/acme-agents`. */
+  connection: string;
+  /** The absolute path of the module that exports the provider's `channel`, a `ChannelModule`. */
+  module: string;
+  /** The vault secrets that the channel reads with `ctx.secret(name)`. */
+  secrets?: Record<string, VaultSecret>;
+  /** The values that the channel reads with `ctx.value(name)`. */
+  values?: Record<string, Input<string>>;
+};
+
 /**
  * Receives every connection's deliveries, matches outposts' triggers, relays
  * channel replies and mints code host tokens. A provider decides where each
@@ -68,7 +84,8 @@ export type RouterConfigStore = {
  * router and the deployer derive every other key from.
  */
 export interface Router extends ResourceGroup {
-  readonly api: RouterApi;
+  /** The router's URL, which deploy fills in. Join a path to it with `text`. */
+  readonly url: OutputRef<string>;
   readonly store: RouterConfigStore;
   readonly vault: Vault;
   readonly rootKey: VaultSecret;
@@ -79,4 +96,9 @@ export interface Router extends ResourceGroup {
    * records the names in its entry.
    */
   bind(secret: VaultSecret, name?: string): string;
+  /**
+   * Runs a connection's channel, and records in the connection's entry the
+   * name the router reaches it by.
+   */
+  channel(options: RouterChannelOptions): void;
 }

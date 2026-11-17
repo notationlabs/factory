@@ -9,7 +9,7 @@ A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Contain
 | **Service store** | Durable Object storage | JSON files on `/data` volume |
 | **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed shared variables) |
 | **Outpost `/data` disk** | DO disk snapshots + R2 archive across image rebuilds | Railway persistent volume at `/data` |
-| **Image builds** | Cloudflare Workers Builds (today: one hub image, built by `factory infra up` with local Docker) | Railway GitHub builder |
+| **Image builds** | Cloudflare Workers Builds (today: one outpost image for every repo, built by `factory infra up` with local Docker) | Railway GitHub builder |
 | **Container SSH** | `wrangler containers ssh` (`knownHosts` on `Deployer`) | `railway ssh` (`railway login`) |
 
 The vault is always on the hub's provider: `cloudflare.Router` and `cloudflare.Deployer` take a `cloudflare.Vault`, and `railway.Router` and `railway.Deployer` take a `railway.Vault`. See [Secrets](./secrets.md).

@@ -1,6 +1,12 @@
 import type { OutpostConfig } from "../contracts/outpost.ts";
-import type { RouterConfig } from "../contracts/router.ts";
-import type { AuthorCheck, RemoteChannel } from "./channel.ts";
+import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
+import type {
+  AuthorCheck,
+  FactoryStatus,
+  RemoteChannel,
+  SourceChange,
+  SourceFiles,
+} from "./channel.ts";
 
 /** The KV key that the deployer stores a repo's outpost config under. `repo` is `owner/name`. */
 export const outpostKey = (repo: string) => `outposts/${repo.toLowerCase()}`;
@@ -11,7 +17,21 @@ export type RouterStore = {
   /** The channel that the router reaches by `binding`, the name in a connection's entry. */
   channel(binding: string): RemoteChannel | undefined;
   outpost(repo: string): Promise<OutpostConfig | undefined>;
+  deployer?: RemoteDeployer;
+  /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
+  background?(task: Promise<unknown>): void;
 };
+
+/** The deployer, as the router calls it. */
+export type RemoteDeployer = {
+  /** Evaluates the repo's `.factory/` files and stores its outpost config. Resolves to the status to show on the repo. */
+  deploy(repo: string, source: SourceFiles): Promise<FactoryStatus>;
+  /** Removes the repo's outpost config. */
+  remove(repo: string): Promise<void>;
+};
+
+/** The directory of a repo that holds its outpost's files. */
+export const FACTORY_DIR = ".factory";
 
 export type TriggerMatch = { trigger: string; author: AuthorCheck };
 
@@ -47,6 +67,9 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   const received = await channel.receive(request);
   if (received.status === "rejected") return json(401, { error: received.reason });
   if (received.status === "ignored") return json(200, { ignored: received.reason });
+  if (received.status === "source") {
+    return source(key, received.changes, channel, store);
+  }
 
   const { delivery } = received;
   const summary = { delivery: delivery.id, connection: key, event: delivery.event, scope: delivery.scope };
@@ -70,6 +93,74 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   const result = { ...summary, matches };
   console.log(JSON.stringify(result));
   return json(202, result);
+};
+
+const allows = (allow: RepoPattern[], repo: string) => {
+  const [owner, name] = repo.toLowerCase().split("/");
+  return allow.some(
+    (p) => p.owner.toLowerCase() === owner && (!p.repo || p.repo.toLowerCase() === name),
+  );
+};
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Deploys one repo's outpost again:
+ * 1. A repo that the hub can no longer read, or that the code host doesn't
+ *    allow, loses its outpost.
+ * 2. Otherwise the channel reads `.factory/`, and the deployer evaluates and
+ *    stores it.
+ * 3. The channel shows the outcome on the repo.
+ */
+const redeploy = async (
+  change: SourceChange,
+  allow: RepoPattern[],
+  channel: RemoteChannel,
+  deployer: RemoteDeployer,
+) => {
+  const { repo, ref } = change;
+  if (change.removed) return deployer.remove(repo);
+  const at = () => new Date().toISOString();
+  let status: FactoryStatus;
+  if (!allows(allow, repo)) {
+    await deployer.remove(repo);
+    status = { state: "failed", error: `The hub doesn't serve ${repo}: the code host's allow list doesn't include it.`, at: at() };
+  } else {
+    try {
+      status = await deployer.deploy(repo, await channel.read(repo, FACTORY_DIR, ref));
+    } catch (error) {
+      status = { state: "failed", ref, error: message(error), at: at() };
+    }
+  }
+  await channel.writeStatus(repo, status);
+  console.log(JSON.stringify({ repo, ...status }));
+};
+
+/** Deploys the outposts of the repos a delivery changed. Only the code host's connection reads repos. */
+const source = async (
+  key: string,
+  changes: SourceChange[],
+  channel: RemoteChannel,
+  store: RouterStore,
+) => {
+  const codeHost = store.config.codeHost;
+  if (!codeHost || `${codeHost.provider}/${codeHost.connection}` !== key) {
+    return json(200, { ignored: "not the code host's connection" });
+  }
+  const { deployer } = store;
+  if (!deployer) return json(200, { ignored: "no deployer" });
+  const task = (async () => {
+    for (const change of changes) {
+      try {
+        await redeploy(change, codeHost.allow ?? [], channel, deployer);
+      } catch (error) {
+        console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
+      }
+    }
+  })();
+  if (store.background) store.background(task);
+  else await task;
+  return json(202, { connection: key, deploying: changes.map((c) => c.repo) });
 };
 
 /** Has each connection's channel set up its platform side, pointing it at this router. */

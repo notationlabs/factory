@@ -21,10 +21,22 @@ export type Delivery<E> = {
   data: E;
 };
 
+/**
+ * A repo whose outpost may need deploying again. `ref` is the commit to read
+ * `.factory/` at, or the default branch's head if there's none. `removed`
+ * means the hub can no longer read the repo.
+ */
+export type SourceChange = { repo: string; ref?: string; removed?: boolean };
+
 export type Received<E> =
   | { status: "accepted"; delivery: Delivery<E> }
+  /** The delivery changed what repos hold, or which repos the hub can read, such as a push or an install. */
+  | { status: "source"; changes: SourceChange[] }
   | { status: "ignored"; reason: string }
   | { status: "rejected"; reason: string };
+
+/** The files under a directory of a repo at one commit, by their path in the directory. */
+export type SourceFiles = { ref: string; files: Record<string, string> };
 
 /**
  * Whether a selector's `from` lets the delivery start a run. `check` holds
@@ -47,14 +59,28 @@ export interface Channel<E = unknown> {
   match(selector: unknown, delivery: Delivery<E>): AuthorCheck | undefined;
   /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */
   sync(url: string): Promise<void>;
+  /** For a code host's channel: the files under `dir` in `repo` at `ref`, or at the default branch's head. */
+  read?(repo: string, dir: string, ref?: string): Promise<SourceFiles>;
+  /** For a code host's channel: shows the outpost's status on the repo, as `FACTORY_STATUS`. */
+  writeStatus?(repo: string, status: FactoryStatus): Promise<void>;
 }
+
+/** The outcome of a repo's last deploy, as the repo shows it. */
+export type FactoryStatus = {
+  state: "deployed" | "failed";
+  /** The commit that `.factory/` was read at, if it was read. */
+  ref?: string;
+  error?: string;
+  /** When the deploy finished, as an ISO date. */
+  at: string;
+};
 
 /** What a channel module exports. */
 export type ChannelModule = { channel(ctx: ChannelContext): Channel<any> };
 
 /** A channel as the router calls it, where each call may cross to another process. */
 export type RemoteChannel<E = unknown> = {
-  [K in keyof Channel<E>]: (
-    ...args: Parameters<Channel<E>[K]>
-  ) => Promise<Awaited<ReturnType<Channel<E>[K]>>>;
+  [K in keyof Channel<E>]-?: (
+    ...args: Parameters<NonNullable<Channel<E>[K]>>
+  ) => Promise<Awaited<ReturnType<NonNullable<Channel<E>[K]>>>>;
 };

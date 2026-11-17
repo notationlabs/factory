@@ -8,6 +8,7 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
+import { readDir, sourceChanges, writeStatus as writeRepoStatus } from "./repos.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -117,6 +118,7 @@ const checkAuthor = (
 export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
   const appId = ctx.value(CHANNEL_VALUES.appId);
   const rootKey = () => ctx.secret(CHANNEL_SECRETS.rootKey);
+  const auth = async () => ({ appId, privateKey: await ctx.secret(CHANNEL_SECRETS.privateKey) });
   return {
     async receive(request) {
       const target = request.headers.get("x-github-hook-installation-target-id");
@@ -133,6 +135,8 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
 
       const event = request.headers.get("x-github-event") ?? "";
       const payload = JSON.parse(new TextDecoder().decode(body));
+      const changes = sourceChanges(event, payload);
+      if (changes?.length) return { status: "source", changes };
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
@@ -162,6 +166,14 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
         rootKey: await rootKey(),
         url,
       });
+    },
+
+    async read(repo, dir, ref) {
+      return readDir(await auth(), repo, dir, ref);
+    },
+
+    async writeStatus(repo, status) {
+      await writeRepoStatus(await auth(), repo, status);
     },
   };
 };

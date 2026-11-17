@@ -16,6 +16,8 @@ const fake = (
       ? { result: delivery.data.allow ? "allowed" : "denied" }
       : undefined,
   sync,
+  read: async () => ({ ref: "c0ffee", files: {} }),
+  writeStatus: async () => {},
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -114,4 +116,83 @@ test("sync gives each channel its connection's webhook URL, and reports failures
   assert.equal(status, 502);
   assert.deepEqual(urls, ["https://router.test/webhook/fake/main"]);
   assert.deepEqual(body.connections, { "fake/main": "ok", "fake/second": "no access" });
+});
+
+const sourceStore = (
+  channel: RemoteChannel<FakeEvent>,
+  calls: string[],
+  allow = [{ owner: "acme" }],
+): RouterStore => ({
+  config: {
+    connections: { "fake/main": entry("CHANNEL_MAIN") },
+    codeHost: { provider: "fake", connection: "main", allow },
+  },
+  channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
+  outpost: async () => undefined,
+  deployer: {
+    deploy: async (repo, source) => {
+      calls.push(`deploy ${repo} ${source.ref}`);
+      return { state: "deployed", ref: source.ref, at: "now" };
+    },
+    remove: async (repo) => void calls.push(`remove ${repo}`),
+  },
+});
+
+const sourceChannel = (
+  changes: { repo: string; ref?: string; removed?: boolean }[],
+  calls: string[],
+  read?: () => Promise<never>,
+): RemoteChannel<FakeEvent> => ({
+  ...fake({ status: "source", changes }),
+  read:
+    read ??
+    (async (repo, dir, ref) => {
+      calls.push(`read ${repo} ${dir} ${ref}`);
+      return { ref: ref ?? "head", files: {} };
+    }),
+  writeStatus: async (repo, status) =>
+    void calls.push(`status ${repo} ${status.state}${status.error ? `: ${status.error}` : ""}`),
+});
+
+test("a source change has the deployer deploy .factory/ as the channel reads it, and shows the status on the repo", async () => {
+  const calls: string[] = [];
+  const s = sourceStore(sourceChannel([{ repo: "acme/api", ref: "abc" }], calls), calls);
+  const { status, body } = await call(s);
+  assert.equal(status, 202);
+  assert.deepEqual(body, { connection: "fake/main", deploying: ["acme/api"] });
+  assert.deepEqual(calls, ["read acme/api .factory abc", "deploy acme/api abc", "status acme/api deployed"]);
+});
+
+test("a repo outside the code host's allow list loses its outpost, and says why", async () => {
+  const calls: string[] = [];
+  await call(sourceStore(sourceChannel([{ repo: "other/api" }], calls), calls));
+  assert.deepEqual(calls, [
+    "remove other/api",
+    "status other/api failed: The hub doesn't serve other/api: the code host's allow list doesn't include it.",
+  ]);
+});
+
+test("a repo the hub can no longer read loses its outpost", async () => {
+  const calls: string[] = [];
+  await call(sourceStore(sourceChannel([{ repo: "acme/api", removed: true }], calls), calls));
+  assert.deepEqual(calls, ["remove acme/api"]);
+});
+
+test("a read that fails shows its error on the repo", async () => {
+  const calls: string[] = [];
+  const channel = sourceChannel([{ repo: "acme/api", ref: "abc" }], calls, async () => {
+    throw new Error("no access");
+  });
+  await call(sourceStore(channel, calls));
+  assert.deepEqual(calls, ["status acme/api failed: no access"]);
+});
+
+test("only the code host's connection deploys", async () => {
+  const calls: string[] = [];
+  const s = sourceStore(sourceChannel([{ repo: "acme/api" }], calls), calls);
+  s.config.codeHost = { provider: "fake", connection: "other", allow: [{ owner: "acme" }] };
+  const { status, body } = await call(s);
+  assert.equal(status, 200);
+  assert.deepEqual(body, { ignored: "not the code host's connection" });
+  assert.deepEqual(calls, []);
 });

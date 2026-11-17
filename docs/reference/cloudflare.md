@@ -18,7 +18,7 @@ import { sources } from "@notation/std/resources";
 const vault = new cloudflare.Vault("vault"); // <-- secrets in the account's Secrets Store
 
 const router = new cloudflare.Router("router", {
-  project: "acme-agents", // <-- names the KV namespace, R2 bucket and container application
+  project: "acme-agents", // <-- names the KV namespace and R2 bucket
   vault,                  // <-- only a cloudflare.Vault
 });
 
@@ -43,18 +43,18 @@ The resources come from `@notation/cloudflare`. Their names are scoped to the No
 | Resource | Cloudflare resources provisioned |
 | --- | --- |
 | `cloudflare.Vault` | The account's Secrets Store, as `vault.store`, and one `SecretsStoreSecret` in it for each secret declared in the vault. Notation names each secret `<app>--<stage>--secret-<id>-<instance>`. Values can't be read back through the API. `vault.secret({ id, value })` takes a credential as `value` and returns a `CloudflareSecret`. A Worker gets a secret only when the router or the deployer binds it |
-| `cloudflare.Router` | KV namespace and R2 bucket named after `project`, the router Worker with a Durable Object namespace for its container, a `workers.dev` subdomain for the Worker, the router image, a container application that runs the image on one `standard-1` instance, and the router's config, a `kvJson()` document in the KV key `config`. It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. `router.bind(secret, name?)` adds a `secrets_store_secret` binding to the router Worker |
+| `cloudflare.Router` | KV namespace and R2 bucket named after `project`, the router Worker served on `workers.dev`, a Worker for each connection's channel, and the router's config, a `kvJson()` document in the KV key `config`. It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. `router.bind(secret, name?)` binds a vault secret to the router Worker. `router.channel(...)` runs a connection's channel |
 | `cloudflare.Deployer` | The deployer Worker, and an account API token of its own with Workers Scripts Write, Workers CI Write and Workers Containers Write in `accountId`. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, its API token as `CLOUDFLARE_API_TOKEN`, and each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN` |
 
-The router is reached at its `workers.dev` subdomain: `https://<script>.<account subdomain>.workers.dev`. The subdomain resource's `Url` output is the router's URL, and connections set their webhooks to `<Url>/webhook`. The account needs a `workers.dev` subdomain.
+The router is reached at its `workers.dev` URL: `https://<script>.<account subdomain>.workers.dev`. `router.url` is that URL, and each connection sets its webhook to `<url>/webhook/<provider>/<name>`. The account needs a `workers.dev` subdomain.
 
-The router image is built from `router-image/` in this package, and pushed to the `factory-router` repository in the account's Cloudflare registry. Its tag is a hash of the build context, so a change to the context builds a new image and rolls it out to the container application. Deploy needs Docker with buildx.
+Each connection's channel is a Worker with no URL, which binds the secrets and values that the connection gives it under their own names. The router binds it as a service, as `CHANNEL_<connection>`, such as `CHANNEL_GITHUB_ACME_AGENTS`, and records that name in the connection's entry in its config. The router calls the channel over RPC. The channels of one provider share one bundle. Deploy builds every Worker's code from `workers/` in this package with `bundle()`.
 
 The deployer's token is a `tokens.AccountToken`. Cloudflare returns its value only when it creates the token, and deploy passes the value to a vault secret in memory. The deployer Worker binds the secret as `CLOUDFLARE_API_TOKEN`. When deploy needs the value again, such as after the secret was deleted, it rolls the token. The deployer also gets `CLOUDFLARE_ACCOUNT_ID`, `KNOWN_HOSTS` and `ACCOUNTS` as JSON bindings.
 
 Both Workers bind the KV namespace as `FACTORY_KV`. The router binds the R2 bucket as `FACTORY_BUCKET`. The KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. The Workers' internal key is derived from the root key inside the Workers, so `factory infra up` deploys them without reading any secret.
 
-The router image and the deployer Worker are placeholders, and the router Worker only matches GitHub deliveries. See [Known gaps](../manual/providers.md#known-gaps).
+The deployer Worker is a placeholder, and the router Worker only matches GitHub deliveries. See [Known gaps](../manual/providers.md#known-gaps).
 
 ## Operator auth
 

@@ -10,8 +10,9 @@ A group takes its id, then one object of options: its config and its dependencie
 4. adds its resources and makes its contributions
 
 ```ts [src/connection.ts]
-import { ResourceGroup } from "@notation/resource";
+import { ResourceGroup, text } from "@notation/resource";
 import { type Connection as ConnectionContract, type Router } from "@notation/factory";
+import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { App, type AppInstance } from "./resources/app.ts";
 
@@ -30,7 +31,9 @@ export class Connection extends ResourceGroup implements ConnectionContract {
     this.name = name;
     this.router = router;
     this.app = this.add(
-      new App(`${id}-app`, { config: { name, workspace }, dependencies: { router: router.api } }),
+      new App(`${id}-app`, {
+        config: { name, workspace, hookUrl: text`${router.url}${webhookPath(`linear/${name}`)}` },
+      }),
     );
     const token = router.bind(                  // <-- binds it to the router only, here as LINEAR_TOKEN
       router.vault.secret({
@@ -53,7 +56,9 @@ export class Connection extends ResourceGroup implements ConnectionContract {
 
 The connection declares its API key in the router's vault. The value is a credential of the App: the App resource declares `token` with `propertyType: "credential"`, and its `create` returns it. To take the key from somewhere outside Notation instead, declare a source, such as `new sources.Env("linear-token", { config: { key: "LINEAR_API_KEY" } })` from `@notation/std/resources`, and pass its `credentials.value`. `router.bind(...)` returns the binding name, which it makes from the secret's id. The router's config holds that name, never the value, and the router reads the value through the binding. Pass a second argument to `router.bind` to choose the name yourself. See [Secrets](./secrets.md#the-hub-vault).
 
-A hub provider plugin implements `Vault` and `Router` itself. Its `Vault.secret({ id, value })` declares a secret in the provider's store that holds the credential `value`, and returns it. Its `Router.bind(secret, name?)` binds the secret to the router's Worker or service and returns the binding name. Without `name`, it makes the name with `bindingName(secret.id)` from `@notation/factory`. The router also declares `rootKey`, whose value is a `RandomKey` from `@notation/factory`, and binds it as `FACTORY_ROOT_KEY`. The plugin's `Deployer` binds `router.rootKey` as `FACTORY_ROOT_KEY`, and each of its accounts' `secrets` under the env var name it is keyed by. It never binds a connection's credentials.
+The App's webhook is the connection's path on the router, `text\`${router.url}${webhookPath("linear/<name>")}\``. To have the router handle the deliveries, the plugin ships a channel module that exports `channel(ctx)`, a `Channel` from `@notation/factory/router` with `receive`, `match` and `sync`, and the connection calls `router.channel(...)` with the module's absolute path and the secrets and values the channel reads. The channel reads them with `ctx.secret(name)` and `ctx.value(name)`. `@notation/factory-github` does this: see `router/index.ts` and `implementations/connection.ts` in that package.
+
+A hub provider plugin implements `Vault` and `Router` itself. Its `Vault.secret({ id, value })` declares a secret in the provider's store that holds the credential `value`, and returns it. Its `Router.bind(secret, name?)` binds the secret to the router's Worker or service and returns the binding name. Its `Router.channel(...)` runs a connection's channel where the router can call it, and records the name it reaches the channel by in the connection's entry, as `channel`. Its `Router.url` is the router's URL, as an output ref. Without `name`, it makes the name with `bindingName(secret.id)` from `@notation/factory`. The router also declares `rootKey`, whose value is a `RandomKey` from `@notation/factory`, and binds it as `FACTORY_ROOT_KEY`. The plugin's `Deployer` binds `router.rootKey` as `FACTORY_ROOT_KEY`, and each of its accounts' `secrets` under the env var name it is keyed by. It never binds a connection's credentials.
 
 A group declared in an outpost extends `OutpostGroup` instead of `ResourceGroup`. `OutpostGroup` finds the outpost being declared, so the group can contribute its entry with `this.outpost.store.contribute(...)` without the user passing the outpost. A connection's outpost side is a separate class returned by a static `get(name)`, whose `channel(...)` makes the provider's own channel. That channel builds the provider's selectors.
 

@@ -4,7 +4,7 @@ A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Contain
 
 | Capability | Cloudflare (`@notation/factory-cloudflare`) | Railway (`@notation/factory-railway`) |
 | --- | --- | --- |
-| **Compute** | Worker + `standard-1` Durable Object container | Railway Service per router, deployer, and outpost |
+| **Compute** | Workers for the router, the deployer and each connection's channel, and `standard-1` Durable Object containers for outposts | Railway Service per router, deployer, and outpost |
 | **Private network** | Authenticated Worker routing (`*.factory.internal`) | Railway private network (`*.railway.internal`) |
 | **Service store** | Durable Object storage | JSON files on `/data` volume |
 | **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed shared variables) |
@@ -92,8 +92,7 @@ The provider plugins don't yet do all that these pages describe:
 
 | Gap | Effect |
 | --- | --- |
-| The router image is a placeholder | `cloudflare.Router` builds its image from `router-image/Dockerfile` in `@notation/factory-cloudflare`. That Dockerfile only runs `sleep`, because the router's container doesn't exist yet |
-| The router only matches deliveries | The router asks each channel provider to verify and parse a delivery, reads the outpost of the delivery's repo from KV, and returns the triggers it matches. It doesn't run them yet. Only GitHub implements the router's channel contract, and it doesn't check `github.team(...)`. A channel matches only when its `scope` is set and equals the delivery's, so the deployer will have to fill in the default scope. A channel scoped to another repo matches only deliveries that reach that repo's outpost |
-| Nothing calls the router's GitHub sync yet | After a deploy, run `curl -X POST <Url>/sync` to set the App's webhook URL and secret. Later, `factory infra up` will call it |
-| The deployer Worker is a placeholder | `pnpm build` in `@notation/factory-cloudflare` bundles the router Worker to `dist/router/index.mjs`, and a placeholder deployer to `dist/deployer/index.mjs`. The package doesn't publish the bundles yet |
+| The router only matches deliveries | The router asks the connection's channel to verify and parse a delivery, reads the outpost of the delivery's repo from KV, and returns the triggers it matches. It doesn't run them yet. Only GitHub implements the channel contract, and it doesn't check `github.team(...)`. A channel matches only when its `scope` is set and equals the delivery's, so the deployer will have to fill in the default scope. A channel scoped to another repo matches only deliveries that reach that repo's outpost |
+| Nothing calls the router's sync yet | After a deploy, run `curl -X POST <Url>/sync` to set each GitHub App's webhook URL and secret. Later, `factory infra up` will call it |
+| The deployer Worker is a placeholder | `workers/deployer.ts` in `@notation/factory-cloudflare` only returns a placeholder response |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

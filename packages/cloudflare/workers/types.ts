@@ -11,6 +11,12 @@ export type KVNamespace = {
 
 export type SecretsStoreSecret = { get(): Promise<string> };
 
+export type R2Bucket = {
+  get(key: string): Promise<{ body: ReadableStream } | null>;
+  /** A stream must have a known length, such as a request's body with `content-length`. */
+  put(key: string, value: ReadableStream | null): Promise<unknown>;
+};
+
 type LoadedWorker = {
   getEntrypoint(): { fetch(request: Request): Promise<Response> };
 };

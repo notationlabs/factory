@@ -1,4 +1,4 @@
-import { Container } from "@cloudflare/containers";
+import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
 import {
@@ -9,11 +9,15 @@ import {
   type SourceFiles,
 } from "@notation/factory/router";
 import { loaderContext } from "./loader.ts";
-import type { KVNamespace, SecretsStoreSecret, WorkerLoader } from "./types.ts";
+import type { KVNamespace, R2Bucket, SecretsStoreSecret, WorkerLoader } from "./types.ts";
+
+// Outbound interception calls the handlers through this entrypoint.
+export { ContainerProxy } from "@cloudflare/containers";
 
 type Env = {
   LOADER: WorkerLoader;
   FACTORY_KV: KVNamespace;
+  FACTORY_BUCKET: R2Bucket;
   OUTPOSTS: OutpostNamespace;
   /** The names of each runtime's account secrets, which the deployer binds under those names. */
   ACCOUNTS: Record<string, string[]>;
@@ -32,6 +36,31 @@ const RUNNER_PORT = 8080;
 
 /** How long a container may take to start. The first start of an image pulls it. */
 const START_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** The host that a container's runner reaches its state store at. */
+const STATE_HOST = "state.factory";
+
+/**
+ * A container's state store: `GET` and `PUT` of objects, which the bucket
+ * keeps under `outposts/<container id>/`. So a container outlives its
+ * `/data`, and reads only its own objects.
+ */
+const stateStore = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
+  const key = new URL(request.url).pathname.slice(1);
+  if (!/^[\w.%/-]+$/.test(key) || key.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    return new Response("not a key", { status: 400 });
+  }
+  const object = `outposts/${ctx.containerId}/${key}`;
+  if (request.method === "GET") {
+    const found = await env.FACTORY_BUCKET.get(object);
+    return found ? new Response(found.body) : new Response("not found", { status: 404 });
+  }
+  if (request.method === "PUT") {
+    await env.FACTORY_BUCKET.put(object, request.body);
+    return new Response(null, { status: 204 });
+  }
+  return new Response("method not allowed", { status: 405 });
+};
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -112,6 +141,10 @@ export class OutpostContainer extends Container<Env> {
     await super.onActivityExpired();
   }
 }
+
+// The setter registers the handlers by class name. A static field would
+// define its own property instead, and the proxy wouldn't find them.
+OutpostContainer.outboundByHost = { [STATE_HOST]: stateStore };
 
 /** The hub's deployer, which the router calls over its service binding. */
 export default class DeployerWorker extends WorkerEntrypoint<Env> {

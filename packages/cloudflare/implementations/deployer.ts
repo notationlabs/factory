@@ -13,7 +13,7 @@ import {
   workerLoader,
 } from "@notation/cloudflare/workers";
 import * as v from "valibot";
-import { DEPLOYER_BINDING, KV_BINDING } from "./bindings.ts";
+import { DEPLOYER_BINDING, KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import { outpostImage } from "./image.ts";
 import type { Router } from "./router.ts";
@@ -130,6 +130,8 @@ export class Deployer
       bindings: () => ({
         OUTPOSTS: outposts,
         [KV_BINDING]: router.kv,
+        // Keeps outposts' worktrees and sessions while their containers sleep.
+        [R2_BINDING]: router.bucket,
         // Runs outposts' configs, each in an isolate with no network.
         LOADER: workerLoader(),
         CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,

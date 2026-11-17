@@ -19,7 +19,7 @@ Nothing. Pick from Next.
   2. Creates a Worker script, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. A container application belongs to one Durable Object namespace, so each container needs its own Worker and container name.
   3. Starts a build, which builds the Dockerfile, pushes the image to the account's registry and runs `wrangler deploy`.
 
-  The Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. The deploy opens the dashboard's create-token page with the permissions filled in, and registers the token as the build token. Tested live: a Dockerfile builds in Workers Builds, and the API connects an Artifacts repo. `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
+  The Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. The deploy opens the dashboard's create-token page with the permissions filled in, and registers the token as the build token. Tested live with only that token: the deploy's steps built a Dockerfile in Workers Builds and created the container application. Creating the build config starts no build. A deleted Artifacts namespace stays "not active", so its name can't be used again. `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
 
   Until then, `FACTORY_STATUS` should say the Dockerfile is ignored.
 

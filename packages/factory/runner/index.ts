@@ -537,6 +537,14 @@ const server = createServer(async (request, response) => {
   }
 });
 
+// The runner is the container's PID 1, and Linux ignores a signal to PID 1
+// that the process doesn't handle. The provider stops a sleeping container
+// with SIGTERM.
+process.on("SIGTERM", () => {
+  log({ state: "stopping" });
+  process.exit(0);
+});
+
 await configureGit();
 await installGh();
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

@@ -10,7 +10,10 @@
   },
   "type": "module",
   "exports": {
-    ".": "./implementations/index.ts",
+    ".": {
+      "factory-outpost": "./implementations/outpost.ts",
+      "default": "./implementations/index.ts"
+    },
     "./router": "./router/index.ts"
   },
   "files": [

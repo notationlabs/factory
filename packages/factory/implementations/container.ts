@@ -4,8 +4,18 @@ import { OutpostGroup } from "./outpost.ts";
 
 const containerConfig = v.object({
   image: v.string(),
+  // Only the id is checked: a runtime's setup is read where images are built,
+  // and not where an outpost's config is evaluated.
   runtimes: v.optional(
-    v.array(v.object({ id: v.string(), setup: v.string() })),
+    v.array(
+      v.custom<Runtime>(
+        (runtime) =>
+          typeof runtime === "object" &&
+          runtime !== null &&
+          typeof (runtime as { id?: unknown }).id === "string",
+        "A runtime is an object with an id.",
+      ),
+    ),
     [],
   ),
   /** `~/…` paths written to `/data/home` at startup: a string is a file in `.factory/`, an object is written as JSON. */

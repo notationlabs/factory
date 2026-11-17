@@ -1,0 +1,7 @@
+{
+  "name": "factory-deployer-test",
+  "main": "evaluate-host.ts",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "worker_loaders": [{ "binding": "LOADER" }]
+}

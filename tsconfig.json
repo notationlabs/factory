@@ -27,6 +27,9 @@
       "@notation/factory-railway": [
         "./packages/railway/implementations/index.ts"
       ],
+      "@notation/factory/deployer": [
+        "./packages/factory/deployer/index.ts"
+      ],
       "@notation/factory/router": [
         "./packages/factory/router/index.ts"
       ],
@@ -37,6 +40,8 @@
   },
   "include": [
     "packages/*/index.ts",
+    "packages/*/outpost.ts",
+    "packages/*/deployer/**/*.ts",
     "packages/*/src/**/*.ts",
     "packages/*/resources/**/*.ts",
     "packages/*/implementations/**/*.ts",

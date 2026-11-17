@@ -10,8 +10,12 @@
   },
   "type": "module",
   "exports": {
-    ".": "./index.ts",
-    "./router": "./router/index.ts"
+    ".": {
+      "factory-outpost": "./outpost.ts",
+      "default": "./index.ts"
+    },
+    "./router": "./router/index.ts",
+    "./deployer": "./deployer/index.ts"
   },
   "files": [
     "contracts",
@@ -19,7 +23,9 @@
     "index.ts",
     "lib",
     "resources",
-    "router"
+    "router",
+    "outpost.ts",
+    "deployer"
   ],
   "publishConfig": {
     "access": "public"
@@ -28,6 +34,7 @@
     "@notation/core": "0.27.0",
     "@notation/resource": "0.27.0",
     "@notation/std": "0.27.0",
+    "sucrase": "^3.35.1",
     "valibot": "^1.1.0"
   }
 }

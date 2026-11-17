@@ -36,6 +36,8 @@ import { Container, Trigger } from "@notation/factory";
 
 The deployer runs Notation on `.factory/config.ts` for one repo at a time. Each channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The first one declared creates the outpost's `Outpost` group. Declaring one outside a Notation evaluation throws. The outpost config doesn't contain the repo's name: the deployer stores the config under the repo, and the hub fills in the repo where a GitHub channel has no `scope` or a GitHub policy has no `repo`. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
 
+The deployer evaluates the config in an isolate with no network access and no bindings. The config can import `@notation/factory`, `@notation/factory-github`, `@notation/factory-slack` and `@notation/factory-claude`, and other `.ts` and `.js` files in `.factory/` by relative path. It gets each package's outpost exports, from the table above. An infra-only export, such as `RandomKey` or `new github.Connection(...)`, isn't there. A plugin whose package has infra-only code that the isolate can't load gives its outpost exports a `factory-outpost` export condition.
+
 ### `Container` & `Policy`
 
 Define an outpost machine alongside its runtimes, credentials and startup files:

@@ -39,6 +39,9 @@ Nothing. Pick from Next.
 - [ ] **Runner:**
   - Write an agent's `files`.
   - Support runtimes other than Claude Code.
-- [ ] **CLI:** add `factory container ssh`.
+- [ ] **CLI:**
+  - Add `factory container ssh`.
+  - Have `factory infra down` open the GitHub App's settings page, as the docs say. It only prints the link today.
+- [ ] **GitHub:** adopt an existing App by its slug, so a recreated hub keeps the App and its installations. GitHub returns a private key only when it creates an App, so adoption needs a key that you generate on the App's settings page.
 - [ ] **Notation:** let a Worker's bindings take contributions, or add a bundle resource, so the router can drop its own build script.
 - [ ] **Railway:** no work planned. The stubs stay, and a changed secret reaches a service only when the service redeploys.

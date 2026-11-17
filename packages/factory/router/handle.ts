@@ -8,7 +8,18 @@ import type {
   SourceChange,
   SourceFiles,
 } from "./channel.ts";
-import { isBranchName, type Relay, REPLY_TTL_MS, type Run, signTicket, verifyTicket } from "./run.ts";
+import {
+  isBranchName,
+  type Relay,
+  REPLY_TTL_MS,
+  type Run,
+  signTicket,
+  signTokenTicket,
+  type TokenRequest,
+  type Tokens,
+  verifyTicket,
+  verifyTokenTicket,
+} from "./run.ts";
 
 /** The KV key that the deployer stores a repo's outpost config under. `repo` is `owner/name`. */
 export const outpostKey = (repo: string) => `outposts/${repo.toLowerCase()}`;
@@ -144,13 +155,33 @@ const codeHostChannel = (store: RouterStore) => {
   return { provider: codeHost.provider, channel: channels(store).find((c) => c.key === key)?.channel };
 };
 
+/** Has the code host's channel mint a token for each of the container's code host policies. */
+const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: string, container: string) => {
+  const codeHost = codeHostChannel(store);
+  if (!codeHost?.channel) throw new Error("The hub has no code host whose channel mints tokens.");
+  const entry = outpost.containers[container];
+  if (!entry) throw new Error(`The outpost has no container ${container}.`);
+  const tokens: Tokens = [];
+  for (const policy of entry.policies) {
+    const policyEntry = outpost.policies[policy];
+    if (!policyEntry) throw new Error(`The outpost has no policy ${policy}.`);
+    // Policies of other providers aren't minted yet.
+    if (policyEntry.provider !== codeHost.provider) continue;
+    const target = typeof policyEntry.repo === "string" ? policyEntry.repo : repo;
+    const permissions = policyEntry.permissions as Record<string, "read" | "write">;
+    tokens.push({ policy, repo: target, token: await codeHost.channel.token(target, permissions) });
+  }
+  return tokens;
+};
+
 /**
  * Starts one run of a matched trigger:
  * 1. Has the delivery's channel name the conversation, and signs a ticket
  *    for replies to its thread.
  * 2. Has the deployer call the trigger's worktree function, if it has one.
  * 3. Has the code host's channel mint a read-only token for the clone, and a
- *    token for each of the container's code host policies.
+ *    token for each of the container's code host policies. Signs a ticket
+ *    for new tokens.
  * 4. Hands the run to the deployer. If a step fails, the channel replies
  *    with the error.
  */
@@ -160,7 +191,8 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
   const trigger = outpost.triggers[d.trigger]!;
   const conversation = await d.channel.conversation(delivery);
   const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
-  const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(await store.rootKey(), ticket) };
+  const rootKey = await store.rootKey();
+  const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
   try {
     const { deployer } = store;
     if (!deployer) throw new Error("The hub has no deployer.");
@@ -182,16 +214,9 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       }
     }
 
-    const tokens: Run["tokens"] = [];
-    for (const policy of container.policies) {
-      const entry = outpost.policies[policy];
-      if (!entry) throw new Error(`The outpost has no policy ${policy}.`);
-      // Policies of other providers aren't minted yet.
-      if (entry.provider !== codeHost.provider) continue;
-      const target = typeof entry.repo === "string" ? entry.repo : repo;
-      const permissions = entry.permissions as Record<string, "read" | "write">;
-      tokens.push({ policy, repo: target, token: await codeHost.channel.token(target, permissions) });
-    }
+    const tokens = await mintTokens(store, outpost, repo, trigger.container);
+    const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
+    const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
 
     await deployer.run({
       id: d.run,
@@ -205,6 +230,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       ...(worktree && { worktree }),
       cloneToken: await codeHost.channel.token(repo, { contents: "read" }),
       tokens,
+      refresh,
       reply,
     });
     console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
@@ -233,6 +259,32 @@ const relay = async (request: Request, store: RouterStore) => {
   if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
   await found.channel.reply(ticket.thread, text);
   return json(200, { ok: true });
+};
+
+/**
+ * Mints a container's policy tokens again, if the router signed the
+ * ticket. The tokens follow the outpost config that the repo has now.
+ */
+const tokens = async (request: Request, store: RouterStore) => {
+  let body: TokenRequest;
+  try {
+    body = (await request.json()) as TokenRequest;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+  const { ticket, signature } = body ?? {};
+  if (!ticket || typeof signature !== "string") return json(400, { error: "the body needs ticket and signature" });
+  if (!(await verifyTokenTicket(await store.rootKey(), ticket, signature))) {
+    return json(401, { error: "bad or expired ticket" });
+  }
+  const outpost = await store.outpost(ticket.repo);
+  if (!outpost) return json(404, { error: `${ticket.repo} has no outpost` });
+  if (!outpost.containers[ticket.container]) return json(404, { error: `the outpost has no container ${ticket.container}` });
+  try {
+    return json(200, await mintTokens(store, outpost, ticket.repo, ticket.container));
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
 };
 
 const allows = (allow: RepoPattern[], repo: string) => {
@@ -321,8 +373,8 @@ const sync = async (request: Request, store: RouterStore) => {
 
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
- * only sets the values the router derives. `POST /relay` takes a ticket
- * that the router signed when it started a run.
+ * only sets the values the router derives. `POST /relay` and `POST /tokens`
+ * take tickets that the router signed when it started a run.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -331,6 +383,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/relay") {
     return relay(request, store);
+  }
+  if (request.method === "POST" && pathname === "/tokens") {
+    return tokens(request, store);
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);

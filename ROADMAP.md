@@ -5,10 +5,11 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 ## Done
 
 - [x] **Keep worktrees and sessions across container sleeps.** After each run, the runner saves the worktree as a git bundle and the Claude session to R2, through the `state.factory` host that the container's Durable Object answers. Not yet tested live.
+- [x] **Refresh GitHub tokens during long runs.** Each run carries a ticket that the router signed. Every 30 minutes while the agent runs, the runner posts it to the router's `/tokens` route and writes the new tokens to `/data/github/`. Git's credential helper and a `gh` shim read the run's token from the file that `FACTORY_TOKEN_FILE` names, so agents no longer get `GH_TOKEN`. Not yet tested live.
 
 ## Now
 
-- [ ] **Refresh GitHub tokens during long runs.** Installation tokens expire after an hour, and the router mints them once per run. The runner asks the router for a new token before the old one expires.
+Nothing. Pick from Next.
 
 ## Next
 

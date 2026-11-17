@@ -1,16 +1,22 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
-import type { Relay, Run } from "../router/run.ts";
+import type { Relay, Run, TokenRequest, Tokens } from "../router/run.ts";
 
 const PORT = Number(process.env.FACTORY_RUNNER_PORT ?? 8080);
 const DATA = process.env.FACTORY_DATA ?? "/data";
 const HOME = homedir();
 /** The container's state store, which outlives the container. The provider answers this host. */
 const STATE_URL = process.env.FACTORY_STATE_URL ?? "http://state.factory";
+
+/** How often a run asks the router for new tokens. GitHub's installation tokens last an hour. */
+const TOKEN_REFRESH_MS = Number(process.env.FACTORY_TOKEN_REFRESH_MS ?? 30 * 60 * 1000);
+
+/** Where the runner puts a `gh` that reads its token from `FACTORY_TOKEN_FILE`. */
+const BIN = join(DATA, "bin");
 
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -249,12 +255,37 @@ const writeFiles = async (run: Run, worktree: string) => {
   }
 };
 
-/** Writes each policy's token to `/data/github/<policy>`, and returns the token of the run's repo, for `gh` and git pushes. */
-const writeTokens = async (run: Run) => {
-  const dir = join(DATA, "github");
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  for (const { policy, token } of run.tokens) await writeFile(join(dir, slug(policy)), token, { mode: 0o600 });
-  return run.tokens.find((t) => t.repo.toLowerCase() === run.repo.toLowerCase())?.token;
+const TOKENS = join(DATA, "github");
+
+/**
+ * Writes each policy's token to `/data/github/<policy>`. Each file is
+ * replaced whole, so a reader never sees half a token.
+ */
+const writeTokens = async (tokens: Tokens) => {
+  await mkdir(TOKENS, { recursive: true, mode: 0o700 });
+  for (const { policy, token } of tokens) {
+    const path = join(TOKENS, slug(policy));
+    await writeFile(`${path}.new`, token, { mode: 0o600 });
+    await rename(`${path}.new`, path);
+  }
+};
+
+/** The token file of the run's repo, which `gh` and git pushes use. */
+const tokenFile = (run: Run) => {
+  const found = run.tokens.find((t) => t.repo.toLowerCase() === run.repo.toLowerCase());
+  return found && join(TOKENS, slug(found.policy));
+};
+
+/** Asks the router for new tokens, and writes them. */
+const refreshTokens = async (run: Run) => {
+  const body: TokenRequest = { ticket: run.refresh.ticket, signature: run.refresh.signature };
+  const response = await fetch(run.refresh.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`The router refused new tokens with status ${response.status}: ${await response.text()}`);
+  await writeTokens((await response.json()) as Tokens);
 };
 
 type Session = { id: string; cwd: string };
@@ -324,7 +355,7 @@ const restoreSession = async (run: Run) => {
  * message. It resumes the conversation's session if the session ran in the
  * same worktree.
  */
-const claude = async (run: Run, cwd: string, token: string | undefined) => {
+const claude = async (run: Run, cwd: string) => {
   const { agent } = run;
   const args = ["-p", run.conversation.prompt, "--output-format", "json", "--dangerously-skip-permissions"];
   if (typeof agent.model === "string") args.push("--model", agent.model);
@@ -338,7 +369,7 @@ const claude = async (run: Run, cwd: string, token: string | undefined) => {
 
   const result = await exec("claude", args, {
     cwd,
-    env: { ...process.env, ...(token && { GH_TOKEN: token }) },
+    env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run) },
     timeout: RUN_TIMEOUT_MS,
   });
   let output: { result?: string; is_error?: boolean; session_id?: string } | undefined;
@@ -373,7 +404,8 @@ let active = 0;
  * 1. Updates the repo's clone, and checks out the run's worktree.
  * 2. Restores the conversation's session if this container doesn't have it.
  * 3. Writes the container's files and the policies' tokens.
- * 4. Runs the agent in the worktree.
+ * 4. Runs the agent in the worktree, and has the router mint new tokens
+ *    while it runs.
  * 5. Saves the worktree and the session to the state store.
  * 6. Posts the agent's final message, or the error, to the conversation,
  *    with notes on what couldn't be restored or saved.
@@ -394,8 +426,22 @@ const execute = async (run: Run) => {
       notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
     );
     await writeFiles(run, worktree.path);
-    const token = await writeTokens(run);
-    text = await claude(run, worktree.path, token);
+    await writeTokens(run.tokens);
+    const refreshing = setInterval(
+      () =>
+        refreshTokens(run).catch((error) => {
+          log({ run: run.id, state: "token refresh failed", error: message(error) });
+          if (!notes.some((note) => note.startsWith("Factory couldn't refresh"))) {
+            notes.push(`Factory couldn't refresh this run's GitHub tokens, so they may have expired during the run: ${message(error)}`);
+          }
+        }),
+      TOKEN_REFRESH_MS,
+    );
+    try {
+      text = await claude(run, worktree.path);
+    } finally {
+      clearInterval(refreshing);
+    }
     log({ run: run.id, state: "finished", ms: Date.now() - started });
   } catch (error) {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
@@ -435,7 +481,11 @@ const readBody = async (request: IncomingMessage) => {
   return Buffer.concat(chunks).toString("utf8");
 };
 
-/** Git signs commits as the hub, and pushes with the token in `GH_TOKEN`. Each write locks the config file, so they run in turn. */
+/**
+ * Git signs commits as the hub, and pushes with the token in the file that
+ * `FACTORY_TOKEN_FILE` names. Each write locks the config file, so they
+ * run in turn.
+ */
 const configureGit = async () => {
   await git(["config", "--global", "user.name", "Notation Factory"]);
   await git(["config", "--global", "user.email", "notation-factory@users.noreply.github.com"]);
@@ -443,8 +493,25 @@ const configureGit = async () => {
     "config",
     "--global",
     "credential.https://github.com.helper",
-    '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f',
+    '!f() { test -n "$FACTORY_TOKEN_FILE" || exit 0; echo username=x-access-token; echo "password=$(cat "$FACTORY_TOKEN_FILE")"; }; f',
   ]);
+};
+
+/**
+ * Puts a `gh` in `/data/bin` that runs the installed `gh` with the token in
+ * `FACTORY_TOKEN_FILE`. `GH_TOKEN` would keep the first token after the
+ * router refreshes it.
+ */
+const installGh = async () => {
+  const found = await exec("sh", ["-c", "command -v gh"]);
+  const gh = found.stdout.trim();
+  if (found.code !== 0 || !gh) return;
+  await mkdir(BIN, { recursive: true });
+  const script = `#!/bin/sh
+if [ -n "$FACTORY_TOKEN_FILE" ]; then GH_TOKEN="$(cat "$FACTORY_TOKEN_FILE")"; export GH_TOKEN; fi
+exec ${JSON.stringify(gh)} "$@"
+`;
+  await writeFile(join(BIN, "gh"), script, { mode: 0o755 });
 };
 
 /**
@@ -471,4 +538,5 @@ const server = createServer(async (request, response) => {
 });
 
 await configureGit();
+await installGh();
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

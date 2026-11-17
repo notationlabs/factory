@@ -1,5 +1,7 @@
 export type {
+  AgentEntry,
   ChannelEntry,
+  ContainerEntry,
   ConnectionEntry,
   OutpostConfig,
   RouterConfig,
@@ -10,6 +12,7 @@ export type {
   Channel,
   ChannelContext,
   ChannelModule,
+  Conversation,
   Delivery,
   FactoryStatus,
   Received,
@@ -27,3 +30,12 @@ export {
   webhookPath,
 } from "./handle.ts";
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
+export {
+  isBranchName,
+  type Relay,
+  REPLY_TTL_MS,
+  type ReplyTicket,
+  type Run,
+  signTicket,
+  verifyTicket,
+} from "./run.ts";

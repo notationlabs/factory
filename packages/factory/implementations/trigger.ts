@@ -27,9 +27,9 @@ export type TriggerOptions<E> = TriggerConfig<E> & {
 /**
  * The whole dispatch rule: this event, from these authors, to this agent, in
  * this container, on the branch `worktree` names. The container is data, so
- * the router knows what to wake. Only the runner calls `worktree`, with the
- * real event, so it isn't in the outpost's config: the runner imports the
- * repo's config to call it.
+ * the router knows what to wake. `worktree` isn't data, so it isn't in the
+ * outpost's config: the deployer runs the repo's config again to call it
+ * with the real event.
  */
 export class Trigger<E> extends OutpostGroup<TriggerConfig<E>> {
   readonly agent: Agent;

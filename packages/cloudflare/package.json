@@ -13,6 +13,7 @@
     ".": "./implementations/index.ts"
   },
   "files": [
+    "image",
     "implementations",
     "lib",
     "resources",
@@ -22,6 +23,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@cloudflare/containers": "0.3.7",
     "@notation/build": "0.27.0",
     "@notation/cloudflare": "0.27.0",
     "@notation/core": "0.27.0",

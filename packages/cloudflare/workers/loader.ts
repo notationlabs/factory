@@ -3,16 +3,16 @@ import type { WorkerLoader } from "./types.ts";
 
 const COMPATIBILITY_DATE = "2026-10-12";
 
-/** The module that the loader starts: it runs the program's main function, and answers with its result or its error. */
+/** The module that the loader starts: it calls the program's main function with the request's JSON body, and answers with its result or its error. */
 const HOST = "factory-host.js";
 
 const hostModule = (main: string) =>
   [
     `import run from "./${main}";`,
     `export default {`,
-    `  async fetch() {`,
+    `  async fetch(request) {`,
     `    try {`,
-    `      return Response.json({ ok: true, value: await run() });`,
+    `      return Response.json({ ok: true, value: await run(await request.json()) });`,
     `    } catch (error) {`,
     `      return Response.json({ ok: false, error: error instanceof Error ? error.stack ?? error.message : String(error) });`,
     `    }`,
@@ -27,8 +27,8 @@ const sha256 = async (text: string) => {
 
 /**
  * Runs programs with the Worker Loader. The loader keeps an isolate for each
- * id, so the id is a hash of the program: the same files reuse an isolate,
- * and changed files get a new one.
+ * id. An isolate imports a config's modules once, and a config declares its
+ * resources only when it's imported, so each call gets an id of its own.
  */
 export const loaderContext = (
   loader: WorkerLoader,
@@ -38,7 +38,7 @@ export const loaderContext = (
       [HOST]: { js: hostModule(program.main) },
     };
     for (const [name, js] of Object.entries(program.modules)) modules[name] = { js };
-    const id = await sha256(JSON.stringify(program));
+    const id = `${await sha256(JSON.stringify({ main: program.main, modules: program.modules }))}:${crypto.randomUUID()}`;
     const worker = loader.get(id, () => ({
       compatibilityDate: COMPATIBILITY_DATE,
       compatibilityFlags: ["nodejs_compat"],
@@ -49,7 +49,7 @@ export const loaderContext = (
     }));
     const response = await worker
       .getEntrypoint()
-      .fetch(new Request("http://outpost/"));
+      .fetch(new Request("http://outpost/", { method: "POST", body: JSON.stringify(program.input ?? null) }));
     const result = (await response.json()) as
       | { ok: true; value: unknown }
       | { ok: false; error: string };

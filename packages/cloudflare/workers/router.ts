@@ -7,10 +7,11 @@ import {
   type RouterConfig,
   type RouterStore,
 } from "@notation/factory/router";
-import type { KVNamespace } from "./types.ts";
+import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
 
 type Env = {
   FACTORY_KV: KVNamespace;
+  FACTORY_ROOT_KEY: SecretsStoreSecret;
   FACTORY_DEPLOYER?: RemoteDeployer;
 } & Record<string, unknown>;
 
@@ -25,6 +26,7 @@ const store = async (env: Env, ctx: Context): Promise<RouterStore> => ({
       | OutpostConfig
       | undefined,
   deployer: env.FACTORY_DEPLOYER,
+  rootKey: () => env.FACTORY_ROOT_KEY.get(),
   background: (task) => ctx.waitUntil(task),
 });
 

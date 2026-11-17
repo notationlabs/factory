@@ -91,7 +91,7 @@ class Trigger<E> {
 }
 ```
 
-TypeScript infers `E` from `event`, then types the worktree function's parameter from it. The runner calls the function with the real event, and checks out a persistent git worktree on the branch it returns, cut from `base` if it doesn't exist yet. See [Worktrees & Sessions](../manual/worktrees.md).
+TypeScript infers `E` from `event`, then types the worktree function's parameter from it. The deployer calls the function with the real event, in the isolate that evaluates the config. The runner checks out a persistent git worktree on the branch it returns, cut from `base` if it doesn't exist yet. See [Worktrees & Sessions](../manual/worktrees.md).
 
 A trigger throws when it's declared if its container doesn't list its agent's runtime, or if it sets `base` without `worktree`.
 
@@ -206,7 +206,7 @@ interface OperatorAuth {
 // Credentials an agent runtime runs on, keyed by the env var containers read
 // them as. The deployer binds each under that name.
 interface Account {
-  runtime: Runtime["id"];
+  runtime: Runtime;
   secrets: Record<string, VaultSecret>;
 }
 

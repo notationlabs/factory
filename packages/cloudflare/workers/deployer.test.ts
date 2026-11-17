@@ -75,3 +75,21 @@ test("refuses a hub-only export", async () => {
   });
   assert.match(error!, /RandomKey/);
 });
+
+const branch = async (trigger: string, payload: unknown) => {
+  const response = await worker.fetch("http://deployer/", {
+    method: "POST",
+    body: JSON.stringify({ repo: REPO, files: exampleFiles(), trigger, payload }),
+  });
+  return (await response.json()) as { branch?: string | null; error?: string };
+};
+
+test("calls a trigger's worktree function with the event, as often as it's asked", async () => {
+  assert.deepEqual(await branch("mention", { issue: { number: 5 } }), { branch: "issue-5" });
+  assert.deepEqual(await branch("mention", { issue: { number: 6 } }), { branch: "issue-6" });
+});
+
+test("a trigger the config doesn't declare is an error", async () => {
+  const { error } = await branch("missing", {});
+  assert.match(error!, /no trigger missing/);
+});

@@ -47,6 +47,7 @@
     "packages/*/implementations/**/*.ts",
     "packages/*/lib/**/*.ts",
     "packages/*/router/**/*.ts",
+    "packages/*/runner/**/*.ts",
     "packages/*/workers/**/*.ts",
     "packages/*/bin/**/*.ts",
     "packages/*/commands/**/*.ts",

@@ -3,6 +3,7 @@ import {
   type Account as AccountContract,
   type VaultSecret,
 } from "@notation/factory";
+import { runtime } from "./runtime.ts";
 
 export type AccountOptions = {
   /**
@@ -15,7 +16,7 @@ export type AccountOptions = {
 
 /** The credentials Claude Code runs on. The deployer binds them, and injects them into every container that lists `claude.runtime`, and no other. */
 export class Account extends ResourceGroup implements AccountContract {
-  readonly runtime = "claude";
+  readonly runtime = runtime;
   readonly secrets: Record<string, VaultSecret>;
 
   constructor(id: string, { auth }: AccountOptions) {

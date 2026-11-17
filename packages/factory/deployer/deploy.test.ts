@@ -10,6 +10,7 @@ const context = (evaluate: DeployerContext["evaluate"]) => {
   const ctx: DeployerContext = {
     evaluate,
     putOutpost: async (repo, outpost) => void (stored[repo] = outpost),
+    getFiles: async () => undefined,
     deleteOutpost: async (repo) => void delete stored[repo],
   };
   return { ctx, stored };

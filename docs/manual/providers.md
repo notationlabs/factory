@@ -9,7 +9,7 @@ A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Contain
 | **Service store** | Durable Object storage | JSON files on `/data` volume |
 | **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed shared variables) |
 | **Outpost `/data` disk** | DO disk snapshots + R2 archive across image rebuilds | Railway persistent volume at `/data` |
-| **Image builds** | Cloudflare Workers Builds | Railway GitHub builder |
+| **Image builds** | Cloudflare Workers Builds (today: one hub image, built by `factory infra up` with local Docker) | Railway GitHub builder |
 | **Container SSH** | `wrangler containers ssh` (`knownHosts` on `Deployer`) | `railway ssh` (`railway login`) |
 
 The vault is always on the hub's provider: `cloudflare.Router` and `cloudflare.Deployer` take a `cloudflare.Vault`, and `railway.Router` and `railway.Deployer` take a `railway.Vault`. See [Secrets](./secrets.md).
@@ -39,6 +39,7 @@ new cloudflare.Deployer("deployer", {
 | Credential | Used by | Setup |
 | --- | --- | --- |
 | **Local sign-in** | `factory infra up` and `factory infra down` (KV, R2, Secrets Store, Workers, Containers, API tokens) | `npx wrangler login` (or `CLOUDFLARE_API_TOKEN` in CI) |
+| **Docker** | `factory infra up`, which builds the outpost image for `linux/amd64` and pushes it to your account's Cloudflare registry | A running Docker daemon, such as Docker Desktop or OrbStack |
 | **Deployer token** | `cloudflare.Deployer` (Workers Scripts Write, Workers CI Write, Workers Containers Write) | An account API token of the deployer's own, created by `factory infra up` with your sign-in. Its value goes to a Secrets Store secret, and the deployer Worker binds it as `CLOUDFLARE_API_TOKEN` |
 
 The project's KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. Secrets are only in the Secrets Store or in Worker secrets.
@@ -91,7 +92,10 @@ The provider plugins don't yet do all that these pages describe:
 
 | Gap | Effect |
 | --- | --- |
-| The router only matches deliveries | The router asks the connection's channel to verify and parse a delivery, reads the outpost of the delivery's repo from KV, and returns the triggers it matches. It doesn't run them yet. Only GitHub implements the channel contract, and it doesn't check `github.team(...)`. A channel scoped to another repo matches only deliveries that reach that repo's outpost |
+| The router runs only GitHub's triggers | Only GitHub implements the channel contract. The router doesn't check `github.team(...)`, so a trigger whose `from` names only teams starts no run. A channel scoped to another repo matches only deliveries that reach that repo's outpost. The router mints tokens only for `github.Policy`: a custom `Policy` gets none |
 | The CLI has only `factory infra up`, `factory infra down`, `factory repo install` and `factory repo status` | `factory repo install` opens GitHub's install page with the repo selected, and waits for you to press Enter. It then waits up to two minutes for `FACTORY_STATUS`. GitHub only sends an event for a new install, so a repo that already had the App installed deploys on its next push to the default branch |
-| The deployer doesn't check configs or build containers | An install, or a push to the default branch, has the router read `.factory/` through the GitHub channel. The deployer evaluates it with the Worker Loader and stores the outpost config, and the router writes `FACTORY_STATUS`. The deployer doesn't run the checks in [Outposts](./outposts.md#subscribing--deploys), and doesn't build containers, so `deployed` means only that the router now routes the repo's deliveries |
+| The deployer doesn't check configs, or build repos' images | An install, or a push to the default branch, has the router read `.factory/` through the GitHub channel. The deployer evaluates it with the Worker Loader and stores the outpost config, and the router writes `FACTORY_STATUS`. The deployer doesn't run the checks in [Outposts](./outposts.md#subscribing--deploys). Every outpost container runs one image, which `factory infra up` builds with your local Docker from the accounts' runtimes and the runner. It ignores `.factory/Dockerfile`, and doesn't use Workers Builds |
+| A container's `/data` lasts only while it's awake | A container sleeps after 10 minutes with no run, and loses `/data`. Its next run clones the repo again, and its sessions don't resume. While it's awake, a later run in the same conversation and worktree resumes the conversation's session |
+| Runs get their tokens once | The router mints the policies' tokens when it starts a run, and doesn't refresh them. A run that takes longer than an hour loses its GitHub access |
+| The runner runs only Claude Code | The runner passes an agent's `model`, `effort`, `systemPrompt` and `settings` to `claude -p`, and posts its final message as the reply. It doesn't write an agent's `files`. `factory container ssh` doesn't exist yet |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

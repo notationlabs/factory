@@ -7,33 +7,38 @@ import { SDK_COLLECT, SDK_DIR, SDK_PACKAGES } from "./sdk.ts";
 
 /**
  * ES modules by name, all JavaScript. `main` default-exports a function
- * that returns the result.
+ * that takes `input` and returns the result. `input` is JSON.
  */
-export type Program = { main: string; modules: Record<string, string> };
+export type Program = { main: string; modules: Record<string, string>; input?: unknown };
 
 /** What the deployer needs from the platform it runs on. */
 export interface DeployerContext {
   /**
-   * Runs `program` in an isolate with no network access and no bindings, and
-   * returns what its main function returns. Throws the program's error.
+   * Runs `program` in an isolate with no network access and no bindings,
+   * calls its main function with `program.input`, and returns what it
+   * returns. Throws the program's error.
    */
   evaluate(program: Program): Promise<unknown>;
-  /** Stores the repo's outpost config, where the router reads it. */
-  putOutpost(repo: string, outpost: OutpostConfig): Promise<void>;
+  /**
+   * Stores the repo's outpost config, where the router reads it, and the
+   * `.factory/` files it was evaluated from.
+   */
+  putOutpost(repo: string, outpost: OutpostConfig, files: Record<string, string>): Promise<void>;
+  /** The `.factory/` files of the repo's outpost. */
+  getFiles(repo: string): Promise<Record<string, string> | undefined>;
   deleteOutpost(repo: string): Promise<void>;
 }
 
 const MAIN = "main.js";
 
 /**
- * The program that runs an outpost's config:
+ * The modules of an outpost's config:
  * 1. Each `.ts` file in `.factory/` loses its types. Its name stays, so that
  *    the files' imports of each other still resolve.
  * 2. Each package that a config can import is a module of its own name, which
  *    re-exports the SDK's build of it. The SDK's modules are under `sdk/`.
- * 3. The main module runs `.factory/config.ts` through the SDK's collector.
  */
-export const outpostProgram = (files: Record<string, string>): Program => {
+const configModules = (files: Record<string, string>) => {
   if (!(`config.ts` in files)) throw new Error(`There's no ${FACTORY_DIR}/config.ts.`);
   const modules: Record<string, string> = {};
   for (const [path, code] of Object.entries(files)) {
@@ -61,11 +66,48 @@ export const outpostProgram = (files: Record<string, string>): Program => {
       modules[alias] = `export * from "${up}${SDK_DIR}/${module}.js";`;
     }
   }
+  return modules;
+};
+
+/** The program that runs an outpost's config through the SDK's collector, and returns the outpost config. */
+export const outpostProgram = (files: Record<string, string>): Program => {
+  const modules = configModules(files);
   modules[MAIN] = [
     `import { collectOutpost } from "./${SDK_DIR}/${SDK_COLLECT}.js";`,
     `export default () => collectOutpost(() => import("./${FACTORY_DIR}/config.ts"));`,
   ].join("\n");
   return { main: MAIN, modules };
+};
+
+/** The program that runs an outpost's config, and calls the worktree function of `trigger` with its input. */
+export const worktreeProgram = (files: Record<string, string>, trigger: string, payload: unknown): Program => {
+  const modules = configModules(files);
+  modules[MAIN] = [
+    `import { collectWorktree } from "./${SDK_DIR}/${SDK_COLLECT}.js";`,
+    `export default (payload) => collectWorktree(() => import("./${FACTORY_DIR}/config.ts"), ${JSON.stringify(trigger)}, payload);`,
+  ].join("\n");
+  return { main: MAIN, modules, input: payload };
+};
+
+/**
+ * Calls the worktree function of the repo's trigger with `payload`, and
+ * returns the branch it names. The config is the one the outpost was last
+ * deployed from.
+ */
+export const worktree = async (
+  repo: string,
+  trigger: string,
+  payload: unknown,
+  context: Pick<DeployerContext, "evaluate" | "getFiles">,
+): Promise<string | undefined> => {
+  const files = await context.getFiles(repo);
+  if (!files) throw new Error(`${repo} has no deployed outpost.`);
+  const branch = await context.evaluate(worktreeProgram(files, trigger, payload));
+  if (branch === undefined || branch === null) return undefined;
+  if (typeof branch !== "string") {
+    throw new Error(`The worktree function of ${trigger} returned ${typeof branch}, not a string.`);
+  }
+  return branch;
 };
 
 /**
@@ -101,7 +143,7 @@ export const deploy = async (
     return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/config.ts.`, at: new Date().toISOString() };
   }
   try {
-    await context.putOutpost(repo, await evaluateOutpost(repo, files, context));
+    await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files);
     return { state: "deployed", ref, at: new Date().toISOString() };
   } catch (error) {
     return { state: "failed", ref, error: message(error), at: new Date().toISOString() };

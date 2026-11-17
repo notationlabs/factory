@@ -31,8 +31,8 @@ export type AgentEntry = { runtime: string } & Record<string, unknown>;
 /**
  * In an outpost's config: the whole dispatch rule. A delivery of `event` on
  * `channel` that `match` accepts runs `agent` in `container`. With `worktree`,
- * the runner names its branch from the event, cut from `base`: the function
- * isn't data, so the runner imports the config to call it.
+ * the run's branch is named from the event, cut from `base`: the function
+ * isn't data, so the deployer runs the config to call it.
  */
 export type TriggerEntry = {
   channel: string;

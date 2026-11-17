@@ -56,7 +56,7 @@ export class Deployer extends ResourceGroup implements DeployerContract {
           vars: {
             ACCOUNTS: JSON.stringify(
               Object.fromEntries(
-                accounts.map((a) => [a.runtime, Object.keys(a.secrets)]),
+                accounts.map((a) => [a.runtime.id, Object.keys(a.secrets)]),
               ),
             ),
           },

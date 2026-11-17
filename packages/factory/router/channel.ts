@@ -19,7 +19,16 @@ export type Delivery<E> = {
   repo: string;
   event: string;
   data: E;
+  /** The event as a trigger's worktree function reads it, such as GitHub's webhook payload. */
+  payload: unknown;
 };
+
+/**
+ * Where a delivery's run reads and replies. `id` names the conversation,
+ * such as an issue. `thread` is the channel's own reference to it, which
+ * only its `reply` reads.
+ */
+export type Conversation = { id: string; prompt: string; thread: unknown };
 
 /**
  * A repo whose outpost may need deploying again. `ref` is the commit to read
@@ -63,6 +72,12 @@ export interface Channel<E = unknown> {
   read?(repo: string, dir: string, ref?: string): Promise<SourceFiles>;
   /** For a code host's channel: shows the outpost's status on the repo, as `FACTORY_STATUS`. */
   writeStatus?(repo: string, status: FactoryStatus): Promise<void>;
+  /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
+  conversation?(delivery: Delivery<E>): Conversation;
+  /** Posts `text` to a conversation's thread. */
+  reply?(thread: unknown, text: string): Promise<void>;
+  /** For a code host's channel: a short-lived token for `repo`, with only `permissions`. */
+  token?(repo: string, permissions: Record<string, "read" | "write">): Promise<string>;
 }
 
 /** The outcome of a repo's last deploy, as the repo shows it. */

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
-import { handle, type RouterStore } from "./handle.ts";
+import { handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
+import { type Run, signTicket } from "./run.ts";
+
+const ROOT_KEY = "root";
 
 type FakeEvent = { allow: boolean };
 
@@ -18,6 +21,9 @@ const fake = (
   sync,
   read: async () => ({ ref: "c0ffee", files: {} }),
   writeStatus: async () => {},
+  conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, prompt: "do it", thread: { repo: delivery.repo } }),
+  reply: async () => {},
+  token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -29,6 +35,7 @@ const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
       repo: "acme/api",
       event: "post",
       data: { allow: true },
+      payload: { number: 1 },
       ...over,
     },
   });
@@ -69,7 +76,11 @@ const store = (
       | RemoteChannel
       | undefined,
   outpost: async (repo) => outposts[repo],
+  rootKey: async () => ROOT_KEY,
 });
+
+/** The matches without their runs' random ids. */
+const matched = (matches: { run?: string }[]) => matches.map(({ run, ...m }) => ({ ...m, run: typeof run }));
 
 const post = (path: string) => new Request(`https://router.test${path}`, { method: "POST" });
 
@@ -81,12 +92,12 @@ const call = async (s: RouterStore, path = "/webhook/fake/main") => {
 test("matches only triggers on channels of the delivery's provider, connection, scope and event", async () => {
   const { status, body } = await call(store({ main: accepted() }));
   assert.equal(status, 202);
-  assert.deepEqual(body.matches, [{ trigger: "picked", author: { result: "allowed" } }]);
+  assert.deepEqual(matched(body.matches), [{ trigger: "picked", author: { result: "allowed" }, run: "string" }]);
 });
 
 test("a delivery to another connection's path matches that connection's triggers", async () => {
   const { body } = await call(store({ main: accepted(), second: accepted() }), "/webhook/fake/second");
-  assert.deepEqual(body.matches, [{ trigger: "other-connection", author: { result: "allowed" } }]);
+  assert.deepEqual(matched(body.matches), [{ trigger: "other-connection", author: { result: "allowed" }, run: "string" }]);
 });
 
 test("a rejected delivery is a 401, and an ignored one a 200", async () => {
@@ -129,7 +140,10 @@ const sourceStore = (
   },
   channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
   outpost: async () => undefined,
+  rootKey: async () => ROOT_KEY,
   deployer: {
+    worktree: async () => undefined,
+    run: async () => {},
     deploy: async (repo, source) => {
       calls.push(`deploy ${repo} ${source.ref}`);
       return { state: "deployed", ref: source.ref, at: "now" };
@@ -195,4 +209,111 @@ test("only the code host's connection deploys", async () => {
   assert.equal(status, 200);
   assert.deepEqual(body, { ignored: "not the code host's connection" });
   assert.deepEqual(calls, []);
+});
+
+const runOutpost: OutpostConfig = {
+  channels: { here: { provider: "fake", connection: "main", scope: "acme/api" } },
+  containers: { dev: { image: "./Dockerfile", runtimes: ["claude"], policies: ["code", "docs"], files: {} } },
+  policies: {
+    code: { provider: "fake", permissions: { contents: "write" } },
+    docs: { provider: "fake", repo: "acme/docs", permissions: { contents: "read" } },
+  },
+  agents: { coder: { runtime: "claude", model: "m" } },
+  triggers: {
+    mention: {
+      channel: "here",
+      event: "post",
+      match: { pick: true },
+      agent: "coder",
+      container: "dev",
+      worktree: { base: "develop" },
+    },
+  },
+};
+
+const runStore = (channel: RemoteChannel<FakeEvent>, deployer: Partial<RemoteDeployer>): RouterStore => ({
+  ...store({ main: channel }, { "acme/api": runOutpost }),
+  config: {
+    connections: { "fake/main": entry("CHANNEL_MAIN") },
+    codeHost: { provider: "fake", connection: "main", allow: [{ owner: "acme" }] },
+  },
+  deployer: {
+    deploy: async () => ({ state: "deployed", at: "now" }),
+    remove: async () => {},
+    worktree: async () => undefined,
+    run: async () => {},
+    ...deployer,
+  },
+});
+
+test("a match whose author may start a run hands the deployer a run, with its branch, tokens and a reply ticket", async () => {
+  const runs: Run[] = [];
+  const worktrees: unknown[] = [];
+  const s = runStore(accepted(), {
+    worktree: async (repo, trigger, payload) => {
+      worktrees.push([repo, trigger, payload]);
+      return "issue-1";
+    },
+    run: async (run) => void runs.push(run),
+  });
+  const { body } = await call(s);
+  assert.equal(runs.length, 1);
+  const [run] = runs;
+  assert.equal(run!.id, body.matches[0].run);
+  assert.deepEqual(worktrees, [["acme/api", "mention", { number: 1 }]]);
+  assert.deepEqual(run!.worktree, { branch: "issue-1", base: "develop" });
+  assert.equal(run!.container, "dev");
+  assert.deepEqual(run!.runtimes, ["claude"]);
+  assert.deepEqual(run!.agent, { id: "coder", runtime: "claude", model: "m" });
+  assert.deepEqual(run!.conversation, { id: "fake:acme/api", prompt: "do it" });
+  assert.equal(run!.cloneToken, 'token:acme/api:{"contents":"read"}');
+  assert.deepEqual(run!.tokens, [
+    { policy: "code", repo: "acme/api", token: 'token:acme/api:{"contents":"write"}' },
+    { policy: "docs", repo: "acme/docs", token: 'token:acme/docs:{"contents":"read"}' },
+  ]);
+  assert.equal(run!.reply.url, "https://router.test/relay");
+  assert.deepEqual(run!.reply.ticket.thread, { repo: "acme/api" });
+  assert.equal(run!.reply.signature, await signTicket(ROOT_KEY, run!.reply.ticket));
+});
+
+test("a worktree function that names no branch runs in a scratch worktree", async () => {
+  const runs: Run[] = [];
+  await call(runStore(accepted(), { run: async (run) => void runs.push(run) }));
+  assert.equal(runs[0]!.worktree, undefined);
+});
+
+test("a run that can't start replies with the error", async () => {
+  const replies: unknown[] = [];
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async (thread: unknown, text: string) => void replies.push([thread, text]) };
+  await call(runStore(channel, { worktree: async () => "../etc", run: async (run) => void runs.push(run) }));
+  assert.equal(runs.length, 0);
+  assert.equal(replies.length, 1);
+  assert.match((replies[0] as string[])[1]!, /returned "\.\.\/etc", which isn't a branch name/);
+});
+
+test("a denied author starts no run", async () => {
+  const runs: Run[] = [];
+  const { body } = await call(runStore(accepted({ data: { allow: false } }), { run: async (run) => void runs.push(run) }));
+  assert.deepEqual(body.matches, [{ trigger: "mention", author: { result: "denied" } }]);
+  assert.equal(runs.length, 0);
+});
+
+const relay = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/relay", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("relay posts a reply with a ticket the router signed through the ticket's channel", async () => {
+  const replies: unknown[] = [];
+  const s = runStore({ ...accepted(), reply: async (thread, text) => void replies.push([thread, text]) }, {});
+  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
+  const signature = await signTicket(ROOT_KEY, ticket);
+
+  assert.equal((await relay(s, { ticket, signature, text: "done" })).status, 200);
+  assert.deepEqual(replies, [[{ repo: "acme/api" }, "done"]]);
+
+  const forged = { ...ticket, thread: { repo: "acme/other" } };
+  assert.equal((await relay(s, { ticket: forged, signature, text: "x" })).status, 401);
+  const expired = { ...ticket, expires: Date.now() - 1 };
+  assert.equal((await relay(s, { ticket: expired, signature: await signTicket(ROOT_KEY, expired), text: "x" })).status, 401);
+  assert.equal(replies.length, 1);
 });

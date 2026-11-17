@@ -128,6 +128,19 @@ export const writeStatus = async (auth: AppAuth, repo: string, status: FactorySt
   );
 };
 
+/** GitHub's limit on a comment's body. */
+const MAX_COMMENT_CHARS = 65536;
+
+/** Comments `body` on an issue or a pull request, as the App. */
+export const comment = async (auth: AppAuth, repo: string, issue: number, body: string) => {
+  const token = await repoToken(auth, repo, { issues: "write" });
+  const text = body.length > MAX_COMMENT_CHARS ? `${body.slice(0, MAX_COMMENT_CHARS - 20)}\n\n…(cut)` : body;
+  await ok(
+    await github("POST", `/repos/${repo}/issues/${issue}/comments`, token, { body: { body: text } }),
+    `POST /repos/${repo}/issues/${issue}/comments`,
+  );
+};
+
 const fullNames = (repos: { full_name: string }[] | undefined) => (repos ?? []).map((r) => r.full_name);
 
 /**

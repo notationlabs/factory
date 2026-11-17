@@ -55,4 +55,22 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     if (!writeStatus) throw new Error("This connection's channel can't write a repo's status.");
     return writeStatus(repo, status);
   }
+
+  conversation(delivery: Delivery<unknown>) {
+    const { conversation } = channel(context(this.env));
+    if (!conversation) throw new Error("This connection's channel can't start runs.");
+    return conversation(delivery);
+  }
+
+  reply(thread: unknown, text: string) {
+    const { reply } = channel(context(this.env));
+    if (!reply) throw new Error("This connection's channel can't reply.");
+    return reply(thread, text);
+  }
+
+  token(repo: string, permissions: Record<string, "read" | "write">) {
+    const { token } = channel(context(this.env));
+    if (!token) throw new Error("This connection's channel can't mint tokens.");
+    return token(repo, permissions);
+  }
 }

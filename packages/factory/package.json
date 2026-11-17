@@ -15,7 +15,8 @@
       "default": "./index.ts"
     },
     "./router": "./router/index.ts",
-    "./deployer": "./deployer/index.ts"
+    "./deployer": "./deployer/index.ts",
+    "./runner": "./runner/index.ts"
   },
   "files": [
     "contracts",
@@ -25,7 +26,8 @@
     "resources",
     "router",
     "outpost.ts",
-    "deployer"
+    "deployer",
+    "runner"
   ],
   "publishConfig": {
     "access": "public"

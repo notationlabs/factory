@@ -140,8 +140,8 @@ The comment dispatches `coder` onto issue `#42`'s branch:
 
 ```text
 Issue #42 comment ──► Router matches Trigger "mention" (author is a collaborator)
+                  ──► Deployer calls the worktree function: branch `issue-42`
                   ──► Wakes Container "dev"
-                  ──► Runner calls the worktree function: branch `issue-42`
                   ──► Checks out `issue-42` in `/data/worktrees/issue-42`
                   ──► Runs Agent "coder" and posts its reply to #42 through the router
 ```

@@ -8,7 +8,7 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
-import { readDir, sourceChanges, writeStatus as writeRepoStatus } from "./repos.ts";
+import { comment, readDir, repoToken, sourceChanges, writeStatus as writeRepoStatus } from "./repos.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -64,6 +64,55 @@ const parse = (event: string, payload: any): GithubEvent | undefined => {
     before: payload.changes?.body?.from ?? body,
     labels: (payload.issue?.labels ?? []).map((l: { name: string }) => l.name),
   };
+};
+
+/** The parts of an issue or comment payload that worktree functions and prompts read. */
+const eventPayload = (payload: any) => ({
+  action: payload.action,
+  issue: payload.issue && {
+    number: payload.issue.number,
+    title: payload.issue.title,
+    body: payload.issue.body,
+    labels: (payload.issue.labels ?? []).map((l: { name: string }) => ({ name: l.name })),
+    user: { login: payload.issue.user?.login },
+    ...(payload.issue.pull_request && { pull_request: { url: payload.issue.pull_request.url } }),
+  },
+  ...(payload.comment && {
+    comment: { id: payload.comment.id, body: payload.comment.body, user: { login: payload.comment.user?.login } },
+  }),
+  repository: { full_name: payload.repository?.full_name, default_branch: payload.repository?.default_branch },
+  sender: { login: payload.sender?.login },
+});
+
+type Payload = ReturnType<typeof eventPayload>;
+
+/** Where a run's replies go: an issue or a pull request. */
+export type Thread = { repo: string; issue: number };
+
+/** The prompt for a run that an issue or a comment started. */
+export const prompt = (event: string, payload: Payload) => {
+  const { issue, comment, repository } = payload;
+  const kind = issue.pull_request ? "pull request" : "issue";
+  const lines = [
+    `You're working in ${repository.full_name}, on ${kind} #${issue.number}: ${issue.title}`,
+    "",
+  ];
+  if (event === "issue_comment") {
+    lines.push(
+      `@${issue.user.login} opened it with:`,
+      issue.body ?? "",
+      "",
+      `@${comment!.user.login} commented:`,
+      comment!.body,
+    );
+  } else {
+    lines.push(`@${issue.user.login} ${payload.action} it with:`, issue.body ?? "");
+  }
+  lines.push(
+    "",
+    `Your final message is posted as a comment on the ${kind}. The gh CLI is signed in for ${repository.full_name}.`,
+  );
+  return lines.join("\n");
 };
 
 /** Author associations that mean the person has write access to the repo. */
@@ -140,6 +189,11 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
+      // The App's own replies would otherwise start runs.
+      const post = event === "issue_comment" ? payload.comment : payload.issue;
+      if (String(post?.performed_via_github_app?.id ?? "") === appId) {
+        return { status: "ignored", reason: "posted by this App" };
+      }
       return {
         status: "accepted",
         delivery: {
@@ -148,6 +202,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
           repo,
           event,
           data,
+          payload: eventPayload(payload),
         },
       };
     },
@@ -174,6 +229,25 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
 
     async writeStatus(repo, status) {
       await writeRepoStatus(await auth(), repo, status);
+    },
+
+    conversation(delivery) {
+      const payload = delivery.payload as Payload;
+      const thread: Thread = { repo: delivery.repo, issue: payload.issue.number };
+      return {
+        id: `github:${thread.repo}#${thread.issue}`.toLowerCase(),
+        prompt: prompt(delivery.event, payload),
+        thread,
+      };
+    },
+
+    async reply(thread, text) {
+      const { repo, issue } = thread as Thread;
+      await comment(await auth(), repo, issue, text);
+    },
+
+    async token(repo, permissions) {
+      return repoToken(await auth(), repo, permissions);
     },
   };
 };

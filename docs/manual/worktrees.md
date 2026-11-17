@@ -38,7 +38,7 @@ The worktree function:
 
 - returns the same branch for the same event, because worktrees and sessions are keyed by it. It doesn't read the clock or the network.
 - returns `undefined` for no branch, which gives the same result as leaving `worktree` out.
-- runs only in the container's runner, which imports `.factory/` at the event's commit and calls it with the real event. The function isn't data, so it isn't in the outpost's config: the config records only that the trigger has a worktree, and its `base`. The router only matches `event` and never runs the function, so the deployer can't check branch names ahead of time.
+- runs in the deployer, in the same isolate that evaluates `.factory/config.ts`, with no network access. When a delivery matches the trigger, the router has the deployer run the config that the outpost was last deployed from, and call the function with the real event. The function isn't data, so it isn't in the outpost's config: the config records only that the trigger has a worktree, and its `base`. The deployer can't check branch names ahead of time. A name that git can't check out stops the run, and the router replies with the error.
 
 ## No branch
 

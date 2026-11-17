@@ -2,11 +2,13 @@ import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import type {
   AuthorCheck,
+  Delivery,
   FactoryStatus,
   RemoteChannel,
   SourceChange,
   SourceFiles,
 } from "./channel.ts";
+import { isBranchName, type Relay, REPLY_TTL_MS, type Run, signTicket, verifyTicket } from "./run.ts";
 
 /** The KV key that the deployer stores a repo's outpost config under. `repo` is `owner/name`. */
 export const outpostKey = (repo: string) => `outposts/${repo.toLowerCase()}`;
@@ -18,6 +20,8 @@ export type RouterStore = {
   channel(binding: string): RemoteChannel | undefined;
   outpost(repo: string): Promise<OutpostConfig | undefined>;
   deployer?: RemoteDeployer;
+  /** The root key, which the router derives its own keys from. */
+  rootKey(): Promise<string>;
   /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
   background?(task: Promise<unknown>): void;
 };
@@ -28,12 +32,17 @@ export type RemoteDeployer = {
   deploy(repo: string, source: SourceFiles): Promise<FactoryStatus>;
   /** Removes the repo's outpost config. */
   remove(repo: string): Promise<void>;
+  /** Calls the worktree function of the repo's trigger with `payload`, in the isolate that evaluates configs. */
+  worktree(repo: string, trigger: string, payload: unknown): Promise<string | undefined>;
+  /** Hands `run` to its container, which queues it. */
+  run(run: Run): Promise<void>;
 };
 
 /** The directory of a repo that holds its outpost's files. */
 export const FACTORY_DIR = ".factory";
 
-export type TriggerMatch = { trigger: string; author: AuthorCheck };
+/** A trigger that a delivery matched. `run` is the id of the run it started, if its author may start one. */
+export type TriggerMatch = { trigger: string; author: AuthorCheck; run?: string };
 
 /** The path that a connection's platform delivers to. `key` is the connection's key, such as `github/acme-agents`. */
 export const webhookPath = (key: string) => `/webhook/${key}`;
@@ -57,6 +66,7 @@ const channels = (store: RouterStore) =>
  * 2. Has the channel verify and parse the delivery.
  * 3. Reads the outpost of the delivery's repo, and matches the triggers on
  *    channels of the delivery's connection and scope.
+ * 4. Starts a run for each match whose author may start one.
  */
 const webhook = async (request: Request, key: string, store: RouterStore) => {
   const found = channels(store).find((c) => c.key === key);
@@ -77,6 +87,8 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   if (!outpost) return json(202, { ...summary, ignored: "no outpost" });
 
   const matches: TriggerMatch[] = [];
+  const runs: Promise<void>[] = [];
+  const origin = new URL(request.url).origin;
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
     const target = outpost.channels?.[trigger.channel];
     if (
@@ -88,11 +100,139 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
       continue;
     }
     const author = await channel.match(trigger.match, delivery);
-    if (author) matches.push({ trigger: id, author });
+    if (!author) continue;
+    // Team checks need a call to the platform, which the router doesn't make yet.
+    if (author.result !== "allowed") {
+      matches.push({ trigger: id, author });
+      continue;
+    }
+    const run = crypto.randomUUID();
+    matches.push({ trigger: id, author, run });
+    runs.push(
+      dispatch({ run, trigger: id, key, channel, delivery, outpost, origin }, store).catch((error) =>
+        console.error(JSON.stringify({ run, trigger: id, error: message(error) })),
+      ),
+    );
+  }
+  if (runs.length) {
+    const task = Promise.all(runs);
+    if (store.background) store.background(task);
+    else await task;
   }
   const result = { ...summary, matches };
   console.log(JSON.stringify(result));
   return json(202, result);
+};
+
+type Dispatch = {
+  run: string;
+  trigger: string;
+  /** The delivery's connection. */
+  key: string;
+  channel: RemoteChannel;
+  delivery: Delivery<unknown>;
+  outpost: OutpostConfig;
+  /** The router's origin, which the runner replies to. */
+  origin: string;
+};
+
+/** The channel of the code host's connection, which mints repo tokens. */
+const codeHostChannel = (store: RouterStore) => {
+  const codeHost = store.config.codeHost;
+  if (!codeHost) return undefined;
+  const key = `${codeHost.provider}/${codeHost.connection}`;
+  return { provider: codeHost.provider, channel: channels(store).find((c) => c.key === key)?.channel };
+};
+
+/**
+ * Starts one run of a matched trigger:
+ * 1. Has the delivery's channel name the conversation, and signs a ticket
+ *    for replies to its thread.
+ * 2. Has the deployer call the trigger's worktree function, if it has one.
+ * 3. Has the code host's channel mint a read-only token for the clone, and a
+ *    token for each of the container's code host policies.
+ * 4. Hands the run to the deployer. If a step fails, the channel replies
+ *    with the error.
+ */
+const dispatch = async (d: Dispatch, store: RouterStore) => {
+  const { delivery, outpost } = d;
+  const repo = delivery.repo;
+  const trigger = outpost.triggers[d.trigger]!;
+  const conversation = await d.channel.conversation(delivery);
+  const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
+  const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(await store.rootKey(), ticket) };
+  try {
+    const { deployer } = store;
+    if (!deployer) throw new Error("The hub has no deployer.");
+    const container = outpost.containers[trigger.container];
+    const agent = outpost.agents[trigger.agent];
+    if (!container) throw new Error(`The outpost has no container ${trigger.container}.`);
+    if (!agent) throw new Error(`The outpost has no agent ${trigger.agent}.`);
+    const codeHost = codeHostChannel(store);
+    if (!codeHost?.channel) throw new Error("The hub has no code host whose channel mints tokens.");
+
+    let worktree: Run["worktree"];
+    if (trigger.worktree) {
+      const branch = await deployer.worktree(repo, d.trigger, delivery.payload);
+      if (branch !== undefined) {
+        if (typeof branch !== "string" || !isBranchName(branch)) {
+          throw new Error(`The worktree function of ${d.trigger} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
+        }
+        worktree = { branch, ...(trigger.worktree.base && { base: trigger.worktree.base }) };
+      }
+    }
+
+    const tokens: Run["tokens"] = [];
+    for (const policy of container.policies) {
+      const entry = outpost.policies[policy];
+      if (!entry) throw new Error(`The outpost has no policy ${policy}.`);
+      // Policies of other providers aren't minted yet.
+      if (entry.provider !== codeHost.provider) continue;
+      const target = typeof entry.repo === "string" ? entry.repo : repo;
+      const permissions = entry.permissions as Record<string, "read" | "write">;
+      tokens.push({ policy, repo: target, token: await codeHost.channel.token(target, permissions) });
+    }
+
+    await deployer.run({
+      id: d.run,
+      repo,
+      trigger: d.trigger,
+      container: trigger.container,
+      runtimes: container.runtimes,
+      files: container.files ?? {},
+      agent: { id: trigger.agent, ...agent },
+      conversation: { id: conversation.id, prompt: conversation.prompt },
+      ...(worktree && { worktree }),
+      cloneToken: await codeHost.channel.token(repo, { contents: "read" }),
+      tokens,
+      reply,
+    });
+    console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
+  } catch (error) {
+    await d.channel.reply(conversation.thread, `Couldn't start the run of trigger \`${d.trigger}\`: ${message(error)}`);
+    throw error;
+  }
+};
+
+/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
+const relay = async (request: Request, store: RouterStore) => {
+  let body: Relay;
+  try {
+    body = (await request.json()) as Relay;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+  const { ticket, signature, text } = body ?? {};
+  if (!ticket || typeof signature !== "string" || typeof text !== "string") {
+    return json(400, { error: "the body needs ticket, signature and text" });
+  }
+  if (!(await verifyTicket(await store.rootKey(), ticket, signature))) {
+    return json(401, { error: "bad or expired ticket" });
+  }
+  const found = channels(store).find((c) => c.key === ticket.connection);
+  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
+  await found.channel.reply(ticket.thread, text);
+  return json(200, { ok: true });
 };
 
 const allows = (allow: RepoPattern[], repo: string) => {
@@ -181,12 +321,16 @@ const sync = async (request: Request, store: RouterStore) => {
 
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
- * only sets the values the router derives.
+ * only sets the values the router derives. `POST /relay` takes a ticket
+ * that the router signed when it started a run.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
   if (request.method === "POST" && pathname.startsWith("/webhook/")) {
     return webhook(request, pathname.slice("/webhook/".length), store);
+  }
+  if (request.method === "POST" && pathname === "/relay") {
+    return relay(request, store);
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);

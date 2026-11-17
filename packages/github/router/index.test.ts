@@ -40,9 +40,10 @@ const request = async (event: string, payload: object, { appId = "123", sign = t
 
 const commentPayload = {
   action: "created",
-  repository: { full_name: "acme/api" },
-  issue: { body: "", labels: [{ name: "bug" }] },
-  comment: { body: "@claude fix", user: { login: "alice" }, author_association: "NONE" },
+  repository: { full_name: "acme/api", default_branch: "main" },
+  issue: { number: 7, title: "Broken", body: "It breaks", user: { login: "bob" }, labels: [{ name: "bug" }] },
+  comment: { id: 99, body: "@claude fix", user: { login: "alice" }, author_association: "NONE" },
+  sender: { login: "alice" },
 };
 
 test("receive parses a signed comment to its App", async () => {
@@ -61,8 +62,32 @@ test("receive parses a signed comment to its App", async () => {
         before: "@claude fix",
         labels: ["bug"],
       },
+      payload: {
+        action: "created",
+        issue: { number: 7, title: "Broken", body: "It breaks", labels: [{ name: "bug" }], user: { login: "bob" } },
+        comment: { id: 99, body: "@claude fix", user: { login: "alice" } },
+        repository: { full_name: "acme/api", default_branch: "main" },
+        sender: { login: "alice" },
+      },
     },
   });
+});
+
+test("receive ignores a comment that the App posted", async () => {
+  const own = { ...commentPayload, comment: { ...commentPayload.comment, performed_via_github_app: { id: 123 } } };
+  const received = await channel.receive(await request("issue_comment", own));
+  assert.deepEqual(received, { status: "ignored", reason: "posted by this App" });
+});
+
+test("a comment's conversation is its issue, and its prompt quotes the issue and the comment", async () => {
+  const received = await channel.receive(await request("issue_comment", commentPayload));
+  assert.equal(received.status, "accepted");
+  const conversation = channel.conversation!((received as { delivery: Delivery<GithubEvent> }).delivery);
+  assert.equal(conversation.id, "github:acme/api#7");
+  assert.deepEqual(conversation.thread, { repo: "acme/api", issue: 7 });
+  assert.match(conversation.prompt, /acme\/api, on issue #7: Broken/);
+  assert.match(conversation.prompt, /@bob opened it with:\nIt breaks/);
+  assert.match(conversation.prompt, /@alice commented:\n@claude fix/);
 });
 
 test("receive rejects a bad signature and another App's delivery, and ignores a ping", async () => {
@@ -87,6 +112,7 @@ const delivery = (data: Partial<GithubEvent>): Delivery<GithubEvent> => ({
     labels: [],
     ...data,
   },
+  payload: {},
 });
 
 const selector = (over: object = {}) => ({

@@ -20,7 +20,7 @@ export interface OperatorAuth extends ResourceGroup {
  * and injects it into containers that list `runtime`.
  */
 export interface Account extends ResourceGroup {
-  readonly runtime: Runtime["id"];
+  readonly runtime: Runtime;
   /** Keyed by the env var name that containers read the secret as, such as `CLAUDE_CODE_OAUTH_TOKEN`. */
   readonly secrets: Record<string, VaultSecret>;
 }

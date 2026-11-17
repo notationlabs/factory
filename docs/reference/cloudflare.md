@@ -35,6 +35,7 @@ new cloudflare.Deployer("deployer", {
   accounts: [claudeAccount],
   accountId: "<account id>",                     // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
   knownHosts: ["ssh-ed25519 AAAA... me@laptop"], // <-- authorized_keys for outpost containers
+  maxContainers: 10,                             // <-- optional; the most outpost containers awake at once
 });
 ```
 
@@ -44,7 +45,7 @@ The resources come from `@notation/cloudflare`. Their names are scoped to the No
 | --- | --- |
 | `cloudflare.Vault` | The account's Secrets Store, as `vault.store`, and one `SecretsStoreSecret` in it for each secret declared in the vault. Notation names each secret `<app>--<stage>--secret-<id>-<instance>`. Values can't be read back through the API. `vault.secret({ id, value })` takes a credential as `value` and returns a `CloudflareSecret`. A Worker gets a secret only when the router or the deployer binds it |
 | `cloudflare.Router` | KV namespace and R2 bucket named after `project`, the router Worker served on `workers.dev`, a Worker for each connection's channel, and the router's config, a `kvJson()` document in the KV key `config`. It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. `router.bind(secret, name?)` binds a vault secret to the router Worker. `router.channel(...)` runs a connection's channel |
-| `cloudflare.Deployer` | The deployer Worker, and an account API token of its own with Workers Scripts Write, Workers CI Write and Workers Containers Write in `accountId`. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, its API token as `CLOUDFLARE_API_TOKEN`, and each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN` |
+| `cloudflare.Deployer` | The deployer Worker, and an account API token of its own with Workers Scripts Write, Workers CI Write and Workers Containers Write in `accountId`. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, its API token as `CLOUDFLARE_API_TOKEN`, and each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN`. It hosts `OutpostContainer`, a Durable Object namespace with a `standard-1` container for each repo and container id. Deploy builds the container's image with local Docker: it holds the accounts' runtimes and the runner |
 
 The router is reached at its `workers.dev` URL: `https://<script>.<account subdomain>.workers.dev`. `router.url` is that URL, and each connection sets its webhook to `<url>/webhook/<provider>/<name>`. The account needs a `workers.dev` subdomain.
 

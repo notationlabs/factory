@@ -45,6 +45,8 @@ type Issue = {
   body: string | null;
   labels: { name: string }[];
   user: User;
+  /** Set when the issue is a pull request. */
+  pull_request?: { url: string };
 };
 type Repository = { full_name: string; default_branch: string };
 

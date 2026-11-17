@@ -23,8 +23,8 @@ const FAKE_CLAUDE = `#!/bin/sh
 prompt="$2"
 printf '%s\\n' "$(pwd)" "$GH_TOKEN" "$*" >> "${calls}"
 session="s-$(basename "$(pwd)")"
-mkdir -p "$HOME/.claude/projects/p-$(basename "$(pwd)")"
-echo "$prompt" >> "$HOME/.claude/projects/p-$(basename "$(pwd)")/$session.jsonl"
+mkdir -p "$HOME/.claude/projects/-p-$(basename "$(pwd)")"
+echo "$prompt" >> "$HOME/.claude/projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
   fail*) echo "{\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   edit*)
@@ -219,7 +219,7 @@ test("after the container sleeps, a run restores its worktree and its conversati
   assert.equal(sh(worktree, "log", "-1", "--format=%s"), "local work");
   assert.equal(readFileSync(join(worktree, "notes.txt"), "utf8"), "draft\n");
   assert.equal(sh(worktree, "status", "--porcelain"), "D README.md\n?? notes.txt");
-  const transcript = join(home, ".claude", "projects", "p-issue-9", "s-issue-9.jsonl");
+  const transcript = join(home, ".claude", "projects", "-p-issue-9", "s-issue-9.jsonl");
   assert.equal(readFileSync(transcript, "utf8"), "edit the code\ncarry on\n");
 });
 

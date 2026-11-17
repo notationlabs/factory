@@ -148,6 +148,25 @@ importers:
         specifier: workspace:*
         version: link:../factory
 
+  packages/railway:
+    dependencies:
+      '@notation/core':
+        specifier: 0.26.0
+        version: 0.26.0(typescript@7.0.2)
+      '@notation/resource':
+        specifier: 0.26.0
+        version: 0.26.0
+      '@notation/std':
+        specifier: 0.26.0
+        version: 0.26.0(typescript@7.0.2)
+      valibot:
+        specifier: ^1.1.0
+        version: 1.5.0(typescript@7.0.2)
+    devDependencies:
+      '@notation/factory':
+        specifier: workspace:*
+        version: link:../factory
+
   packages/slack:
     dependencies:
       '@notation/resource':

@@ -46,7 +46,7 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  e2e/cloudflare:
+  examples/hub:
     dependencies:
       '@notation/cli':
         specifier: 0.26.0
@@ -63,9 +63,24 @@ importers:
       '@notation/factory-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
+      '@notation/factory-github':
+        specifier: workspace:*
+        version: link:../../packages/github
       '@notation/std':
         specifier: 0.26.0
         version: 0.26.0(typescript@7.0.2)
+
+  examples/outpost-1:
+    dependencies:
+      '@notation/factory':
+        specifier: workspace:*
+        version: link:../../packages/factory
+      '@notation/factory-claude':
+        specifier: workspace:*
+        version: link:../../packages/claude
+      '@notation/factory-github':
+        specifier: workspace:*
+        version: link:../../packages/github
 
   packages/claude:
     dependencies:
@@ -125,25 +140,6 @@ importers:
       '@notation/resource':
         specifier: 0.26.0
         version: 0.26.0
-      valibot:
-        specifier: ^1.1.0
-        version: 1.5.0(typescript@7.0.2)
-    devDependencies:
-      '@notation/factory':
-        specifier: workspace:*
-        version: link:../factory
-
-  packages/railway:
-    dependencies:
-      '@notation/core':
-        specifier: 0.26.0
-        version: 0.26.0(typescript@7.0.2)
-      '@notation/resource':
-        specifier: 0.26.0
-        version: 0.26.0
-      '@notation/std':
-        specifier: 0.26.0
-        version: 0.26.0(typescript@7.0.2)
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)

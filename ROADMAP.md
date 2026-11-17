@@ -12,6 +12,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Next
 
+- [ ] **Pin containers to `WEUR`.** Cloudflare starts a container wherever the image is pre-fetched, and the first one ran in Delhi. Waits on a Notation feature: `constraints` on `$durableObject`'s container and on `ContainerApplication`. Then `cloudflare.Deployer` takes a `regions` option, and the example hub sets `["WEUR"]`.
 - [ ] **Build images off the local machine.** `factory infra up` builds the hub image with local Docker, and a slow uplink makes the first push take a long time. Options:
   - Workers Builds builds and pushes the image. It needs Cloudflare's Git integration on the hub's repo. It also needs `$durableObject` to accept an image reference, or Factory has to declare the `ContainerApplication` itself.
   - A prebuilt image that CI pushes on release. It needs a Docker Hub organisation.

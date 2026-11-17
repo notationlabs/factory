@@ -1,7 +1,7 @@
 import { defineConfig } from "@notation/core/config";
 
 export default defineConfig({
-  app: "factory-e2e",
-  entry: "infra/hub.ts",
+  app: "notation-factory-test-hub",
+  entry: "factory.infra.ts",
   defaultStage: "test",
 });

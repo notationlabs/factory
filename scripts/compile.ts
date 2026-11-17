@@ -7,8 +7,9 @@
  *   tsx scripts/compile.ts --view   also writes dist/index.html and opens it
  */
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type BaseResource,
@@ -135,10 +136,12 @@ const compileGraph = async (graph: ResourceGraph) => {
 };
 
 // Each example declares its resources when it is imported, and Notation
-// collects them. `outpost.config.ts` is an outpost's `.factory/config.ts`.
-const compileExample = async (file: string): Promise<CompiledExample> => {
-  const name = basename(file, ".ts");
-  const kind = name.endsWith(".config") ? "outpost" : "hub";
+// collects them.
+const compileExample = async (
+  name: string,
+  kind: CompiledExample["kind"],
+  file: string,
+): Promise<CompiledExample> => {
   try {
     const graph = await collectResourceGraph(async () => {
       await import(pathToFileURL(file).href);
@@ -171,14 +174,20 @@ const open = (path: string) => {
 // The Cloudflare deployer reads its account from the environment when it is constructed.
 process.env.CLOUDFLARE_ACCOUNT_ID ??= "<CLOUDFLARE_ACCOUNT_ID>";
 
-const files = (await readdir(examplesDir))
-  .filter((f) => f.endsWith(".ts"))
-  .sort()
-  .map((f) => join(examplesDir, f));
+// A hub example is a folder with `factory.infra.ts`, and an outpost example
+// is a folder with `.factory/config.ts`.
+const examples: [string, CompiledExample["kind"], string][] = [];
+for (const name of (await readdir(examplesDir)).sort()) {
+  const hub = join(examplesDir, name, "factory.infra.ts");
+  const outpost = join(examplesDir, name, ".factory", "config.ts");
+  if (existsSync(hub)) examples.push([name, "hub", hub]);
+  else if (existsSync(outpost)) examples.push([name, "outpost", outpost]);
+}
 
 // One at a time: only one resource graph can be collected at once.
 const compiled: CompiledExample[] = [];
-for (const file of files) compiled.push(await compileExample(file));
+for (const [name, kind, file] of examples)
+  compiled.push(await compileExample(name, kind, file));
 
 await mkdir(outDir, { recursive: true });
 for (const example of compiled) {

@@ -10,5 +10,5 @@ minimumReleaseAgeExclude:
   - '@notation/*'
 packages:
   - packages/*
-  - e2e/*
+  - examples/*
   - docs

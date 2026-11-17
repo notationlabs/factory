@@ -1,0 +1,10 @@
+{
+  "name": "@notation/factory-example-outpost-1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@notation/factory": "workspace:*",
+    "@notation/factory-claude": "workspace:*",
+    "@notation/factory-github": "workspace:*"
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "name": "@notation/factory-e2e-cloudflare",
+  "name": "@notation/factory-example-hub",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "@notation/std": "0.26.0",
     "@notation/factory": "workspace:*",
     "@notation/factory-claude": "workspace:*",
-    "@notation/factory-cloudflare": "workspace:*"
+    "@notation/factory-cloudflare": "workspace:*",
+    "@notation/factory-github": "workspace:*"
   }
 }

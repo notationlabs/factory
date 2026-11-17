@@ -22,7 +22,7 @@ The router receives events from each connection. The deployer provisions contain
 
 | Contract | What the plugin provides | Plugins today (`@notation/…`) |
 | --- | --- | --- |
-| Vault, Router, Deployer | Where the hub and containers run | `factory-cloudflare`, `factory-railway` |
+| Vault, Router, Deployer | Where the hub and containers run | `factory-cloudflare` |
 | Connection, Channel | Where events come from, and which events a trigger can select | `factory-github`, `factory-slack` |
 | CodeHost, Policy | Where code lives, and what a container may do there | `factory-github` |
 | OperatorAuth | Who may operate the agents | `factory-github`, `factory-cloudflare` |

@@ -52,7 +52,7 @@ export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 factory infra up
 ```
 
-`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook`, where `Url` is the router's `Url` output.
+`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook/github/acme-agents`, where `Url` is the router's `Url` output.
 
 GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
 

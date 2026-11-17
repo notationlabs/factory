@@ -149,17 +149,29 @@ interface Vault<S extends VaultSecret = VaultSecret> {
 }
 
 // Receives every connection's deliveries, matches triggers, relays channel
-// replies and mints code host tokens. `api` has the router's `Url`; `store`
-// is where its config is contributed to, such as a `kvJson()` document. `rootKey` is the secret every other
-// key is derived from. bind() binds a secret from `vault` to the router, and
-// returns its binding name, made from the secret's id unless `name` is given.
+// replies and mints code host tokens. `url` is the router's URL, an output
+// ref. `store` is where its config is contributed to, such as a `kvJson()`
+// document. `rootKey` is the secret every other key is derived from. bind()
+// binds a secret from `vault` to the router, and returns its binding name,
+// made from the secret's id unless `name` is given. channel() runs a
+// connection's channel.
 interface Router {
-  api: RouterApi;
+  url: OutputRef<string>;
   store: RouterConfigStore;
   vault: Vault;
   rootKey: VaultSecret;
   bind(secret: VaultSecret, name?: string): string;
+  channel(options: RouterChannelOptions): void;
 }
+
+// A connection's channel: the module that exports it, and the secrets and
+// values it reads by name.
+type RouterChannelOptions = {
+  connection: string; // such as "github/acme-agents"
+  module: string; // absolute path of a module that exports `channel`
+  secrets?: Record<string, VaultSecret>;
+  values?: Record<string, Input<string>>;
+};
 
 // In the infra: Notation Factory's presence on a platform.
 interface Connection {

@@ -285,7 +285,9 @@ const saveSession = async (run: Run) => {
   const paths: string[] = [];
   for (const project of await readdir(TRANSCRIPTS).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, session.id]) {
-      if (existsSync(join(TRANSCRIPTS, project, name))) paths.push(join(project, name));
+      // Claude Code names the directories after the working directory, so
+      // they start with "-", which tar would read as an option.
+      if (existsSync(join(TRANSCRIPTS, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
   if (paths.length > 0) {

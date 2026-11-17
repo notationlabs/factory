@@ -14,16 +14,10 @@ export type GithubEvent =
   | "pull_request"
   | "pull_request_review_comment";
 
-/**
- * Combines event lists: each event once. Generic, like `mergeContributions`,
- * so it type-checks against the `Schema` constraint as well as the App's.
- */
-export const union = <T extends GithubEvent[] | undefined>(
-  items: DeepPartial<T>[],
-): GithubEvent[] => {
-  const lists = items as unknown as (GithubEvent[] | undefined)[];
-  return [...new Set(lists.flatMap((list) => list ?? []))];
-};
+/** Combines event lists: each event once. */
+export const union = (items: (GithubEvent[] | undefined)[]): GithubEvent[] => [
+  ...new Set(items.flatMap((list) => list ?? [])),
+];
 
 /** Combines permission sets: for each permission, write wins over read. */
 export const highestPermissions = (

@@ -1,7 +1,8 @@
 import type { kv, r2, workers } from "@notation/cloudflare/resources";
+import type { DeepInput } from "@notation/resource";
 import type { CloudflareSecret } from "./vault.ts";
 
-type WorkerBinding = workers.WorkerBinding;
+type WorkerBinding = DeepInput<workers.WorkerBinding>;
 
 /** The name that the hub's Workers read the project's KV namespace as. */
 export const KV_BINDING = "FACTORY_KV";

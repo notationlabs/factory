@@ -26,6 +26,7 @@ export type {
   Router,
   RouterApi,
   RouterConfig,
+  RouterConfigContribution,
   RouterConfigStore,
 } from "./router.ts";
 export type {

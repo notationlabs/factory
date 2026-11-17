@@ -14,6 +14,7 @@
     "@notation/factory": "workspace:*",
     "@notation/factory-claude": "workspace:*",
     "@notation/factory-cloudflare": "workspace:*",
-    "@notation/factory-github": "workspace:*"
+    "@notation/factory-github": "workspace:*",
+    "@notation/factory-cli": "workspace:*"
   }
 }

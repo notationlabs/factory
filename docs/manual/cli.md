@@ -86,7 +86,7 @@ Tears down all outpost containers (`FACTORY_STATUS` cleared), then destroys `Dep
 Subscribe the current repository to your hub:
 
 ```sh
-factory repo install [--dry-run]
+factory repo install [--dry-run] [--repo <owner/name>]
 ```
 
 Grants the code host's connection access to the repository and waits for the initial container build:

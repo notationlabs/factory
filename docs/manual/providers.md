@@ -92,6 +92,6 @@ The provider plugins don't yet do all that these pages describe:
 | Gap | Effect |
 | --- | --- |
 | The router only matches deliveries | The router asks the connection's channel to verify and parse a delivery, reads the outpost of the delivery's repo from KV, and returns the triggers it matches. It doesn't run them yet. Only GitHub implements the channel contract, and it doesn't check `github.team(...)`. A channel matches only when its `scope` is set and equals the delivery's, so the deployer will have to fill in the default scope. A channel scoped to another repo matches only deliveries that reach that repo's outpost |
-| Nothing calls the router's sync yet | After a deploy, run `curl -X POST <Url>/sync` to set each GitHub App's webhook URL and secret. Later, `factory infra up` will call it |
+| The CLI has only `factory infra up`, `factory infra down` and `factory repo install` | `factory repo install` opens GitHub's install page with the repo selected, then waits for you to press Enter. It can't check the install, because only the App can see its installations, and the deployer doesn't record them yet |
 | The deployer Worker is a placeholder | `workers/deployer.ts` in `@notation/factory-cloudflare` only returns a placeholder response |
 | A changed Railway secret reaches a service only when the service redeploys | Railway resolves a `${{shared.<name>}}` reference when it deploys the service. Writing a new value to the sealed variable doesn't redeploy the router or deployer |

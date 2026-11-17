@@ -2,6 +2,7 @@ import { type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   bindingName,
   RandomKey,
+  RouterSync,
   type RandomKeyInstance,
   type Router as RouterContract,
   type RouterChannelOptions,
@@ -119,6 +120,17 @@ export class Router
         schema: RouterConfigSchema,
         // A hub with no connections and no operator auth contributes nothing.
         value: {},
+      }),
+    );
+
+    this.add(
+      new RouterSync(`${id}-sync`, {
+        config: {
+          Url: this.url,
+          Config: this.store.value
+            .outputRef("Value")
+            .map((value) => JSON.stringify(value)),
+        },
       }),
     );
   }

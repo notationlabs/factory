@@ -43,6 +43,8 @@
     "packages/*/lib/**/*.ts",
     "packages/*/router/**/*.ts",
     "packages/*/workers/**/*.ts",
+    "packages/*/bin/**/*.ts",
+    "packages/*/commands/**/*.ts",
     "examples/**/*.ts",
     "scripts/**/*.ts"
   ]

@@ -101,6 +101,7 @@ The factory doesn't choose the secret's name in the store. The vault's provider 
 | Provider | `Vault` | Each secret is | Name in the store |
 | --- | --- | --- | --- |
 | Cloudflare | `cloudflare.Vault` | A secret in the account's Secrets Store. Values can't be read back through the API. Workers read it through a `secrets_store_secret` binding | `<app>--<stage>--secret-<id>-<instance>`, where Notation generates the 8 hex characters of the instance |
+| Railway | `railway.Vault` | A sealed shared variable in the router's project. Values are never shown in the dashboard or returned by the API. A service reads it through a variable named after the binding name, whose value is `${{shared.<name>}}` | `<app>__<stage>__<id>`, with characters other than letters, digits and `_` replaced by `_` |
 
 **The vault and the hub are always on the same provider.** `cloudflare.Router` and `cloudflare.Deployer` take only a `cloudflare.Vault`. A vault elsewhere would need its own access credential, and that credential would have to live in the hub provider's store anyway.
 
@@ -126,7 +127,7 @@ Deploy holds a value only in the process that received it. When a secret needs a
 | --- | --- |
 | A source | Reads the value from the source again |
 | The router's `RandomKey`, the Cloudflare deployer's token | Rotates it: makes a new value, and writes every secret that holds it |
-| A GitHub App's private key, a Slack app's tokens | Fails, because the provider has no API that issues another value |
+| A GitHub App's private key, a Slack app's tokens, the Railway deployer's token | Fails, because the provider has no API that issues another value |
 
 **For the last row, plan and deploy fail and print two commands.** One command passes a value that you issue at the provider, such as a private key that you generate on the GitHub App's settings page:
 
@@ -165,7 +166,7 @@ Each Worker or service binds only the secrets it uses:
 
 **The router never binds an account's secrets, and the deployer never binds a connection's credentials.** A leak of one Worker or service therefore exposes only the secrets it binds, plus the root key.
 
-A binding is a `secrets_store_secret` entry in the Worker's `Bindings`.
+On Cloudflare, a binding is a `secrets_store_secret` entry in the Worker's `Bindings`. On Railway, it is a variable on the service.
 
 ### The deployer's provider token
 
@@ -174,6 +175,7 @@ The deployer has a provider token of its own, which it owns as a resource and ke
 | Provider | Token | The deployer reads it as |
 | --- | --- | --- |
 | Cloudflare | An account API token, with Workers Scripts Write, Workers CI Write and Workers Containers Write in the deployer's account | `CLOUDFLARE_API_TOKEN` |
+| Railway | A project token | `RAILWAY_TOKEN` |
 
 ### Losing the vault
 
@@ -192,6 +194,7 @@ The vault's secrets belong to the hub's Notation stage, so `factory infra down` 
 | --- | --- |
 | Create and deploy the hub on Cloudflare | `npx wrangler login`, or `CLOUDFLARE_API_TOKEN` (e.g. in CI). Creating the deployer's token needs the Account API Tokens: Edit permission |
 | Choose the deployer's Cloudflare account | `CLOUDFLARE_ACCOUNT_ID`, or `accountId` on `cloudflare.Deployer` |
+| Create and deploy the hub on Railway | `RAILWAY_API_TOKEN` |
 | Create a GitHub App or Slack app | Your browser, through the platform's manifest flow |
 | Calls to GitHub as you, e.g. `factory repo install` | Your `gh` login |
 | Write account secrets to the vault | The account's source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `sources.Env` |
@@ -245,7 +248,7 @@ Containers get no channel credential. They read and reply on a conversation thro
 
 ## Outposts
 
-Outposts declare no secrets of their own. The deployer gives each container two things when it deploys it, stored as the provider's own secrets (Worker secrets on Cloudflare):
+Outposts declare no secrets of their own. The deployer gives each container two things when it deploys it, stored as the provider's own secrets (Worker secrets on Cloudflare, sealed variables on Railway):
 
 - its `FACTORY_CONTAINER_KEY`
 - the secrets of every account whose runtime the container lists, which the deployer reads through its own bindings

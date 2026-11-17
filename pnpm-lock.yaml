@@ -60,6 +60,9 @@ importers:
       '@notation/factory-claude':
         specifier: workspace:*
         version: link:../../packages/claude
+      '@notation/factory-cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@notation/factory-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
@@ -78,6 +81,9 @@ importers:
       '@notation/factory-claude':
         specifier: workspace:*
         version: link:../../packages/claude
+      '@notation/factory-cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@notation/factory-github':
         specifier: workspace:*
         version: link:../../packages/github
@@ -94,6 +100,12 @@ importers:
       '@notation/factory':
         specifier: workspace:*
         version: link:../factory
+
+  packages/cli:
+    dependencies:
+      '@notation/resource':
+        specifier: 0.26.0
+        version: 0.26.0
 
   packages/cloudflare:
     dependencies:

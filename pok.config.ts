@@ -20,6 +20,7 @@ export default defineConfig({
         published("slack"),
         published("claude"),
         published("railway"),
+        published("cli"),
       ],
     }),
   ],

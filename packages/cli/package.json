@@ -1,0 +1,25 @@
+{
+  "name": "@notation/factory-cli",
+  "version": "0.0.0",
+  "author": "Daniel Grant",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notationlabs/factory.git",
+    "directory": "packages/cli"
+  },
+  "type": "module",
+  "bin": {
+    "factory": "./bin/factory.ts"
+  },
+  "files": [
+    "bin",
+    "commands"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@notation/resource": "0.26.0"
+  }
+}

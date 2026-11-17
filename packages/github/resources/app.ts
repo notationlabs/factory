@@ -110,9 +110,10 @@ export const App = defineResource<AppApi>({
       // A new hookUrl reaches GitHub through the router's sync, which signs
       // in as the App with its private key.
     },
-    delete: async () => {
-      throw new Error(
-        "GitHub has no API to delete an App: delete it on its settings page",
+    // GitHub has no API to delete an App.
+    delete: async (key) => {
+      console.error(
+        `Delete the GitHub App ${key.slug} on its settings page: https://github.com/settings/apps/${key.slug}/advanced`,
       );
     },
   });

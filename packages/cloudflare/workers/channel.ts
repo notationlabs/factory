@@ -22,6 +22,12 @@ const context = (env: Env): ChannelContext => ({
 
 /** One connection's channel, which the router calls over its service binding. */
 export default class ChannelWorker extends WorkerEntrypoint<Env> {
+  // Cloudflare refuses a Worker whose default export has no event handler,
+  // and RPC methods don't count as one.
+  fetch() {
+    return new Response("not found", { status: 404 });
+  }
+
   receive(request: Request) {
     return channel(context(this.env)).receive(request);
   }

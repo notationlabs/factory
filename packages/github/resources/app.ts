@@ -4,7 +4,6 @@ import {
   createApp,
   readApp,
   requestAppChange,
-  setWebhook,
 } from "../lib/app.ts";
 import {
   type GithubEvent,
@@ -108,7 +107,8 @@ export const App = defineResource<AppApi>({
           permissions: params.permissions,
         });
       }
-      await setWebhook(key, params.hookUrl);
+      // A new hookUrl reaches GitHub through the router's sync, which signs
+      // in as the App with its private key.
     },
     delete: async () => {
       throw new Error(

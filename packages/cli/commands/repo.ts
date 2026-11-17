@@ -1,9 +1,9 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { collectResourceGraph } from "@notation/resource";
-import { openBrowser, output } from "./shell.ts";
+import { loadConfig, openBrowser, output } from "./shell.ts";
 
 /** The repo's `owner/name`, from its `origin` remote on GitHub. */
 const githubRepo = async (dir: string) => {
@@ -33,25 +33,42 @@ const appSlug = (name: string) =>
 const gh = async <T>(path: string) =>
   JSON.parse(await output("gh", ["api", path])) as T;
 
-/** The outpost's `.factory/config.ts`, in this directory or at the root of its git repo. */
-const outpostConfig = async () => {
-  const here = join(process.cwd(), ".factory", "config.ts");
-  if (existsSync(here)) return here;
+/** The outpost's directory: this one if it has `.factory/config.ts`, otherwise the root of its git repo. */
+const outpostDir = async () => {
+  if (existsSync(join(process.cwd(), ".factory", "config.ts"))) {
+    return process.cwd();
+  }
   const root = await output("git", ["rev-parse", "--show-toplevel"]);
-  const config = join(root, ".factory", "config.ts");
-  if (!existsSync(config)) {
+  if (!existsSync(join(root, ".factory", "config.ts"))) {
     throw new Error(`There's no .factory/config.ts here or in ${root}.`);
   }
-  return config;
+  return root;
 };
 
 /**
- * Opens GitHub's page to install each connection's App on the repo: `repo`
- * if given, otherwise the repo of the `origin` remote.
+ * The outpost's repo: `given`, then `repo` in `factory.config.ts`, then the
+ * `origin` remote. The remote only names the outpost's repo when the outpost
+ * is at the root of the git repo.
+ */
+const outpostRepo = async (dir: string, given?: string) => {
+  const repo = given ?? (await loadConfig(dir)).repo;
+  if (repo) return repo;
+  const root = await output("git", ["rev-parse", "--show-toplevel"], dir);
+  if (realpathSync(root) !== realpathSync(dir)) {
+    throw new Error(
+      `${dir} isn't the root of its git repo, so its origin remote may be another repo's. Pass --repo <owner/name>, or set repo in factory.config.ts.`,
+    );
+  }
+  return githubRepo(dir);
+};
+
+/**
+ * Opens GitHub's page to install each connection's App on the outpost's repo.
  */
 export const repoInstall = async ({ repo: given }: { repo?: string }) => {
-  const config = await outpostConfig();
-  const repo = given ?? (await githubRepo(process.cwd()));
+  const dir = await outpostDir();
+  const config = join(dir, ".factory", "config.ts");
+  const repo = await outpostRepo(dir, given);
   const names = await githubConnections(config);
   if (names.length === 0) {
     console.log(".factory/config.ts uses no GitHub connection, so there's nothing to install.");

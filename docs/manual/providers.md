@@ -33,6 +33,7 @@ new cloudflare.Deployer("deployer", {
   accounts: [claudeAccount],
   accountId: "<account id>", // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
   knownHosts: ["ssh-ed25519 AAAA... dev@acme"], // <-- written to outpost authorized_keys for `factory container ssh`
+  regions: ["WEUR"], // <-- optional; where outpost containers may run
 });
 ```
 

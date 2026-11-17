@@ -41,4 +41,5 @@ new cloudflare.Deployer("deployer", {
   router,
   vault,
   accounts: [claudeAccount],
+  regions: ["WEUR"],
 });

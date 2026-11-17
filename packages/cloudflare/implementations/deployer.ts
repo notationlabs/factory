@@ -33,6 +33,14 @@ const deployerConfig = v.object({
   accountId: v.optional(v.string()),
   /** The most outpost containers that can run at once, across all repos. */
   maxContainers: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1)), 10),
+  /**
+   * The regions where outpost containers may run, such as `["WEUR"]`.
+   * Without it, Cloudflare starts a container in the location nearest to
+   * the request that has the image, which can be far from the repo's users.
+   */
+  regions: v.optional(
+    v.array(v.picklist(["ENAM", "WNAM", "EEUR", "WEUR", "APAC", "SAM", "ME", "OC", "AFR"])),
+  ),
 });
 export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
@@ -72,6 +80,7 @@ export class Deployer
     const {
       knownHosts,
       maxContainers,
+      regions,
       accountId = process.env.CLOUDFLARE_ACCOUNT_ID,
     } = v.parse(deployerConfig, config);
     if (!accountId) {
@@ -116,6 +125,7 @@ export class Deployer
         image: { context: outpostImage(id, runtimes) },
         maxInstances: maxContainers,
         instanceType: "standard-1",
+        ...(regions && { constraints: { regions } }),
       },
     });
 

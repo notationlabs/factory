@@ -1,10 +1,11 @@
 import { defineConfig } from "@pokit/core";
 import { release } from "pok-plugins";
 
-const published = (dir: string) => ({
+// The packages ship their TypeScript source. The only build is the factory
+// package's SDK, the modules that outposts' configs import in the deployer.
+const published = (dir: string, build: string | false = false) => ({
   file: `packages/${dir}/package.json`,
-  // There is no build step. The packages ship their TypeScript source.
-  build: false as const,
+  build,
 });
 
 export default defineConfig({
@@ -14,7 +15,7 @@ export default defineConfig({
     release({
       // Lockstep: every package moves to the same version.
       packages: [
-        published("factory"),
+        published("factory", "pnpm build:sdk"),
         published("cloudflare"),
         published("github"),
         published("slack"),

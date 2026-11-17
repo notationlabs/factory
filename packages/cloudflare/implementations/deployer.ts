@@ -9,6 +9,7 @@ import {
   json,
   type Worker,
   worker,
+  workerLoader,
 } from "@notation/cloudflare/workers";
 import * as v from "valibot";
 import { KV_BINDING } from "./bindings.ts";
@@ -99,6 +100,8 @@ export class Deployer
       url: false,
       bindings: () => ({
         [KV_BINDING]: router.kv,
+        // Runs outposts' configs, each in an isolate with no network.
+        LOADER: workerLoader(),
         CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,
         FACTORY_ROOT_KEY: router.rootKey.secret,
         CLOUDFLARE_ACCOUNT_ID: json(accountId),

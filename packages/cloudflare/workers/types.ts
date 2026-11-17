@@ -8,3 +8,23 @@ export type KVNamespace = {
 };
 
 export type SecretsStoreSecret = { get(): Promise<string> };
+
+type LoadedWorker = {
+  getEntrypoint(): { fetch(request: Request): Promise<Response> };
+};
+
+/** The Worker Loader binding: runs code given at runtime in an isolate of its own. */
+export type WorkerLoader = {
+  get(
+    id: string,
+    code: () => {
+      compatibilityDate: string;
+      compatibilityFlags?: string[];
+      mainModule: string;
+      modules: Record<string, string | { js: string }>;
+      /** `null` blocks the isolate's network access. */
+      globalOutbound: null;
+      env: Record<string, unknown>;
+    },
+  ): LoadedWorker;
+};

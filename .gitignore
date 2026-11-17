@@ -1,3 +1,5 @@
 node_modules
 dist
 .notation
+packages/factory/deployer/sdk.gen.ts
+.wrangler

@@ -87,6 +87,8 @@ const outpostSource = (
     // same account without it, and containers reply through the router's.
     compatibility_flags: ["global_fetch_strictly_public"],
     workers_dev: true,
+    // Cloudflare refuses preview URLs for a Worker name over 54 characters.
+    preview_urls: false,
     observability: { enabled: true },
     containers: [
       {

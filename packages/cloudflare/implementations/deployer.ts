@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { ResourceGroup } from "@notation/resource";
+import { deferredOutputRef, type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   type Account,
   type Deployer as DeployerContract,
@@ -9,9 +9,9 @@ import { kvJson } from "@notation/cloudflare/kv";
 import { tokens } from "@notation/cloudflare/resources";
 import {
   addBindings,
-  isWorkerGroup,
   json,
   type Worker,
+  type WorkerGroup,
   worker,
   workerLoader,
 } from "@notation/cloudflare/workers";
@@ -68,6 +68,24 @@ export type DeployerOptions = DeployerConfig & {
 /** A module whose default export is Factory's default outpost Dockerfile. */
 const dockerfileModule = () =>
   `export default ${JSON.stringify(readFileSync(new URL("../image/Dockerfile", import.meta.url), "utf8"))};`;
+
+const workerRegistration = Symbol.for("@notation/cloudflare/WorkerDeclaration");
+
+/**
+ * A ref to the generated name of a Worker from `worker()`. Notation builds
+ * the Worker's script once the infra modules have loaded, and has no public
+ * API for its name yet, so this reads Notation's registration of the Worker.
+ */
+const scriptNameRef = (declaration: Worker) =>
+  deferredOutputRef({
+    resourceId: `worker:${declaration.id}`,
+    key: "ScriptName",
+    resolve: () => {
+      const entry = (declaration as unknown as Record<symbol, { build(): WorkerGroup } | undefined>)[workerRegistration];
+      if (!entry) throw new Error(`The Worker ${declaration.id} has no registration in @notation/cloudflare.`);
+      return entry.build().script;
+    },
+  }) as OutputRef<string>;
 
 /** Leaves room in an outpost Worker's name for `-` and a 12-character hash, within a DNS label. */
 const OUTPOST_PREFIX_MAX_LENGTH = 50;
@@ -179,7 +197,6 @@ export class Deployer
         ),
       }),
     });
-    if (!isWorkerGroup(this.worker)) throw new Error(`worker() didn't return a WorkerGroup for the deployer ${id}.`);
     this.add(
       kvJson({
         id: `${id}-outpost-settings`,
@@ -190,7 +207,7 @@ export class Deployer
           accountId,
           namespace: this.namespace.outputRef("Name"),
           prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
-          deployer: this.worker.script.outputRef("ScriptName"),
+          deployer: scriptNameRef(this.worker),
           compatibilityDate: COMPATIBILITY_DATE,
           sleepAfter,
           ...(regions && { regions }),

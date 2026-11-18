@@ -12,6 +12,11 @@ export type StartedBuild = {
   commit: string;
   /** The hash of the source that the deployer pushed. */
   hash: string;
+  /**
+   * The uuid of the build, when the deployer started it itself. A build
+   * started by branch, not by a push, may not carry the pushed commit.
+   */
+  build?: string;
 };
 
 /** A started build, with the code host's repo and the commit that `.factory/` was read at. */
@@ -74,7 +79,9 @@ export class BuildWatch extends DurableObject<OutpostsEnv> {
       "GET",
       `/accounts/${settings.accountId}/builds/workers/${watched.tag}/builds?per_page=10`,
     );
-    const build = builds.find((b) => b.build_trigger_metadata?.commit_hash === watched.commit);
+    const build = builds.find((b) =>
+      watched.build ? b.build_uuid === watched.build : b.build_trigger_metadata?.commit_hash === watched.commit,
+    );
     const late = Date.now() - watched.since > GIVE_UP_MS;
     if (!build || build.status !== "stopped") {
       if (late) {

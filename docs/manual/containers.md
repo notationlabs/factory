@@ -68,7 +68,15 @@ The deployer builds the image when a push to the default branch changes the cont
 1. The deployer commits the source to an Artifacts repo for the container.
 2. Workers Builds builds the image, with `.factory/` as its context, and deploys the container's outpost Worker.
 
-A run that arrives before the first build finishes fails, with a message that the container has no image yet. See [Providers](./providers.md#cloudflare).
+Each build shows as a check on the pushed commit, named after the container: `factory/build dev` for acme/webapp's `dev` container.
+
+| Check | When |
+| --- | --- |
+| Queued | The deployer pushed the container's source |
+| In progress | Workers Builds started the build. The check's details link to the build's log |
+| Success, failure or cancelled | The build stopped. After a failure, the next push builds the container again, even if `.factory/` didn't change |
+
+A push that doesn't change a container's source starts no build, and gets no check for that container. A run that arrives before the first build finishes fails, with a message that the container has no image yet. See [Providers](./providers.md#cloudflare).
 
 ## Runtimes
 

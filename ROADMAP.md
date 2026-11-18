@@ -64,7 +64,6 @@ Nothing. Pick from Next.
   - A push that doesn't change a container's source gets no check run for that container.
 - [ ] **Stage 2 follow-ups:**
   - Retry a failed build. The deployer saves the source's hash once the build starts, so a failed build isn't retried until `.factory/` changes.
-  - Check whether a push to an Artifacts repo with a build config starts a build by itself. If it does, the deployer's explicit build is a second one.
   - `factory infra down` deletes the Artifacts repos, but not the outpost Workers or their container applications.
   - Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
 

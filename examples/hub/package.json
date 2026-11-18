@@ -8,9 +8,9 @@
     "destroy": "notation destroy"
   },
   "dependencies": {
-    "@notation/cli": "0.27.0",
-    "@notation/core": "0.27.0",
-    "@notation/std": "0.27.0",
+    "@notation/cli": "0.28.0",
+    "@notation/core": "0.28.0",
+    "@notation/std": "0.28.0",
     "@notation/factory": "workspace:*",
     "@notation/factory-claude": "workspace:*",
     "@notation/factory-cloudflare": "workspace:*",

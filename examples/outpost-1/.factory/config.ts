@@ -18,7 +18,7 @@ const dev = new Container("dev", {
 
 const coder = new claude.Agent("coder", {
   model: "claude-opus-5-5",
-  effort: "high",
+  effort: "low",
 });
 
 new Trigger("mention", {

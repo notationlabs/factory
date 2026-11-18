@@ -4,6 +4,7 @@ import {
   createApp,
   readApp,
   requestAppChange,
+  requestAppDeletion,
 } from "../lib/app.ts";
 import {
   type GithubEvent,
@@ -112,11 +113,7 @@ export const App = defineResource<AppApi>({
       // in as the App with its private key.
     },
     // GitHub has no API to delete an App.
-    delete: async (key) => {
-      console.error(
-        `Delete the GitHub App ${key.slug} on its settings page: https://github.com/settings/apps/${key.slug}/advanced`,
-      );
-    },
+    delete: async (key) => requestAppDeletion(key),
   });
 
 export type AppInstance = InstanceType<typeof App>;

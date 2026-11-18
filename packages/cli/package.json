@@ -21,6 +21,6 @@
   },
   "dependencies": {
     "@notation/factory-github": "workspace:*",
-    "@notation/resource": "0.28.0"
+    "@notation/resource": "0.28.1"
   }
 }

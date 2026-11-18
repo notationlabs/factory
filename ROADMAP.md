@@ -28,7 +28,7 @@ These items have to be done before Factory's agents work on `notationlabs/factor
 
 In priority order.
 
-- [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Untrusted messages are counted but not shown. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
+- [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Untrusted messages are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
 - [ ] **Deliveries:** the old prototype had these, and Factory doesn't yet:
   - An inbox that saves each delivery before answering, and replays saved deliveries when the router starts.
   - De-duplication by delivery id.
@@ -39,8 +39,11 @@ In priority order.
   - Give the router admin routes behind `OperatorAuth`, which the router doesn't read yet. They list repos, deploys and failed deliveries, and pass sync and status requests to the deployer.
   - Add `factory infra status`, which shows each repo's deploys and the failed deliveries, as `docs/manual/cli.md` already describes.
   - Have `factory infra up` wait for the deployer's sync to finish, and report its result.
-- [ ] **Tests:** fakes for GitHub, Cloudflare and Claude, and an end-to-end test that runs a hub and an outpost in one process, from a webhook to a reply.
 - [ ] **Stage 2 follow-up:** Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
+- [ ] **Sessions:**
+  - React to the triggering comment, for example with 👀, before the run starts.
+- [ ] **Runner:**
+  - Write an agent's `files`. Give each Claude agent its own `CLAUDE_CONFIG_DIR`, so agents in one container don't share settings or files.
 
 ## Later
 
@@ -49,29 +52,30 @@ In priority order.
 - [ ] **Sessions:**
   - Let a comment start with `/new` to start a fresh session, or `/compact [focus]` to compact the session and reply with its size before and after.
   - Save each thread's state. When a runner restarts mid-run, mark the run interrupted and say so on the thread.
-  - React to the triggering comment, for example with 👀, before the run starts.
 - [ ] **Runner:**
-  - Write an agent's `files`. Give each Claude agent its own `CLAUDE_CONFIG_DIR`, so agents in one container don't share settings or files.
-  - Commit as the App's bot, with its noreply address, instead of the fixed `notation-factory` identity.
+  - Disable harness commit trailers. Optionally set a custom commit trailer.
+  - Make the run timeout configurable, instead of the fixed 2 hours, and cap how many runs a container runs at once.
+  - Write intermediate messages which replace each other, then replaced finally by the final end-of-run message.
 - [ ] **CLI:**
   - Add `factory container ssh`.
   - Add `factory container resume`, which lists a container's sessions and attaches to one in the agent's interactive interface.
-  - Add `factory repo uninstall`, which opens the App's installation settings and waits for the router to drop the repo. Add `factory infra up --prune`, which deletes the containers of uninstalled repos.
-  - Make `factory infra down` safer. Show what it will delete, ask for confirmation, and take `--dry-run` and `--yes`. List the resources it doesn't delete, and open each one's delete page, including the GitHub App's settings page, as the docs say. It only prints the App's link today.
   - Have `factory repo install` refuse an App that lacks the events or permissions the outpost needs. When a deploy fails with a fix to make in the browser, open the fix's page, wait, and try again.
 - [ ] **Deployer:**
   - Run the checks in `docs/manual/outposts.md#subscribing--deploys` before storing an outpost config. Warn about triggers that can never run and about agents whose runtime the container doesn't declare. Check each policy against the App's installation: the App exists, the installation isn't suspended, and it grants each permission on each repo.
-  - Once Notation has queues, watch builds through a queue of Workers Builds events instead of the `BuildWatch` alarm. Events carry the build's uuid and arrive within seconds, so the deployer no longer polls or matches commit hashes. The deployer subscribes each outpost Worker when it creates it, and maps each Artifacts commit to its repo, commit and container in KV. A build that never starts still needs a timeout.
 - [ ] **Router:**
   - Check `github.team(...)` in a trigger's `from`.
   - Mint tokens for custom `Policy` types, not only `github.Policy`.
   - Implement the channel contract for Slack.
 - [ ] **GitHub:** adopt an existing App by its slug, so a recreated hub keeps the App and its installations. GitHub returns a private key only when it creates an App, so adoption needs a key that you generate on the App's settings page.
-- [ ] **Notation:** let a Worker's bindings take contributions, or add a bundle resource, so the router can drop its own build script.
-- [ ] **Optional:**
-  - Make the run timeout configurable, instead of the fixed 2 hours, and cap how many runs a container runs at once.
-  - Stream the agent's output, and log each tool call as it happens instead of only at the end of the run.
-- [ ] **Railway:** no work planned. The stubs stay, and a changed secret reaches a service only when the service redeploys.
+- [ ] **Tests:** fakes for GitHub, Cloudflare and Claude, and an end-to-end test that runs a hub and an outpost in one process, from a webhook to a reply.
+
+## Depends on Notation features
+
+- [ ] **Railway:** Create infra resources.
+- [ ] **Worker contributions:** let a Worker's bindings take contributions, or add a bundle resource, so the router can drop its own build script.
+- [ ] **Deployer:** Once Notation has queues, watch builds through a queue of Workers Builds events instead of the `BuildWatch` alarm. Events carry the build's uuid and arrive within seconds, so the deployer no longer polls or matches commit hashes. The deployer subscribes each outpost Worker when it creates it, and maps each Artifacts commit to its repo, commit and container in KV. A build that never starts still needs a timeout.
+- [ ] Make `factory infra down` safer. Show what it will delete, ask for confirmation, and take `--dry-run` and `--yes`. List the resources it doesn't delete, and open each one's delete page, including the GitHub App's settings page, as the docs say. It only prints the App's link today.
+- [ ] Add `factory repo uninstall`, which opens the App's installation settings and waits for the router to drop the repo. Add `factory infra up --prune`, which deletes the containers of uninstalled repos.
 
 ## Dropped
 

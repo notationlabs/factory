@@ -150,6 +150,19 @@ export const readApp = async (key: {
   return { slug: app.slug, id: String(app.id) };
 };
 
+/** Opens the App's advanced settings, where its owner must delete it. */
+export const requestAppDeletion = async (key: { slug: string }): Promise<void> => {
+  const app = await github<{ owner: { login: string; type: string } }>(
+    "GET",
+    `/apps/${encodeURIComponent(key.slug)}`,
+    await ghToken(),
+  );
+  const owner = app.owner.type === "Organization" ? `/organizations/${app.owner.login}` : "";
+  const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/advanced`;
+  console.error(`Delete the GitHub App ${key.slug} on its settings page: ${url}`);
+  openBrowser(url);
+};
+
 /** How long a deploy waits for you to save an App's new permissions and events. */
 const APP_CHANGE_TIMEOUT_MS = 15 * 60 * 1000;
 

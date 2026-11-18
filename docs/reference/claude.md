@@ -69,7 +69,7 @@ A trigger that runs `coder` must target a container that lists `claude.runtime`.
 | --- | --- |
 | `model` | Written to `/data/agents/<name>/settings.json` (and passed via `--model`) |
 | `effort` | Passed as `--effort <low \| medium \| high \| xhigh \| max>` |
-| `systemPrompt` | Appended to runner prompt at `/data/agents/<name>/system-prompt.md` |
+| `systemPrompt` | Appended to the runner's prompt, and passed with `--append-system-prompt` |
 | `settings` | Merged into `/data/agents/<name>/settings.json` at runtime |
 | `files` | `~/.claude/*` writes to `/data/agents/<name>/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
 

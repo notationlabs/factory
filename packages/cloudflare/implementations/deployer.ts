@@ -7,6 +7,7 @@ import {
 } from "@notation/factory";
 import { tokens } from "@notation/cloudflare/resources";
 import {
+  $durableObject,
   addBindings,
   json,
   type Worker,
@@ -151,6 +152,15 @@ export class Deployer
       value: this.buildsToken.credentials.Value,
     });
 
+    // TODO: remove after one deploy. It unprotects the namespace that hosted
+    // outpost containers before each repo got its own outpost Worker, so that
+    // the next deploy may delete it.
+    const legacyOutposts = $durableObject({
+      id: `${id}-outposts`,
+      class: class OutpostContainer {},
+      protect: false,
+    });
+
     this.worker = worker({
       id,
       compatibilityDate: COMPATIBILITY_DATE,
@@ -166,6 +176,7 @@ export class Deployer
         [R2_BINDING]: router.bucket,
         // Runs outposts' configs, each in an isolate with no network.
         LOADER: workerLoader(),
+        LEGACY_OUTPOSTS: legacyOutposts,
         CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,
         FACTORY_ROOT_KEY: router.rootKey.secret,
         CLOUDFLARE_ACCOUNT_ID: json(accountId),

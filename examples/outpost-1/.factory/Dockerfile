@@ -14,3 +14,5 @@ RUN useradd --create-home --home-dir /data/home --shell /bin/bash factory \
  && chown -R factory:factory /data
 USER factory
 ENV HOME=/data/home
+# Bun's image works in /home/bun/app, which the factory user can't read.
+WORKDIR /data/home

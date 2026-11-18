@@ -150,25 +150,60 @@ export const readApp = async (key: {
   return { slug: app.slug, id: String(app.id) };
 };
 
+/** How long a deploy waits for you to save an App's new permissions and events. */
+const APP_CHANGE_TIMEOUT_MS = 15 * 60 * 1000;
+
+const APP_CHANGE_POLL_MS = 5000;
+
+/** The requested permissions and events that the App doesn't have yet. */
+const missingFromApp = async (slug: string, change: { events?: GithubEvent[]; permissions?: Permissions }) => {
+  const app = await github<{ permissions: Record<string, string>; events: string[] }>(
+    "GET",
+    `/apps/${encodeURIComponent(slug)}`,
+    await ghToken(),
+  );
+  const permissions = Object.entries(change.permissions ?? {}).filter(
+    ([name, level]) => app.permissions[name] !== "write" && app.permissions[name] !== level,
+  );
+  const events = (change.events ?? []).filter((event) => !app.events.includes(event));
+  return { permissions, events };
+};
+
 /**
- * GitHub has no API for an App's events and permissions, so this opens the
- * App's settings page and prints what to set there. Each installation then
- * accepts the new permissions on its own page.
+ * GitHub has no API for an App's events and permissions, so you change them
+ * in the browser:
+ * 1. Opens the App's permissions page, and prints what to set there.
+ * 2. Waits until the App has them. Fails the deploy after 15 minutes.
+ * 3. Opens the App's installations, where each installation accepts the new
+ *    permissions. Deploy doesn't wait for that, since checking it needs the
+ *    App's private key.
  */
 export const requestAppChange = async (
   key: { slug: string; org?: string },
   change: { events?: GithubEvent[]; permissions?: Permissions },
 ): Promise<void> => {
-  const owner = key.org ? `/organizations/${key.org}` : "";
-  const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/permissions`;
-  const permissions = Object.entries(change.permissions ?? {}).map(([name, level]) => `${name}: ${level}`);
-  console.error(
-    [
-      `Set the GitHub App ${key.slug}'s permissions and events on ${url}`,
-      `  permissions: ${permissions.join(", ") || "none"}`,
-      `  events: ${(change.events ?? []).join(", ") || "none"}`,
-      "Then accept the new permissions on each installation's page.",
-    ].join("\n"),
-  );
-  openBrowser(url);
+  let missing = await missingFromApp(key.slug, change);
+  if (missing.permissions.length || missing.events.length) {
+    const owner = key.org ? `/organizations/${key.org}` : "";
+    const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/permissions`;
+    console.error(
+      [
+        `Set the GitHub App ${key.slug}'s permissions and events on ${url}, and save:`,
+        `  permissions: ${missing.permissions.map(([name, level]) => `${name}: ${level}`).join(", ") || "no change"}`,
+        `  events: ${missing.events.join(", ") || "no change"}`,
+      ].join("\n"),
+    );
+    openBrowser(url);
+    const deadline = Date.now() + APP_CHANGE_TIMEOUT_MS;
+    while (missing.permissions.length || missing.events.length) {
+      if (Date.now() > deadline) {
+        throw new Error(`The GitHub App ${key.slug} didn't get its new permissions and events within 15 minutes.`);
+      }
+      await new Promise((done) => setTimeout(done, APP_CHANGE_POLL_MS));
+      missing = await missingFromApp(key.slug, change);
+    }
+  }
+  const installations = `${GITHUB_WEB}/apps/${key.slug}/installations/new`;
+  console.error(`Accept the GitHub App ${key.slug}'s new permissions on each installation: ${installations}`);
+  openBrowser(installations);
 };

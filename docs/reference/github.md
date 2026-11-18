@@ -46,7 +46,10 @@ The connection declares the App's private key in the hub vault as the secret `<i
 
 The router sets the App's webhook secret, because only the hub can read the root key that the secret is derived from. `POST <Url>/sync` makes the router ask each connection's channel to set its App's webhook URL to `<Url>/webhook/github/<name>` and its secret to the derived one. The channel authenticates as the App with its private key, so set the private key first. The route needs no auth, because it only sets the values the router derives. Deploy calls it whenever the router's URL or config changes. `github.collaborators()` is decided from the author association that GitHub sends with the event: `OWNER`, `MEMBER` or `COLLABORATOR`.
 
-GitHub has no API for an existing App's permissions and events. When they change, deploy opens the App's permissions page and prints what to set there. Each installation then accepts the new permissions on its own page. Until it does, the router can't write the installation's build checks, and logs the error.
+GitHub has no API for an existing App's permissions and events, so deploy has you change them in the browser:
+1. Deploy opens the App's permissions page, and prints the permissions and events to set there.
+2. Deploy waits until the App has them, through your `gh` login. After 15 minutes it fails, and the next deploy asks again.
+3. Deploy opens the App's installations. Each installation accepts the new permissions on its own page. Deploy doesn't wait for that, and until an installation accepts, the router can't write its build checks and logs the error.
 
 The grant is the App's installation: installing it on a repo (`factory repo install`) lets that repo's channel receive events.
 

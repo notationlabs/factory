@@ -90,6 +90,9 @@ const outpostSource = (
     observability: { enabled: true },
     containers: [
       {
+        // Wrangler names the application `<worker>-<class>`, and Cloudflare
+        // refuses a name with `--`, which Notation's generated names have.
+        name: worker.replace(/-{2,}/g, "-"),
         class_name: CONTAINER_CLASS,
         image,
         image_build_context: context,

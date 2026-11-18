@@ -57,7 +57,8 @@ test("receive parses a signed comment to its App", async () => {
       event: "issue_comment",
       data: {
         action: "created",
-        author: { login: "alice", association: "NONE" },
+        author: { login: "alice", association: "NONE", bot: false },
+        opener: { login: "bob", association: "", bot: false },
         body: "@claude fix",
         before: "@claude fix",
         labels: ["bug"],
@@ -106,7 +107,7 @@ const delivery = (data: Partial<GithubEvent>): Delivery<GithubEvent> => ({
   event: "issue_comment",
   data: {
     action: "created",
-    author: { login: "alice", association: "NONE" },
+    author: { login: "alice", association: "NONE", bot: false },
     body: "@claude fix",
     before: "@claude fix",
     labels: [],
@@ -125,20 +126,52 @@ const selector = (over: object = {}) => ({
 test("from allows a listed user, and a collaborator by author association", () => {
   assert.deepEqual(channel.match(selector(), delivery({})), { result: "allowed" });
   assert.deepEqual(
-    channel.match(selector(), delivery({ author: { login: "bob", association: "NONE" } })),
+    channel.match(selector(), delivery({ author: { login: "bob", association: "NONE", bot: false } })),
     { result: "denied" },
   );
   const collaborators = selector({ from: { kind: "collaborators" } });
   assert.deepEqual(
-    channel.match(collaborators, delivery({ author: { login: "bob", association: "COLLABORATOR" } })),
+    channel.match(collaborators, delivery({ author: { login: "bob", association: "COLLABORATOR", bot: false } })),
     { result: "allowed" },
   );
+});
+
+test("a comment matches only if the issue's author matches from too", () => {
+  const collaborators = selector({ from: { kind: "collaborators" } });
+  const member = { login: "alice", association: "MEMBER", bot: false };
+  assert.deepEqual(
+    channel.match(collaborators, delivery({ author: member, opener: { login: "eve", association: "NONE", bot: false } })),
+    { result: "denied" },
+  );
+  assert.deepEqual(
+    channel.match(collaborators, delivery({ author: member, opener: { login: "bob", association: "OWNER", bot: false } })),
+    { result: "allowed" },
+  );
+});
+
+test("bots never match, even with write access", () => {
+  const collaborators = selector({ from: { kind: "collaborators" } });
+  const bot = { login: "renovate[bot]", association: "MEMBER", bot: true };
+  assert.deepEqual(channel.match(collaborators, delivery({ author: bot })), { result: "denied" });
+  const human = { login: "alice", association: "MEMBER", bot: false };
+  assert.deepEqual(channel.match(collaborators, delivery({ author: human, opener: bot })), { result: "denied" });
+});
+
+test("receive marks bot authors", async () => {
+  const fromBot = {
+    ...commentPayload,
+    issue: { ...commentPayload.issue, user: { login: "dependabot[bot]", type: "Bot" }, author_association: "NONE" },
+  };
+  const received = await channel.receive(await request("issue_comment", fromBot));
+  assert.equal(received.status, "accepted");
+  const { data } = (received as { delivery: Delivery<GithubEvent> }).delivery;
+  assert.deepEqual(data.opener, { login: "dependabot[bot]", association: "NONE", bot: true });
 });
 
 test("a team in from leaves a check for the router to make", () => {
   const team = selector({ from: [{ kind: "team", slug: "acme/core" }] });
   assert.deepEqual(
-    channel.match(team, delivery({ author: { login: "bob", association: "NONE" } })),
+    channel.match(team, delivery({ author: { login: "bob", association: "NONE", bot: false } })),
     { result: "check", sets: [{ kind: "team", slug: "acme/core" }] },
   );
 });

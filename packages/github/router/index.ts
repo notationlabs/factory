@@ -28,11 +28,16 @@ export const verifySignature = async (
 export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY" } as const;
 export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
 
+/** Someone who posted to a thread. `bot` is set for an App or another bot account. */
+export type Author = { login: string; association: string; bot: boolean };
+
 /** The parts of an issue or comment event that selectors read. */
 export type GithubEvent = {
   action: string;
   /** The author of the comment, or of the issue. */
-  author: { login: string; association: string };
+  author: Author;
+  /** For a comment, the issue's author, whose opening post the prompt also quotes. */
+  opener?: Author;
   body: string;
   /** The body before an edit. The same as `body` when an edit didn't change it. */
   before: string;
@@ -41,9 +46,15 @@ export type GithubEvent = {
 
 type Post = {
   body?: string | null;
-  user?: { login: string };
+  user?: { login: string; type?: string };
   author_association?: string;
 };
+
+const authorOf = (post: Post): Author => ({
+  login: post.user?.login ?? "",
+  association: post.author_association ?? "",
+  bot: post.user?.type === "Bot",
+});
 
 const parse = (event: string, payload: any): GithubEvent | undefined => {
   const post: Post | undefined =
@@ -56,10 +67,8 @@ const parse = (event: string, payload: any): GithubEvent | undefined => {
   const body = post.body ?? "";
   return {
     action: payload.action,
-    author: {
-      login: post.user?.login ?? "",
-      association: post.author_association ?? "",
-    },
+    author: authorOf(post),
+    ...(event === "issue_comment" && payload.issue && { opener: authorOf(payload.issue) }),
     body,
     before: payload.changes?.body?.from ?? body,
     labels: (payload.issue?.labels ?? []).map((l: { name: string }) => l.name),
@@ -148,11 +157,8 @@ const selects = (selector: Selector, event: GithubEvent) => {
   return true;
 };
 
-const checkAuthor = (
-  from: Selector["from"],
-  { author }: GithubEvent,
-): AuthorCheck => {
-  const sets = Array.isArray(from) ? from : [from];
+const checkOne = (sets: AuthorSet[], author: Author): AuthorCheck => {
+  if (author.bot) return { result: "denied" };
   const allowed = sets.some((s) =>
     s.kind === "user"
       ? s.login.toLowerCase() === author.login.toLowerCase()
@@ -161,6 +167,19 @@ const checkAuthor = (
   if (allowed) return { result: "allowed" };
   const teams = sets.filter((s) => s.kind === "team");
   return teams.length ? { result: "check", sets: teams } : { result: "denied" };
+};
+
+/**
+ * Whether the event's author may start a run. A comment's prompt also
+ * quotes the issue's opening post, so the issue's author must match `from`
+ * too. Bots never match.
+ */
+const checkAuthor = (from: Selector["from"], { author, opener }: GithubEvent): AuthorCheck => {
+  const sets = Array.isArray(from) ? from : [from];
+  const checks = [author, ...(opener ? [opener] : [])].map((a) => checkOne(sets, a));
+  if (checks.some((c) => c.result === "denied")) return { result: "denied" };
+  const pending = checks.find((c) => c.result === "check");
+  return pending ?? { result: "allowed" };
 };
 
 /** One GitHub App's webhook. A delivery's scope is its repo. */

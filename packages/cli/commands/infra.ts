@@ -10,10 +10,12 @@ const hubDir = () => {
   return dir;
 };
 
+// The packages ship TypeScript, which Node won't strip from files under
+// node_modules, so Notation runs on bun.
 const notation = async (args: string) => {
   const dir = hubDir();
   const { loadEnv } = await loadConfig(dir);
-  await shell(`${loadEnv ? `${loadEnv} ` : ""}npx notation ${args} --pretty`, dir);
+  await shell(`${loadEnv ? `${loadEnv} ` : ""}bun x --bun notation ${args} --pretty`, dir);
 };
 
 /** Deploys the hub. Deploy also syncs each connection with the router. */

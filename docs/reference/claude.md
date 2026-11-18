@@ -37,19 +37,18 @@ The account's `secrets` holds the token under the env var name `CLAUDE_CODE_OAUT
 
 ## Runtime
 
-Install Claude Code in a container's image:
+Give a container Claude Code's credentials:
 
 ```ts [.factory/config.ts]
 import { Container } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 
 const dev = new Container("dev", {
-  image: "./Dockerfile",
-  runtimes: [claude.runtime], // <-- id "claude"; its setup.sh runs at image build
+  runtimes: [claude.runtime], // <-- id "claude"
 });
 ```
 
-The runtime's setup runs through the Dockerfile's `runtime` mount (see [Runtimes](../manual/containers.md#runtimes)). A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
+The image must have `claude`: Factory's default image does, and a repo's own Dockerfile installs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `claude`. A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
 
 ## Agent
 

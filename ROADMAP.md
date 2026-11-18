@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Build each repo's outpost image with Workers Builds.** Each container gets an outpost Worker of its own. The deployer commits the container's `.factory/` to an Artifacts repo with `isomorphic-git`, and Workers Builds builds the image and deploys the Worker. The image holds nothing from Factory: its entrypoint fetches the runner from the outpost Worker. `factory infra up` takes the builds token, a user API token, on a local page. Tested live: a push built the example's `.factory/Dockerfile`, and Claude replied to a mention. See [Containers](docs/manual/containers.md#image) and [Providers](docs/manual/providers.md#cloudflare).
 - [x] **Keep worktrees and sessions across container sleeps.** After each run, the runner saves the worktree as a git bundle and the Claude session to R2, through the `state.factory` host that the container's Durable Object answers. Tested live: a new container restored the untracked file and the session. The runner also handles SIGTERM now, since as PID 1 it ignored the signal and containers never slept.
 - [x] **Refresh GitHub tokens during long runs.** Each run carries a ticket that the router signed. Every 30 minutes while the agent runs, the runner posts it to the router's `/tokens` route and writes the new tokens to `/data/github/`. Git's credential helper and a `gh` shim read the run's token from the file that `FACTORY_TOKEN_FILE` names, so agents no longer get `GH_TOKEN`. Not yet tested live.
 - [x] **Pin containers to `WEUR`.** Notation 0.28.0 passes `constraints` through `$durableObject`'s container. `cloudflare.Deployer` takes a `regions` option, and the example hub sets `["WEUR"]`. Tested live: the container ran in Düsseldorf.
@@ -15,48 +16,6 @@ Nothing. Pick from Next.
 
 ## Next
 
-- [ ] **Stage 2: build each repo's outpost image with Workers Builds.** So `factory infra up` no longer builds an image with local Docker, and a repo's `.factory/Dockerfile` takes effect. Until then, `FACTORY_STATUS` should say the Dockerfile is ignored.
-
-  **Image contract:**
-  - Built from `.factory/` with `.factory/Dockerfile`, or with Factory's default Dockerfile.
-  - Holds Debian, `bun`, `git`, and the CLI of each runtime the container lists. Nothing from Factory.
-  - `Runtime` loses `setup`. A repo's Dockerfile installs its runtimes itself.
-
-  **At run time:**
-
-  | What | How |
-  | --- | --- |
-  | Runner | The entrypoint fetches it from `runner.factory`, an outbound host that the outpost Worker answers from its bundle, and runs it with `bun` |
-  | Runtimes | The runner checks each runtime's CLI at start, and fails the run if one is missing |
-  | Credentials | Env vars at container start, as today |
-  | Repo | Cloned on each run, as today |
-
-  ```ts
-  entrypoint = ["bun", "-e", `await Bun.write("/tmp/runner.js", await fetch("http://runner.factory/runner.js")); await import("/tmp/runner.js")`];
-  ```
-
-  **Deploy, per outpost container:**
-  1. Commit `.factory/`, the default Dockerfile if needed, `wrangler.json` and the outpost Worker's bundle to an Artifacts repo, on `main`. The deployer writes the commit with `isomorphic-git`, as a root commit that it force-pushes.
-  2. Create the outpost Worker, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. Each container needs its own Worker: a container application belongs to one Durable Object namespace.
-  3. Start a build. It builds the image, pushes it to the account's registry and runs `wrangler deploy`.
-
-  **Runs:** the deployer posts each run to the outpost Worker's workers.dev URL, signed with a key derived from the root key. A dispatch namespace would avoid public URLs, but Workers for Platforms is paid.
-
-  **User token:** the Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. It's a custom credential resource:
-  - Create opens the dashboard's create-token page, filled in with `permissionGroupKeys`.
-  - A TTY prompt takes the token, and the deploy checks it.
-  - The deploy writes it to the vault, and registers it as the build token.
-  - A lost value works like a GitHub App's private key: deploy fails and asks again.
-
-  **Tested live:**
-  - With only the user token, the steps built a Dockerfile and created the container application.
-  - The create-token page filled in all seven permissions.
-  - Creating a build config starts no build.
-  - A deleted Artifacts namespace stays "not active", so its name can't be reused.
-  - `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
-  - Artifacts' import takes only public repos: with a read-only installation token in the URL, GitHub answered 401.
-  - `isomorphic-git` pushes from a Worker, with `memfs` and `nodejs_compat`. Two force-pushed root commits replaced each other in 333 ms and 188 ms. With both libraries, the test Worker was 199 KiB gzipped.
-
 - [ ] **Show outpost builds on GitHub.** A check run per container on the pushed commit, such as `factory/build dev`, that links to the build's log.
   - The GitHub App gets `checks: write`.
   - The deployer starts the build and returns its uuid. The router holds the App's key, so it creates the check run as `in_progress`.
@@ -66,6 +25,7 @@ Nothing. Pick from Next.
   - Retry a failed build. The deployer saves the source's hash once the build starts, so a failed build isn't retried until `.factory/` changes.
   - `factory infra down` deletes the Artifacts repos, but not the outpost Workers or their container applications.
   - Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
+  - Remove the deployer's account token, and its `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `KNOWN_HOSTS` bindings. The deployer Worker reads none of them.
 
 ## Later
 

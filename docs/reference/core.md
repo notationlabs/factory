@@ -46,7 +46,7 @@ Define an outpost machine alongside its runtimes, credentials and startup files:
 const customPolicy = new Policy("custom", { provider: "acme-auth", scopes: ["read"] });
 
 const dev = new Container("dev", {
-  image: "./Dockerfile",
+  image: "./Dockerfile", // <-- optional; defaults to Factory's image
   runtimes: [claude.runtime],
   policies: [customPolicy],
   files: {
@@ -56,7 +56,7 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares a scale-to-zero container image alongside the runtimes it installs, its credential policies (`github.Policy` or a custom `Policy`) and startup files. A container that lists a runtime twice throws.
+`Container` declares a scale-to-zero container: its image, the runtimes the image has, its credential policies (`github.Policy` or a custom `Policy`) and startup files. A container that lists a runtime twice throws.
 
 `Policy` is for credentials a plugin mints: `provider` names the plugin, and `scopes` defaults to `[]`. A code host's own policy, such as `github.Policy`, comes from its plugin.
 
@@ -217,8 +217,7 @@ interface Deployer {
 }
 
 interface Runtime {
-  id: string;    // e.g. "claude"
-  setup: string; // a directory holding setup.sh, run at image build
+  id: string; // e.g. "claude"; the image installs the runtime's CLI itself
 }
 
 interface Agent {

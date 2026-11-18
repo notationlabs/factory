@@ -260,6 +260,23 @@ test("a droid agent with autonomy runs with --auto, and resumes its session", as
   assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
 });
 
+test("agents in the same conversation and worktree keep their own sessions", async () => {
+  const conversation = { id: "github:acme/api#22", prompt: "go" };
+  await post(run({ conversation }));
+  assert.equal((await nextReply()).text, "done");
+  const droidAgent = { id: "droid-coder", runtime: "droid" };
+  await post(run({ runtimes: ["droid"], agent: droidAgent, conversation }));
+  assert.equal((await nextReply()).text, "done");
+  assert.doesNotMatch(lastCall()[2]!, /--session-id/);
+
+  await post(run({ conversation: { ...conversation, prompt: "carry on" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--resume s-issue-1$/);
+  await post(run({ runtimes: ["droid"], agent: droidAgent, conversation: { ...conversation, prompt: "carry on" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
+});
+
 test("a run with no branch gets a scratch worktree for its conversation", async () => {
   await post(run({ worktree: undefined, conversation: { id: "github:acme/api#2", prompt: "look" } }));
   assert.equal((await nextReply()).text, "done");
@@ -278,7 +295,7 @@ test("after the container sleeps, a run restores its worktree and its conversati
   await post(run({ worktree: { branch: "issue-9" }, conversation }));
   assert.equal((await nextReply()).text, "done");
   assert.ok(state.has("worktrees/issue-9.bundle"));
-  assert.ok(state.has("sessions/github-acme-api-9.json"));
+  assert.ok(state.has("sessions/github-acme-api-9/coder.json"));
 
   await sleepContainer();
   await startRunner();

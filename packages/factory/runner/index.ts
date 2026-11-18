@@ -306,7 +306,9 @@ const refreshTokens = async (run: Run) => {
 
 type Session = { id: string; cwd: string };
 
-const sessionPath = (run: Run) => join(DATA, "sessions", `${slug(run.conversation.id)}.json`);
+// Each agent in a conversation has its own session, since one runtime
+// can't resume another's.
+const sessionPath = (run: Run) => join(DATA, "sessions", slug(run.conversation.id), `${slug(run.agent.id)}.json`);
 
 const readSession = async (run: Run): Promise<Session | undefined> => {
   try {
@@ -316,7 +318,7 @@ const readSession = async (run: Run): Promise<Session | undefined> => {
   }
 };
 
-const sessionKey = (run: Run) => `sessions/${slug(run.conversation.id)}`;
+const sessionKey = (run: Run) => `sessions/${slug(run.conversation.id)}/${slug(run.agent.id)}`;
 
 /** A runtime the runner runs: the CLI a container's image installs, and how a run invokes it. */
 type RuntimeAdapter = {

@@ -131,7 +131,7 @@ The runner keeps its state under `/data`:
 ├── repos/<repo>.git               # bare clone of each repo
 ├── worktrees/<repo>/<branch>/     # git checkout per branch a worktree function returns
 ├── scratch/<conversation>/        # detached checkout per conversation without a branch
-├── sessions/<conversation>.json   # each agent's session in the conversation
+├── sessions/<conversation>/<agent>.json  # each agent's session in the conversation
 ├── github/                        # short-lived code host tokens
 └── bin/                           # the `gh` that uses the run's token
 ```

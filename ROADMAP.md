@@ -20,6 +20,8 @@ Nothing. Pick from Next.
   2. Creates a Worker script, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. A container application belongs to one Durable Object namespace, so each container needs its own Worker and container name.
   3. Starts a build, which builds the Dockerfile, pushes the image to the account's registry and runs `wrangler deploy`.
 
+  The outpost Workers are created after the deployer, so the deployer can't bind to them. It posts each run to the outpost Worker's workers.dev URL, signed with a key derived from the root key, and the outpost Worker checks the signature. A Workers for Platforms dispatch namespace would avoid the public URLs, but it's a paid add-on.
+
   The Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. The token is a custom credential resource:
   - Its create opens the dashboard's create-token page with the permissions filled in, which the `permissionGroupKeys` query parameter does. Tested live: the page filled in all seven permissions.
   - A TTY prompt asks for the token, and the deploy checks it.

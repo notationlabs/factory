@@ -36,7 +36,7 @@ Nothing. Pick from Next.
   ```
 
   **Deploy, per outpost container:**
-  1. Commit `.factory/`, the default Dockerfile if needed, `wrangler.json` and the outpost Worker's bundle to an Artifacts repo, on `main`. The deployer writes the commit with a git client in the Worker.
+  1. Commit `.factory/`, the default Dockerfile if needed, `wrangler.json` and the outpost Worker's bundle to an Artifacts repo, on `main`. The deployer writes the commit with `isomorphic-git`, as a root commit that it force-pushes.
   2. Create the outpost Worker, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. Each container needs its own Worker: a container application belongs to one Durable Object namespace.
   3. Start a build. It builds the image, pushes it to the account's registry and runs `wrangler deploy`.
 
@@ -55,6 +55,7 @@ Nothing. Pick from Next.
   - A deleted Artifacts namespace stays "not active", so its name can't be reused.
   - `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
   - Artifacts' import takes only public repos: with a read-only installation token in the URL, GitHub answered 401.
+  - `isomorphic-git` pushes from a Worker, with `memfs` and `nodejs_compat`. Two force-pushed root commits replaced each other in 333 ms and 188 ms. With both libraries, the test Worker was 199 KiB gzipped.
 
 ## Later
 

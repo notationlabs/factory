@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Show outpost builds on GitHub.** Each container's build is a check on the pushed commit, such as `factory/build dev`, that links to the build's log. The router writes a queued check after a deploy. The deployer's `BuildWatch` Durable Object polls the Builds API every 30 seconds, and posts signed reports to the router's `/builds` route. A failed build clears the source's hash, so the next push builds it again. When the App's permissions change, deploy opens its permissions page, waits for the change, then opens its installations. Tested live: a push's check went from queued to success, and linked to its build.
 - [x] **Build each repo's outpost image with Workers Builds.** Each container gets an outpost Worker of its own. The deployer commits the container's `.factory/` to an Artifacts repo with `isomorphic-git`, and Workers Builds builds the image and deploys the Worker. The image holds nothing from Factory: its entrypoint fetches the runner from the outpost Worker. `factory infra up` takes the builds token, a user API token, on a local page. Tested live: a push built the example's `.factory/Dockerfile`, and Claude replied to a mention. See [Containers](docs/manual/containers.md#image) and [Providers](docs/manual/providers.md#cloudflare).
 - [x] **Keep worktrees and sessions across container sleeps.** After each run, the runner saves the worktree as a git bundle and the Claude session to R2, through the `state.factory` host that the container's Durable Object answers. Tested live: a new container restored the untracked file and the session. The runner also handles SIGTERM now, since as PID 1 it ignored the signal and containers never slept.
 - [x] **Refresh GitHub tokens during long runs.** Each run carries a ticket that the router signed. Every 30 minutes while the agent runs, the runner posts it to the router's `/tokens` route and writes the new tokens to `/data/github/`. Git's credential helper and a `gh` shim read the run's token from the file that `FACTORY_TOKEN_FILE` names, so agents no longer get `GH_TOKEN`. Not yet tested live.
@@ -12,12 +13,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Now
 
-- [ ] **Show outpost builds on GitHub.** Built, not yet tested live. Each container's build is a check on the pushed commit, such as `factory/build dev`.
-  - After a deploy, the router writes a queued check for each container whose image started building.
-  - The deployer's `BuildWatch` Durable Object polls the Builds API every 30 seconds for the build of the commit it pushed. It posts signed reports to the router's `/builds` route, which updates the check with the build's state and log link.
-  - A failed build clears the source's hash, so the next push builds it again.
-  - The App gets `checks: write`. Deploy opens the App's permissions page, since GitHub has no API for it, and each installation accepts the change.
-  - To test: the build log link's URL, and the build's `commit_hash` for an Artifacts repo, which the watch matches on.
+Nothing. Pick from Next.
 
 ## Next
 

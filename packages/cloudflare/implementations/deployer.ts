@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { ResourceGroup } from "@notation/resource";
 import {
   type Account,
@@ -62,6 +64,12 @@ export type DeployerOptions = DeployerConfig & {
   accounts?: Account[];
 };
 
+/** A module whose default export is the runner's source, which containers fetch at start. */
+const runnerModule = () => {
+  const path = createRequire(import.meta.url).resolve("@notation/factory/runner");
+  return `export default ${JSON.stringify(readFileSync(path, "utf8"))};`;
+};
+
 // Notation finds a Durable Object's class by its name, which the deployer
 // Worker's bundle exports. The class itself only runs in the Worker.
 const OutpostContainer = class OutpostContainer {};
@@ -71,7 +79,7 @@ const OutpostContainer = class OutpostContainer {};
  * and hosts their containers as Durable Objects with an API token of its
  * own. It binds the root key and the accounts' secrets. Every outpost
  * container runs one image, which deploy builds with local Docker: it has
- * the accounts' runtimes and the runner.
+ * bun and the accounts' runtimes. Containers fetch the runner at start.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
@@ -148,7 +156,7 @@ export class Deployer
       // Cloudflare refuses a Worker's fetch of another workers.dev URL on the
       // same account without it, and containers reply through the router's.
       compatibilityFlags: ["global_fetch_strictly_public"],
-      code: workerBundle(`${id}-deployer`, "deployer"),
+      code: workerBundle(`${id}-deployer`, "deployer", { "factory:runner": runnerModule() }),
       url: false,
       bindings: () => ({
         OUTPOSTS: outposts,

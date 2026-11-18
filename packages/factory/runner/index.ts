@@ -387,6 +387,14 @@ const claude = async (run: Run, cwd: string) => {
   return output.result ?? "";
 };
 
+/** Throws if `command` isn't on the PATH, since the repo's image installs each runtime's CLI. */
+const assertCommand = async (command: string, name: string) => {
+  const found = await exec("sh", ["-c", `command -v ${command}`]);
+  if (found.code !== 0) {
+    throw new Error(`The container's image has no \`${command}\`. Install ${name} in the image's Dockerfile.`);
+  }
+};
+
 const relay = async (run: Run, text: string) => {
   const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text };
   const response = await fetch(run.reply.url, {
@@ -419,6 +427,7 @@ const execute = async (run: Run) => {
   let text: string;
   try {
     if (run.agent.runtime !== "claude") throw new Error(`The runner can't run agents of the runtime ${run.agent.runtime}.`);
+    await assertCommand("claude", "Claude Code");
     const repo = await fetchRepo(run);
     await checkout(run, repo, worktree, notes);
     checkedOut = true;

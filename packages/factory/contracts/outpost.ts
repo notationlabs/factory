@@ -14,17 +14,12 @@ export interface PolicyContract extends ResourceGroup {
   readonly provider: string;
 }
 
-/** How long a container stays up with no run in progress, when its config doesn't say. */
-export const DEFAULT_SLEEP_AFTER = "10m";
-
 /** In an outpost's config: a container, with its runtimes' and policies' ids. */
 export type ContainerEntry = {
   image: string;
   runtimes: string[];
   policies: string[];
   files: Record<string, string | Record<string, unknown>>;
-  /** Configs deployed before this field existed lack it. */
-  sleepAfter?: string;
 };
 
 /** In an outpost's config: a policy. The rest is its provider's. */

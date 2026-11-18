@@ -53,11 +53,10 @@ const dev = new Container("dev", {
     "~/.npmrc": "./npmrc",                  // <-- string: copied from .factory/npmrc
     "~/.config/app.json": { region: "eu" }, // <-- object: serialized as JSON
   },
-  sleepAfter: "10m",                        // <-- the default
 });
 ```
 
-`Container` declares a scale-to-zero container image alongside the runtimes it installs, its credential policies (`github.Policy` or a custom `Policy`) and startup files. The container stops once it has had no run in progress for `sleepAfter`, which is a number of seconds, minutes or hours, such as `"30s"` or `"1h"`. A container that lists a runtime twice throws.
+`Container` declares a scale-to-zero container image alongside the runtimes it installs, its credential policies (`github.Policy` or a custom `Policy`) and startup files. A container that lists a runtime twice throws.
 
 `Policy` is for credentials a plugin mints: `provider` names the plugin, and `scopes` defaults to `[]`. A code host's own policy, such as `github.Policy`, comes from its plugin.
 

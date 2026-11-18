@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
 import { type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@notation/factory/router";
 import { loaderContext } from "./loader.ts";
@@ -97,3 +97,6 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     await Promise.all([this.env.FACTORY_BUCKET.put(stateKey(container, key), readable), piped]);
   }
 }
+
+// TODO: remove with LEGACY_OUTPOSTS.
+export class OutpostContainer extends DurableObject {}

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
 import { handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, signTicket, signTokenTicket } from "./run.ts";
+import { type Run, signBuildReport, signTicket, signTokenTicket } from "./run.ts";
 
 const ROOT_KEY = "root";
 
@@ -21,6 +21,7 @@ const fake = (
   sync,
   read: async () => ({ ref: "c0ffee", files: {} }),
   writeStatus: async () => {},
+  writeCheck: async () => {},
   conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, prompt: "do it", thread: { repo: delivery.repo } }),
   reply: async () => {},
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
@@ -209,6 +210,70 @@ test("only the code host's connection deploys", async () => {
   assert.equal(status, 200);
   assert.deepEqual(body, { ignored: "not the code host's connection" });
   assert.deepEqual(calls, []);
+});
+
+test("a deploy that starts builds shows a queued check on the commit for each container", async () => {
+  const calls: string[] = [];
+  const channel: RemoteChannel<FakeEvent> = {
+    ...sourceChannel([{ repo: "acme/api", ref: "abc" }], calls),
+    writeCheck: async (repo, ref, check) => void calls.push(`check ${repo} ${ref} ${check.name} ${check.state}`),
+  };
+  const s = sourceStore(channel, calls);
+  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", building: ["dev", "ci"] });
+  await call(s);
+  assert.deepEqual(calls, [
+    "read acme/api .factory abc",
+    "status acme/api deployed",
+    "check acme/api abc factory/build dev queued",
+    "check acme/api abc factory/build ci queued",
+  ]);
+});
+
+test("a check that the channel can't write doesn't fail the deploy", async () => {
+  const calls: string[] = [];
+  const channel: RemoteChannel<FakeEvent> = {
+    ...sourceChannel([{ repo: "acme/api", ref: "abc" }], calls),
+    writeCheck: async () => {
+      throw new Error("no checks permission");
+    },
+  };
+  const s = sourceStore(channel, calls);
+  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", building: ["dev"] });
+  const { status } = await call(s);
+  assert.equal(status, 202);
+  assert.deepEqual(calls, ["read acme/api .factory abc", "status acme/api deployed"]);
+});
+
+const buildReport = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/builds", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("builds writes a check from a report the deployer signed, through the code host's channel", async () => {
+  const checks: unknown[] = [];
+  const channel: RemoteChannel<FakeEvent> = {
+    ...sourceChannel([], []),
+    writeCheck: async (repo, ref, check) => void checks.push([repo, ref, check]),
+  };
+  const s = sourceStore(channel, []);
+  const report = {
+    repo: "acme/api",
+    ref: "abc",
+    container: "dev",
+    state: "failure" as const,
+    url: "https://dash.test/build",
+    expires: Date.now() + 60_000,
+  };
+  const signature = await signBuildReport(ROOT_KEY, report);
+
+  assert.equal((await buildReport(s, { report, signature })).status, 200);
+  assert.deepEqual(checks, [["acme/api", "abc", { name: "factory/build dev", state: "failure", url: "https://dash.test/build" }]]);
+
+  const forged = { ...report, state: "success" };
+  assert.equal((await buildReport(s, { report: forged, signature })).status, 401);
+  const expired = { ...report, expires: Date.now() - 1 };
+  assert.equal((await buildReport(s, { report: expired, signature: await signBuildReport(ROOT_KEY, expired) })).status, 401);
+  // A token ticket's signature doesn't sign a build report.
+  assert.equal((await buildReport(s, { report, signature: await signTokenTicket(ROOT_KEY, report as never) })).status, 401);
+  assert.equal(checks.length, 1);
 });
 
 const runOutpost: OutpostConfig = {

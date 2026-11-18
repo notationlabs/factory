@@ -54,6 +54,7 @@ export class Connection
         issues: "write",
         pull_requests: "write",
         actions_variables: "write",
+        checks: "write",
         metadata: "read",
       },
     });

@@ -1,14 +1,16 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
 import { type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@notation/factory/router";
+import type { BuildWatch } from "./build-watch.ts";
 import { loaderContext } from "./loader.ts";
 import type { DeployerService } from "./outpost-api.ts";
 import { deployOutposts, type OutpostsEnv, postRun, verifyRun } from "./outposts.ts";
-import type { R2Bucket, SecretsStoreSecret, WorkerLoader } from "./types.ts";
+import type { DurableObjectNamespace, R2Bucket, SecretsStoreSecret, WorkerLoader } from "./types.ts";
 
 type Env = OutpostsEnv & {
   LOADER: WorkerLoader;
   FACTORY_BUCKET: R2Bucket;
+  BUILDS: DurableObjectNamespace<BuildWatch>;
   /** The names of each runtime's account secrets, which the deployer binds under those names. */
   ACCOUNTS: Record<string, string[]>;
 } & Record<string, unknown>;
@@ -31,10 +33,15 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     const kv = this.env.FACTORY_KV;
     return {
       ...loaderContext(this.env.LOADER),
-      putOutpost: async (repo: string, outpost: OutpostConfig, files: Record<string, string>) => {
-        await deployOutposts(this.env, repo, outpost, files);
+      putOutpost: async (repo: string, outpost: OutpostConfig, files: Record<string, string>, ref: string) => {
+        const started = await deployOutposts(this.env, repo, outpost, files);
         await kv.put(filesKey(repo), JSON.stringify(files));
         await kv.put(outpostKey(repo), JSON.stringify(outpost));
+        if (started.length) {
+          const watch = this.env.BUILDS.get(this.env.BUILDS.idFromName("builds"));
+          await watch.watch(started.map((build) => ({ ...build, repo, ref })));
+        }
+        return started.map((build) => build.container);
       },
       getFiles: async (repo: string) =>
         ((await kv.get(filesKey(repo), "json")) ?? undefined) as Record<string, string> | undefined,
@@ -97,3 +104,5 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     await Promise.all([this.env.FACTORY_BUCKET.put(stateKey(container, key), readable), piped]);
   }
 }
+
+export { BuildWatch } from "./build-watch.ts";

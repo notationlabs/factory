@@ -1,4 +1,4 @@
-import type { FactoryStatus, SourceChange, SourceFiles } from "@notation/factory/router";
+import type { BuildCheck, FactoryStatus, SourceChange, SourceFiles } from "@notation/factory/router";
 import { appJwt } from "./app-jwt.ts";
 
 const GITHUB_API = "https://api.github.com";
@@ -126,6 +126,35 @@ export const writeStatus = async (auth: AppAuth, repo: string, status: FactorySt
     await github("POST", `/repos/${repo}/actions/variables`, token, { body: { name: STATUS_VARIABLE, value } }),
     `POST ${STATUS_VARIABLE} on ${repo}`,
   );
+};
+
+/**
+ * Creates or updates the App's check run named `check.name` on commit `ref`.
+ * A finished check gets the conclusion of its state.
+ */
+export const writeCheck = async (auth: AppAuth, repo: string, ref: string, check: BuildCheck) => {
+  const token = await repoToken(auth, repo, { checks: "write" });
+  const listed = (await (
+    await ok(
+      await github("GET", `/repos/${repo}/commits/${ref}/check-runs?check_name=${encodeURIComponent(check.name)}&app_id=${auth.appId}`, token),
+      `GET /repos/${repo}/commits/${ref}/check-runs`,
+    )
+  ).json()) as { check_runs: { id: number }[] };
+  const done = check.state !== "queued" && check.state !== "in_progress";
+  const body = {
+    name: check.name,
+    head_sha: ref,
+    status: done ? "completed" : check.state,
+    ...(done && { conclusion: check.state }),
+    ...(check.url && { details_url: check.url }),
+    ...(check.summary && { output: { title: check.name, summary: check.summary } }),
+  };
+  const [run] = listed.check_runs;
+  if (run) {
+    await ok(await github("PATCH", `/repos/${repo}/check-runs/${run.id}`, token, { body }), `PATCH /repos/${repo}/check-runs/${run.id}`);
+  } else {
+    await ok(await github("POST", `/repos/${repo}/check-runs`, token, { body }), `POST /repos/${repo}/check-runs`);
+  }
 };
 
 /** GitHub's limit on a comment's body. */

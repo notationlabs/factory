@@ -2,6 +2,7 @@ import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import type {
   AuthorCheck,
+  BuildCheck,
   Delivery,
   FactoryStatus,
   RemoteChannel,
@@ -9,6 +10,7 @@ import type {
   SourceFiles,
 } from "./channel.ts";
 import {
+  type BuildReportRequest,
   isBranchName,
   type Relay,
   REPLY_TTL_MS,
@@ -17,6 +19,7 @@ import {
   signTokenTicket,
   type TokenRequest,
   type Tokens,
+  verifyBuildReport,
   verifyTicket,
   verifyTokenTicket,
 } from "./run.ts";
@@ -48,6 +51,9 @@ export type RemoteDeployer = {
   /** Hands `run` to its container, which queues it. */
   run(run: Run): Promise<void>;
 };
+
+/** The name of the check that shows the build of a container's image, such as `factory/build dev`. */
+export const buildCheckName = (container: string) => `factory/build ${container}`;
 
 /** The directory of a repo that holds its outpost's files. */
 export const FACTORY_DIR = ".factory";
@@ -287,6 +293,39 @@ const tokens = async (request: Request, store: RouterStore) => {
   }
 };
 
+/** Shows a container image's build on the commit it was built from, through the code host's channel. */
+const builds = async (request: Request, store: RouterStore) => {
+  let body: BuildReportRequest;
+  try {
+    body = (await request.json()) as BuildReportRequest;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+  const { report, signature } = body ?? {};
+  if (!report || typeof signature !== "string") return json(400, { error: "the body needs report and signature" });
+  if (!(await verifyBuildReport(await store.rootKey(), report, signature))) {
+    return json(401, { error: "bad or expired signature" });
+  }
+  const channel = codeHostChannel(store)?.channel;
+  if (!channel) return json(404, { error: "the hub has no code host" });
+  const { repo, ref, container, state, url, summary } = report;
+  try {
+    await channel.writeCheck(repo, ref, { name: buildCheckName(container), state, ...(url && { url }), ...(summary && { summary }) });
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
+  return json(200, { ok: true });
+};
+
+/** Writes a check, and logs a failure instead of throwing it. The App may not have the checks permission yet. */
+const writeCheck = async (channel: RemoteChannel, repo: string, ref: string, check: BuildCheck) => {
+  try {
+    await channel.writeCheck(repo, ref, check);
+  } catch (error) {
+    console.error(JSON.stringify({ repo, ref, check: check.name, error: message(error) }));
+  }
+};
+
 const allows = (allow: RepoPattern[], repo: string) => {
   const [owner, name] = repo.toLowerCase().split("/");
   return allow.some(
@@ -302,7 +341,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  *    allow, loses its outpost.
  * 2. Otherwise the channel reads `.factory/`, and the deployer evaluates and
  *    stores it.
- * 3. The channel shows the outcome on the repo.
+ * 3. The channel shows the outcome on the repo, and a queued check on the
+ *    commit for each container whose image started building. The deployer
+ *    reports each build's progress to `/builds`.
  */
 const redeploy = async (
   change: SourceChange,
@@ -325,6 +366,9 @@ const redeploy = async (
     }
   }
   await channel.writeStatus(repo, status);
+  for (const container of status.building ?? []) {
+    if (status.ref) await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
+  }
   console.log(JSON.stringify({ repo, ...status }));
 };
 
@@ -374,7 +418,8 @@ const sync = async (request: Request, store: RouterStore) => {
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
  * only sets the values the router derives. `POST /relay` and `POST /tokens`
- * take tickets that the router signed when it started a run.
+ * take tickets that the router signed when it started a run. `POST /builds`
+ * takes reports that the deployer signed.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -386,6 +431,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/tokens") {
     return tokens(request, store);
+  }
+  if (request.method === "POST" && pathname === "/builds") {
+    return builds(request, store);
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);

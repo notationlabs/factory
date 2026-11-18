@@ -9,7 +9,10 @@ const context = (evaluate: DeployerContext["evaluate"]) => {
   const stored: Record<string, OutpostConfig | undefined> = { "acme/api": previous };
   const ctx: DeployerContext = {
     evaluate,
-    putOutpost: async (repo, outpost) => void (stored[repo] = outpost),
+    putOutpost: async (repo, outpost) => {
+      stored[repo] = outpost;
+      return [];
+    },
     getFiles: async () => undefined,
     deleteOutpost: async (repo) => void delete stored[repo],
   };

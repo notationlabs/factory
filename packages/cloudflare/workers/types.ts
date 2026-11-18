@@ -9,6 +9,12 @@ export type KVNamespace = {
   delete(key: string): Promise<void>;
 };
 
+/** A Durable Object namespace, whose stubs have the class's methods. */
+export type DurableObjectNamespace<T> = {
+  idFromName(name: string): unknown;
+  get(id: unknown): T;
+};
+
 export type SecretsStoreSecret = { get(): Promise<string> };
 
 export type R2Bucket = {

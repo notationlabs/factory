@@ -71,7 +71,7 @@ A trigger that runs `coder` must target a container that lists `droid.runtime`.
 | `model` | Passed via `--model` |
 | `effort` | Passed as `--reasoning-effort <none \| low \| medium \| high>` |
 | `autonomy` | Passed as `--auto <low \| medium \| high>`; without it, runs pass `--skip-permissions-unsafe` |
-| `systemPrompt` | Appended to the system prompt via `--append-system-prompt` |
+| `systemPrompt` | Appended to the runner's prompt, and passed with `--append-system-prompt` |
 | `settings` | Written to `/data/agents/<name>/settings.json`, and passed via `--settings` |
 | `files` | `~/.factory/*` writes to `/data/agents/<name>/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
 

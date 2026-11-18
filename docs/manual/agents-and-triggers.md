@@ -19,6 +19,8 @@ new Trigger("mention", {
 
 `Agent` configures an agent (model, effort, and system prompt) for a runtime, and `Trigger` runs that agent in a container, optionally on a branch, whenever a matching event arrives from an author in `from`. Follow-up triggers in the same conversation resume `coder`'s session.
 
+Every agent gets the runner's own system prompt first, and then its `systemPrompt`. The runner's prompt tells the agent that it runs headless, that it acts only on the messages in its prompt, that its final message is posted as its reply, and that it opens pull requests as drafts.
+
 | `Trigger` input | Required | Meaning |
 | --- | --- | --- |
 | `event` | Yes | A channel's selector, including its `from` |
@@ -57,7 +59,7 @@ When `actions` includes `"edited"`, the trigger fires only if the edit newly add
 | `slack.group("eng")` | Members of a Slack user group |
 | `slack.user("dan@acme.dev")` | One Slack user |
 
-Pass an array to accept several. Every message in the conversation still reaches the agent, marked trusted if its author matches `from` and untrusted otherwise. See [Connections & Channels](./connections.md#trust).
+Pass an array to accept several. On GitHub, a comment starts a run only if the issue's author matches `from` as well, since the prompt quotes the opening post, and bot accounts never match. Every message in the conversation still reaches the agent, marked trusted if its author matches `from` and untrusted otherwise. See [Connections & Channels](./connections.md#trust).
 
 ## Multiple agents on one conversation
 

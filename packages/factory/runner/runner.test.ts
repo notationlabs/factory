@@ -25,7 +25,7 @@ prompt="$2"
 case "$prompt" in
   wait*) sleep 1 ;;
 esac
-printf '%s\\n' "$(pwd)" "$(gh)" "$*" >> "${calls}"
+printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.claude/projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$HOME/.claude/projects/-p-$(basename "$(pwd)")/$session.jsonl"
@@ -45,7 +45,7 @@ echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 /** A fake Droid: like the fake Claude Code, but for droid's CLI. */
 const FAKE_DROID = `#!/bin/sh
 prompt="$2"
-printf '%s\\n' "$(pwd)" "$(gh)" "$*" >> "${calls}"
+printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.factory/sessions/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$HOME/.factory/sessions/-p-$(basename "$(pwd)")/$session.jsonl"
@@ -211,7 +211,8 @@ test("runs the agent on its branch's worktree, and replies with its final messag
   const [cwd, token, args] = lastCall();
   assert.equal(cwd, worktree);
   assert.equal(token, "push-token");
-  assert.match(args!, /--model claude-opus-5-5 --effort high --append-system-prompt Be brief\./);
+  // The runner's prompt comes first, then the agent's own.
+  assert.match(args!, /--model claude-opus-5-5 --effort high --append-system-prompt You're running headless, .* Be brief\./);
   assert.equal(sh(worktree, "branch", "--show-current"), "issue-1");
   assert.equal(readFileSync(join(home, ".npmrc"), "utf8"), "registry=x");
   assert.deepEqual(JSON.parse(readFileSync(join(home, ".config", "app.json"), "utf8")), { region: "eu" });
@@ -240,7 +241,7 @@ test("a droid run invokes droid exec, skipping permissions without an autonomy l
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^exec droid it --output-format json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt Be brief\.$/,
+    /^exec droid it --output-format json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
   );
 });
 
@@ -251,7 +252,7 @@ test("a droid agent with autonomy runs with --auto, and resumes its session", as
   assert.equal((await nextReply()).text, "done");
   assert.match(
     lastCall()[2]!,
-    /^exec droid it --output-format json --auto high --settings \S*agents\/coder\/settings\.json$/,
+    /^exec droid it --output-format json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
   );
 
   await post(run({ runtimes: ["droid"], agent, conversation: { ...conversation, prompt: "carry on" } }));

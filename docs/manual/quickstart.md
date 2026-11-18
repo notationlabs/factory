@@ -104,10 +104,18 @@ git add .factory && git commit -m "Add factory config" && git push
 
 ## 3. Subscribe the repository
 
+Name the hub in `acme/webapp`'s `factory.config.ts`, by the `app` in the hub's `notation.config.ts` and the stage you deployed it to. `factory repo install` finds the hub's GitHub App from them:
+
+```ts [factory.config.ts]
+export default {
+  hub: { app: "acme-factory", stage: "prod" }, // <-- the App is `acme-factory--prod--gh`
+};
+```
+
 Grant the hub access to `acme/webapp` and build its container:
 
 ```sh
-factory repo install --app <github app slug>
+factory repo install
 ```
 
 `factory repo install` walks through installation and waits for the initial build:

@@ -36,6 +36,9 @@
       "@notation/factory/router": [
         "./packages/factory/router/index.ts"
       ],
+      "@notation/factory-github/app-name": [
+        "./packages/github/lib/app-name.ts"
+      ],
       "@notation/factory-github/router": [
         "./packages/github/router/index.ts"
       ]

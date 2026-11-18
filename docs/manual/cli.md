@@ -18,12 +18,12 @@ export default {
 };
 ```
 
-In a subscriber repo, `factory.config.ts` can name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
+In a subscriber repo, `factory.config.ts` names the hub it subscribes to, by the hub's Notation app and stage. `factory repo install` finds each connection's GitHub App from them: the hub `acme`/`prod` names the App of the connection `gh` `acme--prod--gh`. It can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
 
 ```ts [factory.config.ts]
 export default {
+  hub: { app: "acme", stage: "prod" }, // <-- the hub's notation.config.ts `app`, and the stage it's deployed to
   repo: "acme/webapp",
-  app: "acme-prod-gh", // <-- the hub's GitHub App slug, for `factory repo install` without `--app`
 };
 ```
 
@@ -95,7 +95,7 @@ Tears down all outpost containers (`FACTORY_STATUS` cleared), then destroys `Dep
 Subscribe the current repository to your hub:
 
 ```sh
-factory repo install [--dry-run] [--repo <owner/name>] [--app <slug>]
+factory repo install [--dry-run] [--repo <owner/name>]
 ```
 
 Grants the code host's connection access to the repository and waits for the initial container build:

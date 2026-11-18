@@ -1,18 +1,15 @@
 import { fileURLToPath } from "node:url";
-import { ResourceGroup, text } from "@notation/resource";
+import { getActiveResourceCollection, ResourceGroup, text } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
-  scopedName,
 } from "@notation/factory";
 import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
+import { appName } from "../lib/app-name.ts";
 import { App, type AppInstance } from "../resources/app.ts";
 import { CHANNEL_SECRETS, CHANNEL_VALUES } from "../router/index.ts";
 import { ConnectionRef } from "./connection-ref.ts";
-
-/** GitHub App names are at most 34 characters. */
-const GITHUB_APP_NAME_MAX_LENGTH = 34;
 
 const connectionConfig = v.object({
   org: v.optional(v.string()),
@@ -44,7 +41,7 @@ export class Connection
     this.app = this.add(
       new App(`${id}-app`, {
         config: {
-          name: scopedName(id, GITHUB_APP_NAME_MAX_LENGTH),
+          name: appName(getActiveResourceCollection()?.scope, id),
           org,
           hookUrl: text`${router.url}${webhookPath(key)}`,
         },

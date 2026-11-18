@@ -20,6 +20,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@notation/factory-github": "workspace:*",
     "@notation/resource": "0.28.0"
   }
 }

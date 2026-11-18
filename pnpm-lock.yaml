@@ -115,6 +115,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@notation/factory-github':
+        specifier: workspace:*
+        version: link:../github
       '@notation/resource':
         specifier: 0.28.0
         version: 0.28.0

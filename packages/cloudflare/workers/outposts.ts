@@ -186,7 +186,7 @@ const ensureWorker = async (token: string, settings: OutpostSettings, worker: st
   return uploaded.tag;
 };
 
-/** Starts a build of `main` for the Worker `tag`, creating its build config from the Artifacts repo first if it has none. */
+/** Creates the build config of the Worker `tag` from its Artifacts repo, and starts its first build, if it has no config. */
 const build = async (
   token: string,
   settings: OutpostSettings,
@@ -196,26 +196,25 @@ const build = async (
   buildTokenUuid: string,
 ) => {
   const base = `/accounts/${settings.accountId}/builds`;
-  let triggers = await cloudflare<{ trigger_uuid: string }[]>(token, "GET", `${base}/workers/${tag}/triggers`);
-  if (triggers.length === 0) {
-    const build = { build_command: "", deploy_command: "npx wrangler deploy", build_token_uuid: buildTokenUuid, root_directory: "/" };
-    await cloudflare(token, "POST", `${base}/workers`, {
-      script_tag: tag,
-      previews_enabled: false,
-      previews_base_config: build,
-      production_settings: build,
-      git_repository: {
-        provider_type: "cloudflare_artifacts",
-        provider_account_id: settings.namespace,
-        provider_account_name: settings.namespace,
-        repo_id: repo.id,
-        repo_name: worker,
-        branch: "main",
-      },
-    });
-    triggers = await cloudflare(token, "GET", `${base}/workers/${tag}/triggers`);
-  }
-  const trigger = triggers[0];
+  const triggers = await cloudflare<{ trigger_uuid: string }[]>(token, "GET", `${base}/workers/${tag}/triggers`);
+  // A push to a repo with a build config starts a build by itself.
+  if (triggers.length > 0) return;
+  const build = { build_command: "", deploy_command: "npx wrangler deploy", build_token_uuid: buildTokenUuid, root_directory: "/" };
+  await cloudflare(token, "POST", `${base}/workers`, {
+    script_tag: tag,
+    previews_enabled: false,
+    previews_base_config: build,
+    production_settings: build,
+    git_repository: {
+      provider_type: "cloudflare_artifacts",
+      provider_account_id: settings.namespace,
+      provider_account_name: settings.namespace,
+      repo_id: repo.id,
+      repo_name: worker,
+      branch: "main",
+    },
+  });
+  const [trigger] = await cloudflare<{ trigger_uuid: string }[]>(token, "GET", `${base}/workers/${tag}/triggers`);
   if (!trigger) throw new Error(`Workers Builds has no build trigger for ${worker}.`);
   await cloudflare(token, "POST", `${base}/triggers/${trigger.trigger_uuid}/builds`, { branch: "main" });
 };
@@ -225,9 +224,10 @@ const build = async (
  * Workers of containers the repo no longer has:
  * 1. Commits the container's source to its Artifacts repo, unless it's the
  *    source that the Worker was last built from.
- * 2. Creates the Worker as a placeholder, if it doesn't exist, and its build
- *    config.
- * 3. Starts a build, which builds the image and deploys the Worker.
+ * 2. Creates the Worker as a placeholder, if it doesn't exist.
+ * 3. Creates the Worker's build config, and starts its first build, if it has
+ *    none. Later pushes to the Artifacts repo start builds by themselves. A
+ *    build builds the image and deploys the Worker.
  */
 export const deployOutposts = async (
   env: OutpostsEnv,

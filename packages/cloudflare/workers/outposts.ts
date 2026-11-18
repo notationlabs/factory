@@ -6,6 +6,7 @@ import * as v from "valibot";
 import defaultDockerfile from "factory:dockerfile";
 import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
 import { cloudflare, cloudflareOrNone } from "../lib/cloudflare-api.ts";
+import { deleteOutpostWorker } from "../lib/outpost-workers.ts";
 import type { StartedBuild } from "./build-watch.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
@@ -223,7 +224,7 @@ const build = async (
 
 /**
  * Builds the outpost Worker of each of a repo's containers, and deletes the
- * Workers of containers the repo no longer has:
+ * Workers and container applications of containers the repo no longer has:
  * 1. Commits the container's source to its Artifacts repo, unless it's the
  *    source that the Worker was last built from.
  * 2. Creates the Worker as a placeholder, if it doesn't exist.
@@ -261,7 +262,7 @@ export const deployOutposts = async (
   }
   for (const [id, worker] of Object.entries(previous)) {
     if (current[id] === worker) continue;
-    await cloudflareOrNone(token, "DELETE", `/accounts/${settings.accountId}/workers/scripts/${worker}?force=true`);
+    await deleteOutpostWorker(token, settings.accountId, worker);
     await deleteRepo(token, settings.accountId, settings.namespace, worker);
     await kv.delete(sourceKey(worker));
     console.log(JSON.stringify({ repo, container: id, worker, deleted: true }));

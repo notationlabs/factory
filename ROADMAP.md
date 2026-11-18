@@ -10,6 +10,8 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 - [x] **Refresh GitHub tokens during long runs.** Each run carries a ticket that the router signed. Every 30 minutes while the agent runs, the runner posts it to the router's `/tokens` route and writes the new tokens to `/data/github/`. Git's credential helper and a `gh` shim read the run's token from the file that `FACTORY_TOKEN_FILE` names, so agents no longer get `GH_TOKEN`. Not yet tested live.
 - [x] **Pin containers to `WEUR`.** Notation 0.28.0 passes `constraints` through `$durableObject`'s container. `cloudflare.Deployer` takes a `regions` option, and the example hub sets `["WEUR"]`. Tested live: the container ran in Düsseldorf.
 - [x] **Let containers sleep.** The deployer didn't read the runner's reply to a delivered run, and `@cloudflare/containers` counts a request as in flight until its body is read, so containers never slept. Tested live: the container stopped 10 minutes after the run's delivery. `cloudflare.Deployer`'s `sleepAfter` option sets that time for every outpost container, and defaults to `"10m"`.
+- [x] **Delete outpost Workers and their container applications.** `factory infra down` deletes every Worker whose name starts with the deployer's outpost prefix, and the container application of each, with `CLOUDFLARE_API_TOKEN`. When a repo drops a container, the deployer also deletes the container's application, since Cloudflare leaves it when it deletes the Worker. Not yet tested live.
+- [x] **Remove the deployer's account token.** The deployer Worker no longer binds `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` or `KNOWN_HOSTS`, and `cloudflare.Deployer` no longer takes `knownHosts`. `factory container ssh` needs a way to set authorized keys again when it's built.
 
 ## Now
 
@@ -17,10 +19,7 @@ Nothing. Pick from Next.
 
 ## Next
 
-- [ ] **Stage 2 follow-ups:**
-  - `factory infra down` deletes the Artifacts repos, but not the outpost Workers or their container applications.
-  - Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
-  - Remove the deployer's account token, and its `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `KNOWN_HOSTS` bindings. The deployer Worker reads none of them.
+- [ ] **Stage 2 follow-up:** Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
 
 ## Later
 

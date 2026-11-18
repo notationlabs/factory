@@ -145,7 +145,7 @@ factory container ssh
 factory container ssh --repo acme/webapp --container dev -- ls -la /data/worktrees
 ```
 
-Wakes the outpost container via the `Router` and opens an SSH shell (or runs `<cmd...>`). Requires push access to the repository, and on Cloudflare one of the deployer's `knownHosts`.
+Wakes the outpost container via the `Router` and opens an SSH shell (or runs `<cmd...>`). Requires push access to the repository.
 
 ### `factory container resume`
 

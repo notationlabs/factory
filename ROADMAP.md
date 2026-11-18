@@ -57,6 +57,17 @@ Nothing. Pick from Next.
   - Artifacts' import takes only public repos: with a read-only installation token in the URL, GitHub answered 401.
   - `isomorphic-git` pushes from a Worker, with `memfs` and `nodejs_compat`. Two force-pushed root commits replaced each other in 333 ms and 188 ms. With both libraries, the test Worker was 199 KiB gzipped.
 
+- [ ] **Show outpost builds on GitHub.** A check run per container on the pushed commit, such as `factory/build dev`, that links to the build's log.
+  - The GitHub App gets `checks: write`.
+  - The deployer starts the build and returns its uuid. The router holds the App's key, so it creates the check run as `in_progress`.
+  - Workers Builds has no webhook that we know of, so something polls `GET /builds/builds/{uuid}` and completes the check run. The deployer has no Durable Object or cron to poll with yet.
+  - A push that doesn't change a container's source gets no check run for that container.
+- [ ] **Stage 2 follow-ups:**
+  - Retry a failed build. The deployer saves the source's hash once the build starts, so a failed build isn't retried until `.factory/` changes.
+  - Check whether a push to an Artifacts repo with a build config starts a build by itself. If it does, the deployer's explicit build is a second one.
+  - `factory infra down` deletes the Artifacts repos, but not the outpost Workers or their container applications.
+  - Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
+
 ## Later
 
 - [ ] **Router:**

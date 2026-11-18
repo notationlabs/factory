@@ -17,10 +17,7 @@ import { sources } from "@notation/std/resources";
 
 const vault = new railway.Vault("vault"); // <-- sealed shared variables in the router's project
 
-const router = new railway.Router("router", {
-  project: "acme-agents", // <-- Railway project name
-  vault,                  // <-- only a railway.Vault
-});
+const router = new railway.Router("router", { vault }); // <-- only a railway.Vault
 
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
@@ -39,8 +36,8 @@ new railway.Deployer("deployer", {
 | Resource | Railway resources provisioned |
 | --- | --- |
 | `railway.Vault` | One sealed shared variable in the router's project for each secret declared in the vault. Values are never shown in the dashboard or returned by the API. The router gives it its project, so pass it to a `railway.Router` before anything adds a secret to it |
-| `railway.Router` | `acme-agents` Railway project + public `factory-router` service with `/data` volume and webhook domain. Its config is a file on that volume (`/data/config.json`). It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. `router.bind(secret, name?)` adds a variable to the router service |
-| `railway.Deployer` | Private, scale-to-zero `factory-deployer` service inside `acme-agents`, and a project token of its own to manage outpost services. It keeps the token in the vault and binds it as `RAILWAY_TOKEN`. Railway has no API that gives a token a new value, so when deploy needs the value again, plan fails and asks for a token with `--credential`. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, and each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN` |
+| `railway.Router` | `<app>--<stage>--<id>` Railway project + public `factory-router` service with `/data` volume and webhook domain. Its config is a file on that volume (`/data/config.json`). It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. `router.bind(secret, name?)` adds a variable to the router service |
+| `railway.Deployer` | Private, scale-to-zero `factory-deployer` service inside the router's project, and a project token of its own to manage outpost services. It keeps the token in the vault and binds it as `RAILWAY_TOKEN`. Railway has no API that gives a token a new value, so when deploy needs the value again, plan fails and asks for a token with `--credential`. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, and each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN` |
 
 ## Secrets
 

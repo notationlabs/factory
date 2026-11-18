@@ -23,6 +23,7 @@ In a subscriber repo, `factory.config.ts` can name the repo, for when its `origi
 ```ts [factory.config.ts]
 export default {
   repo: "acme/webapp",
+  app: "acme-prod-gh", // <-- the hub's GitHub App slug, for `factory repo install` without `--app`
 };
 ```
 
@@ -94,7 +95,7 @@ Tears down all outpost containers (`FACTORY_STATUS` cleared), then destroys `Dep
 Subscribe the current repository to your hub:
 
 ```sh
-factory repo install [--dry-run] [--repo <owner/name>]
+factory repo install [--dry-run] [--repo <owner/name>] [--app <slug>]
 ```
 
 Grants the code host's connection access to the repository and waits for the initial container build:

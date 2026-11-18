@@ -2,14 +2,17 @@ import { ResourceGroup, text } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
+  scopedName,
 } from "@notation/factory";
 import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { App, type AppInstance } from "../resources/app.ts";
 import { ConnectionRef } from "./connection-ref.ts";
 
+/** Slack app names are at most 35 characters. */
+const SLACK_APP_NAME_MAX_LENGTH = 35;
+
 const connectionConfig = v.object({
-  name: v.string(),
   /** The Slack workspace the app is installed in. */
   workspace: v.string(),
 });
@@ -32,16 +35,17 @@ export class Connection
   readonly app: AppInstance;
 
   constructor(id: string, { router, ...config }: ConnectionOptions) {
-    const { name, workspace } = v.parse(connectionConfig, config);
+    const { workspace } = v.parse(connectionConfig, config);
     super("slack/Connection", id, config);
-    this.name = name;
+    this.name = id;
     this.router = router;
+    const key = `slack/${id}`;
     this.app = this.add(
       new App(`${id}-app`, {
         config: {
-          name,
+          name: scopedName(id, SLACK_APP_NAME_MAX_LENGTH),
           workspace,
-          requestUrl: text`${router.url}${webhookPath(`slack/${name}`)}`,
+          requestUrl: text`${router.url}${webhookPath(key)}`,
         },
       }),
     );
@@ -59,7 +63,7 @@ export class Connection
     );
     this.router.store.contribute({
       connections: {
-        [`slack/${name}`]: {
+        [key]: {
           provider: "slack",
           source: this.app.outputRef("appId"),
           credentials: {

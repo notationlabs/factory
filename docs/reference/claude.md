@@ -1,6 +1,6 @@
 # `@notation/factory-claude`
 
-`@notation/factory-claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the adapter that executes `claude` inside outpost containers.
+`@notation/factory-claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the `setup.sh` that installs `claude` in outpost images.
 
 ```bash
 @pm.dev("@notation/factory-claude")
@@ -16,10 +16,7 @@ import * as cloudflare from "@notation/factory-cloudflare";
 import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
@@ -48,7 +45,7 @@ const dev = new Container("dev", {
 });
 ```
 
-The image must have `claude`: Factory's default image does, and a repo's own Dockerfile installs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `claude`. A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
+The image must have `claude`. This package ships the `setup.sh` that installs it: a container with no `image` gets it automatically, and a repo's own Dockerfile runs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `claude`. A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
 
 ## Agent
 

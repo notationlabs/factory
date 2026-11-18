@@ -4,15 +4,15 @@ Connect the hub to a platform once, then let each repository pick the conversati
 
 ```ts [factory.infra.ts]
 // …
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
-new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
+new slack.Connection("slack", { workspace: "acme", router });
 ```
 
 ```ts [.factory/config.ts]
-const gh = github.Connection.get("acme-agents").channel({ id: "issues" });         // <-- this repo's issues
-const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#ops" }); // <-- one Slack channel
+const gh = github.Connection.get("gh").channel({ id: "issues" });         // <-- this repo's issues
+const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- one Slack channel
 ```
 
 ## The model
@@ -40,7 +40,7 @@ The deployer checks the grant for every scope a repo's triggers use:
 | Platform | Scope | Grant | Event feed |
 | --- | --- | --- | --- |
 | GitHub | A repo (`scope` defaults to the outpost's repo) | Install the App on the repo (`factory repo install`) | The App's webhook |
-| Slack | A Slack channel | Invite the bot to the channel (`/invite @acme-agents`) | Slack's Events API |
+| Slack | A Slack channel | Invite the bot to the channel (`/invite @<app>`) | Slack's Events API |
 
 A scope that isn't granted fails the deploy with `#ops isn't granted`, and `FACTORY_STATUS` says what to do. Once granted, the deployer has the connection start listening, which is idempotent: it adds a webhook, joins a channel, or does nothing.
 

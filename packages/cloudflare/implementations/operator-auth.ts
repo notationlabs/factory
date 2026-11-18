@@ -1,5 +1,8 @@
 import { ResourceGroup } from "@notation/resource";
-import type { OperatorAuth as OperatorAuthContract } from "@notation/factory";
+import {
+  type OperatorAuth as OperatorAuthContract,
+  scopedName,
+} from "@notation/factory";
 import * as v from "valibot";
 import {
   AccessApplication,
@@ -27,7 +30,7 @@ export class OperatorAuth
       new AccessApplication(`${id}-access`, {
         config: {
           AccountId: router.kv.outputRef("AccountId"),
-          Name: `${router.project}-operators`,
+          Name: scopedName(id, 255),
           Domain: router.url.map((url) => `${new URL(url).host}/admin`),
           Emails: emails,
         },

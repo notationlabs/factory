@@ -5,9 +5,9 @@ import {
   type RandomKeyInstance,
   type Router as RouterContract,
   type RouterChannelOptions,
+  scopedName,
   type VaultSecret,
 } from "@notation/factory";
-import * as v from "valibot";
 import { Project, type ProjectInstance } from "../resources/project.ts";
 import {
   RouterConfig,
@@ -17,10 +17,7 @@ import { Service, type ServiceInstance } from "../resources/service.ts";
 import { bindSecret } from "./bind-secrets.ts";
 import type { RailwaySecret, Vault } from "./vault.ts";
 
-const routerConfig = v.object({ project: v.string() });
-export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
-
-export type RouterOptions = RouterGroupConfig & { vault: Vault };
+export type RouterOptions = { vault: Vault };
 
 /**
  * `new railway.Router(...)`: the hub's Railway project, a public router
@@ -28,10 +25,7 @@ export type RouterOptions = RouterGroupConfig & { vault: Vault };
  * file on that volume. Creating it binds the vault to the project and
  * generates the root key into it.
  */
-export class Router
-  extends ResourceGroup<RouterGroupConfig>
-  implements RouterContract
-{
+export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
   readonly project: ProjectInstance;
   readonly rootKeyValue: RandomKeyInstance;
@@ -40,12 +34,11 @@ export class Router
   readonly url: OutputRef<string>;
   readonly store: RouterConfigInstance;
 
-  constructor(id: string, { vault, ...config }: RouterOptions) {
-    const { project } = v.parse(routerConfig, config);
-    super("railway/Router", id, config);
+  constructor(id: string, { vault }: RouterOptions) {
+    super("railway/Router", id);
     this.vault = vault;
     this.project = this.add(
-      new Project(`${id}-project`, { config: { name: project } }),
+      new Project(`${id}-project`, { config: { name: scopedName(id, 100) } }),
     );
     this.vault.bind(this.project);
     this.rootKeyValue = this.add(

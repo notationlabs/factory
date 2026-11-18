@@ -10,12 +10,9 @@ import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault"); // <-- 1. where the hub's secrets live
 
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
 new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] }); // <-- 2. who may run the CLI against the hub
@@ -55,7 +52,7 @@ FACTORY_ROOT_KEY
  └─ internal key    HMAC(root, "cloudflare:…")                 Cloudflare Workers' private routing (*.factory.internal)
 ```
 
-Neither the router nor the deployer stores a derived key. Each derives the key where the root key is bound, when it needs it. For example, the router derives `acme-agents`' webhook secret to verify a webhook, and derives a container's key to verify that container's request for credentials.
+Neither the router nor the deployer stores a derived key. Each derives the key where the root key is bound, when it needs it. For example, the router derives `gh`'s webhook secret to verify a webhook, and derives a container's key to verify that container's request for credentials.
 
 The deployer gives each container its own `FACTORY_CONTAINER_KEY` when it deploys the container. A container can only sign as itself, so it can't impersonate another container.
 

@@ -12,6 +12,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 - [x] **Let containers sleep.** The deployer didn't read the runner's reply to a delivered run, and `@cloudflare/containers` counts a request as in flight until its body is read, so containers never slept. Tested live: the container stopped 10 minutes after the run's delivery. `cloudflare.Deployer`'s `sleepAfter` option sets that time for every outpost container, and defaults to `"10m"`.
 - [x] **Delete outpost Workers and their container applications.** `factory infra down` deletes every Worker whose name starts with the deployer's outpost prefix, and the container application of each, with `CLOUDFLARE_API_TOKEN`. When a repo drops a container, the deployer also deletes the container's application, since Cloudflare leaves it when it deletes the Worker. Not yet tested live.
 - [x] **Remove the deployer's account token.** The deployer Worker no longer binds `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` or `KNOWN_HOSTS`, and `cloudflare.Deployer` no longer takes `knownHosts`. `factory container ssh` needs a way to set authorized keys again when it's built.
+- [x] **Run Droid as a runtime.** `@notation/factory-droid` provides the Droid `Account` for the hub and the `runtime` and `Agent` for outposts, the runner runs `droid exec` for agents of the `droid` runtime, and each runtime's plugin ships the `setup.sh` that installs its CLI, which the deployer adds to the container's build context as `factory-runtimes/<id>.sh`. Sessions persist under `~/.factory/sessions` like Claude's do under `~/.claude/projects`.
 
 ## Now
 
@@ -36,7 +37,6 @@ Nothing. Pick from Next.
   - Once Notation has queues, watch builds through a queue of Workers Builds events instead of the `BuildWatch` alarm. Events carry the build's uuid and arrive within seconds, so the deployer no longer polls or matches commit hashes. The deployer subscribes each outpost Worker when it creates it, and maps each Artifacts commit to its repo, commit and container in KV. A build that never starts still needs a timeout.
 - [ ] **Runner:**
   - Write an agent's `files`.
-  - Support runtimes other than Claude Code.
 - [ ] **CLI:**
   - Add `factory container ssh`.
   - Have `factory infra down` open the GitHub App's settings page, as the docs say. It only prints the link today.

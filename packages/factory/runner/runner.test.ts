@@ -42,6 +42,16 @@ esac
 echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
+/** A fake Droid: like the fake Claude Code, but for droid's CLI. */
+const FAKE_DROID = `#!/bin/sh
+prompt="$2"
+printf '%s\\n' "$(pwd)" "$(gh)" "$*" >> "${calls}"
+session="s-$(basename "$(pwd)")"
+mkdir -p "$HOME/.factory/sessions/-p-$(basename "$(pwd)")"
+echo "$prompt" >> "$HOME/.factory/sessions/-p-$(basename "$(pwd)")/$session.jsonl"
+echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
+`;
+
 /** A fake gh, which prints the token it gets. */
 const FAKE_GH = `#!/bin/sh
 echo "$GH_TOKEN"
@@ -73,6 +83,7 @@ before(async () => {
   mkdirSync(bin);
   mkdirSync(home);
   writeFileSync(join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
+  writeFileSync(join(bin, "droid"), FAKE_DROID, { mode: 0o755 });
   writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
 
   const work = join(root, "work");
@@ -213,6 +224,39 @@ test("a later run in the same conversation and worktree resumes its session", as
   await post(run());
   await nextReply();
   assert.match(lastCall()[2]!, /--resume s-issue-1/);
+});
+
+test("a droid run invokes droid exec, skipping permissions without an autonomy level", async () => {
+  await post(
+    run({
+      runtimes: ["droid"],
+      agent: { id: "coder", runtime: "droid", model: "claude-opus-5-5", effort: "medium", systemPrompt: "prompt.md" },
+      conversation: { id: "github:acme/api#20", prompt: "droid it" },
+    }),
+  );
+  assert.equal((await nextReply()).text, "done");
+  const [cwd, token, args] = lastCall();
+  assert.equal(cwd, join(data, "worktrees", "acme-api", "issue-1"));
+  assert.equal(token, "push-token");
+  assert.match(
+    args!,
+    /^exec droid it --output-format json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt Be brief\.$/,
+  );
+});
+
+test("a droid agent with autonomy runs with --auto, and resumes its session", async () => {
+  const agent = { id: "coder", runtime: "droid", autonomy: "high", settings: { hooks: { hooksDisabled: true } } };
+  const conversation = { id: "github:acme/api#21", prompt: "droid it" };
+  await post(run({ runtimes: ["droid"], agent, conversation }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(
+    lastCall()[2]!,
+    /^exec droid it --output-format json --auto high --settings \S*agents\/coder\/settings\.json$/,
+  );
+
+  await post(run({ runtimes: ["droid"], agent, conversation: { ...conversation, prompt: "carry on" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
 });
 
 test("a run with no branch gets a scratch worktree for its conversation", async () => {

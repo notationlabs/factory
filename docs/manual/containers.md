@@ -22,9 +22,9 @@ const dev = new Container("dev", {
 
 ## Image
 
-A container without `image` runs Factory's default image. It is built from [`packages/cloudflare/image/Dockerfile`](../../packages/cloudflare/image/Dockerfile), and has `bun`, `git`, `gh`, `jq`, `ripgrep` and Claude Code.
+A container without `image` runs Factory's default image, built from [`packages/cloudflare/image/Dockerfile`](../../packages/cloudflare/image/Dockerfile). It has `bun`, `git`, `gh`, `jq` and `ripgrep`, plus the CLI of each runtime the container lists, installed by the runtime plugin's `setup.sh`.
 
-A repo that needs its own toolchain writes a Dockerfile in `.factory/`, and sets `image` to its path. This Dockerfile extends Factory's default with `postgresql-client`:
+A repo that needs its own toolchain writes a Dockerfile in `.factory/`, and sets `image` to its path. The deployer adds the setup of each of the container's runtimes to the build context, as `factory-runtimes/<id>.sh`; the Dockerfile runs them, as root, before its user. This Dockerfile extends Factory's default with `postgresql-client`:
 
 ```dockerfile [.factory/Dockerfile]
 FROM oven/bun:1-debian
@@ -34,11 +34,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
-# The installer puts claude in root's home, which the factory user can't read.
-RUN curl -fsSL https://claude.ai/install.sh | bash \
- && install -m 0755 "$(readlink -f /root/.local/bin/claude)" /usr/local/bin/claude \
- && rm -rf /root/.local /root/.claude /root/.claude.json
-ENV DISABLE_AUTOUPDATER=1
+# The container's runtimes' setups, from the hub's plugins.
+COPY factory-runtimes /tmp/factory-runtimes
+RUN for setup in /tmp/factory-runtimes/*.sh; do sh "$setup"; done \
+ && rm -rf /tmp/factory-runtimes
 
 # Claude Code refuses --dangerously-skip-permissions as root.
 RUN useradd --create-home --home-dir /data/home --shell /bin/bash factory \
@@ -56,7 +55,7 @@ Each image needs these:
 | --- | --- |
 | **`bun`** | The entrypoint runs `bun -e`, which fetches the runner from `http://runner.factory` and runs it |
 | **`git`** | The runner clones the repo, and saves each worktree as a git bundle |
-| **Each runtime's CLI**, such as `claude` | The runner checks for it before each run, and fails the run if it's missing |
+| **The `factory-runtimes` contract lines** | They install the CLI of each runtime the container lists, from its plugin's setup. The runner checks for the CLI before each run, and fails the run if it's missing |
 | **A user other than root, who can write `/data`** | Claude Code refuses `--dangerously-skip-permissions` as root, and the runner keeps its state in `/data` |
 | **A working directory that the user can read** | Git fails in a directory it can't read, such as `oven/bun`'s `/home/bun/app` |
 
@@ -84,7 +83,7 @@ A runtime is an id, such as `claude` for `claude.runtime`. Listing a runtime in 
 - The deployer gives the container the credentials of each infra `Account` whose runtime it lists, and only those.
 - The runner checks the image for the runtime's CLI before each run.
 
-The image installs each runtime's CLI itself. Listing the same runtime twice in one container is a config error.
+Each runtime's plugin ships the `setup.sh` that installs its CLI, and the deployer adds it to the container's build context as `factory-runtimes/<id>.sh`. A container with no `image` runs the setups in its default Dockerfile; a repo's own Dockerfile runs them with the contract lines above. Listing the same runtime twice in one container is a config error.
 
 ## Policies
 

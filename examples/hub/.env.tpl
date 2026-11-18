@@ -1,3 +1,4 @@
 CLOUDFLARE_ACCOUNT_ID=op://secrets-notation-testing/Cloudflare secrets/add more/CLOUDFLARE_ACCOUNT_ID
 CLOUDFLARE_API_TOKEN=op://secrets-notation-testing/Cloudflare secrets/add more/CLOUDFLARE_API_TOKEN
 CLAUDE_CODE_OAUTH_TOKEN=op://m2xevyyo5yqcpbd5vmrpfhb2ru/iwcru2jypimvhsmpwhu3tlyfty/credential
+FACTORY_API_KEY=op://kuvn4ressn7kqqfi3we6y633b4/du5lxnkbcg3jb37c6akhuro7ma/w2qsnieazjhmginvvbfwzm74dm

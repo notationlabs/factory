@@ -19,12 +19,9 @@ import * as github from "@notation/factory-github";
 import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] }); // <-- who may run `factory infra status`
 
@@ -52,7 +49,7 @@ factory infra up
 ```
 
 `factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser twice on its first run:
-- to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook/github/acme-agents`, where `Url` is the router's `Url` output;
+- to create the `<app>--<stage>--gh` GitHub App with its webhook set to `<Url>/webhook/github/gh`, where `Url` is the router's `Url` output;
 - on Cloudflare, to take the deployer's builds token, a user API token that Workers Builds needs. See [Providers](./providers.md#cloudflare).
 
 GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
@@ -72,14 +69,14 @@ import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
 
-const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
+const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 const code = new github.Policy("code", {
   permissions: { contents: "write", pull_requests: "write" },
 });
 
 const dev = new Container("dev", {
-  runtimes: [claude.runtime], // <-- no image: Factory's default image has Claude Code
+  runtimes: [claude.runtime], // <-- no image: the default image installs Claude Code from the plugin's setup
   policies: [code],
 });
 
@@ -110,13 +107,13 @@ git add .factory && git commit -m "Add factory config" && git push
 Grant the hub access to `acme/webapp` and build its container:
 
 ```sh
-factory repo install
+factory repo install --app <github app slug>
 ```
 
 `factory repo install` walks through installation and waits for the initial build:
 
 ```text
-1. Opens GitHub in browser ──► Install `acme-agents` on `acme/webapp`
+1. Opens GitHub in browser ──► Install the GitHub App on `acme/webapp`
 2. Webhook wakes Deployer  ──► Checks the config, builds `dev`'s image
 3. Deploy completes        ──► `FACTORY_STATUS` reports `dev` ready
 ```

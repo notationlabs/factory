@@ -61,7 +61,7 @@ export const FACTORY_DIR = ".factory";
 /** A trigger that a delivery matched. `run` is the id of the run it started, if its author may start one. */
 export type TriggerMatch = { trigger: string; author: AuthorCheck; run?: string };
 
-/** The path that a connection's platform delivers to. `key` is the connection's key, such as `github/acme-agents`. */
+/** The path that a connection's platform delivers to. `key` is the connection's key, such as `github/gh`. */
 export const webhookPath = (key: string) => `/webhook/${key}`;
 
 const json = (status: number, body: unknown) =>

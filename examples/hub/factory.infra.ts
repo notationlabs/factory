@@ -1,20 +1,15 @@
 import * as claude from "@notation/factory-claude";
 import * as cloudflare from "@notation/factory-cloudflare";
+import * as droid from "@notation/factory-droid";
 import * as github from "@notation/factory-github";
 import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
 
-const router = new cloudflare.Router("router", {
-  project: "notation-factory-test",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
 // Without an `org`, the App belongs to the GitHub account that creates it.
-const gh = new github.Connection("gh", {
-  name: "notation-factory-test",
-  router,
-});
+const gh = new github.Connection("gh", { router });
 
 new github.CodeHost("github", {
   allow: [{ owner: "djgrant", repo: "notation-factory-test-outpost-1" }],
@@ -37,9 +32,20 @@ const claudeAccount = new claude.Account("claude", {
   }),
 });
 
+const droidKey = new sources.Env("factory-api-key", {
+  config: { key: "FACTORY_API_KEY", track: "scrypt" },
+});
+
+const droidAccount = new droid.Account("droid", {
+  auth: vault.secret({
+    id: "factory-api-key",
+    value: droidKey.credentials.value,
+  }),
+});
+
 new cloudflare.Deployer("deployer", {
   router,
   vault,
-  accounts: [claudeAccount],
+  accounts: [claudeAccount, droidAccount],
   regions: ["WEUR"],
 });

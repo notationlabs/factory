@@ -17,12 +17,12 @@ const dev = new Container("dev", {
 
 const claudeCoder = new claude.Agent("claude-coder", {
   model: "claude-opus-5-5",
-  effort: "high",
+  effort: "medium",
 });
 
 const droidCoder = new droid.Agent("droid-coder", {
   model: "claude-opus-5-5",
-  effort: "high",
+  effort: "medium",
 });
 
 new Trigger("claude-mention", {

@@ -1,8 +1,8 @@
 import type { ResourceGroup } from "@notation/resource";
 import type { ChannelEntry } from "./channel.ts";
 
-/** What a container's image installs to run a kind of agent. `setup` is a directory holding `setup.sh`, run at image build. */
-export type Runtime = { id: string; setup: string };
+/** A kind of agent, which a container's image installs the CLI of. */
+export type Runtime = { id: string };
 
 /** An agent persona for a runtime. Its provider decides its settings. */
 export interface Agent extends ResourceGroup {
@@ -16,7 +16,8 @@ export interface PolicyContract extends ResourceGroup {
 
 /** In an outpost's config: a container, with its runtimes' and policies' ids. */
 export type ContainerEntry = {
-  image: string;
+  /** The Dockerfile, relative to `.factory/`. Without it, the container gets Factory's default image. */
+  image?: string;
   runtimes: string[];
   policies: string[];
   files: Record<string, string | Record<string, unknown>>;

@@ -3,3 +3,4 @@ dist
 .notation
 packages/factory/deployer/sdk.gen.ts
 .wrangler
+packages/cloudflare/workers/outpost.gen.ts

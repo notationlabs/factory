@@ -6,9 +6,10 @@
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/compile.ts",
     "viewer": "tsx scripts/compile.ts --view",
-    "test": "node scripts/build-sdk.ts && node --test 'packages/*/router/*.test.ts' 'packages/*/workers/*.test.ts' 'packages/*/deployer/*.test.ts' 'packages/*/runner/*.test.ts'",
+    "test": "node scripts/build-sdk.ts && node scripts/build-outpost.ts && node --test 'packages/*/router/*.test.ts' 'packages/*/workers/*.test.ts' 'packages/*/deployer/*.test.ts' 'packages/*/runner/*.test.ts'",
     "build:sdk": "node scripts/build-sdk.ts",
-    "prepare": "node scripts/build-sdk.ts"
+    "build:outpost": "node scripts/build-outpost.ts",
+    "prepare": "node scripts/build-sdk.ts && node scripts/build-outpost.ts"
   },
   "devDependencies": {
     "@notation/resource": "0.27.0",

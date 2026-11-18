@@ -7,6 +7,7 @@ export type {
   RouterConfig,
   TriggerEntry,
 } from "../contracts/index.ts";
+export { DEFAULT_SLEEP_AFTER } from "../contracts/outpost.ts";
 export type {
   AuthorCheck,
   Channel,

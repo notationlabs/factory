@@ -165,6 +165,7 @@ const run = (over: Partial<Run> = {}): Run => ({
   container: "dev",
   runtimes: ["claude"],
   files: { "~/.npmrc": "npmrc", "~/.config/app.json": { region: "eu" } },
+  sleepAfter: "10m",
   agent: { id: "coder", runtime: "claude", model: "claude-opus-5-5", effort: "high", systemPrompt: "prompt.md" },
   conversation: { id: "github:acme/api#1", prompt: "fix it" },
   worktree: { branch: "issue-1" },

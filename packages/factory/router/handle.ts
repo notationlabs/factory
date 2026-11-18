@@ -1,4 +1,4 @@
-import type { OutpostConfig } from "../contracts/outpost.ts";
+import { DEFAULT_SLEEP_AFTER, type OutpostConfig } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import type {
   AuthorCheck,
@@ -225,6 +225,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       container: trigger.container,
       runtimes: container.runtimes,
       files: container.files ?? {},
+      sleepAfter: container.sleepAfter ?? DEFAULT_SLEEP_AFTER,
       agent: { id: trigger.agent, ...agent },
       conversation: { id: conversation.id, prompt: conversation.prompt },
       ...(worktree && { worktree }),

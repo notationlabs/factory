@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { PolicyContract, Runtime } from "../contracts/outpost.ts";
+import { DEFAULT_SLEEP_AFTER, type PolicyContract, type Runtime } from "../contracts/outpost.ts";
 import { OutpostGroup } from "./outpost.ts";
 
 const containerConfig = v.object({
@@ -26,6 +26,11 @@ const containerConfig = v.object({
     ),
     {},
   ),
+  /** How long the container stays up with no run in progress, such as `"30s"`, `"10m"` or `"1h"`. */
+  sleepAfter: v.optional(
+    v.pipe(v.string(), v.regex(/^[1-9]\d*[smh]$/, "sleepAfter is a number of seconds, minutes or hours, such as \"30s\", \"10m\" or \"1h\".")),
+    DEFAULT_SLEEP_AFTER,
+  ),
 });
 export type ContainerConfig = v.InferInput<typeof containerConfig>;
 
@@ -39,7 +44,7 @@ export class Container extends OutpostGroup<ContainerConfig> {
   readonly policies: PolicyContract[];
 
   constructor(id: string, { policies = [], ...config }: ContainerOptions) {
-    const { image, runtimes, files } = v.parse(containerConfig, config);
+    const { image, runtimes, files, sleepAfter } = v.parse(containerConfig, config);
     const seen = new Set<string>();
     for (const runtime of runtimes) {
       if (seen.has(runtime.id)) {
@@ -57,6 +62,7 @@ export class Container extends OutpostGroup<ContainerConfig> {
           runtimes: runtimes.map((r) => r.id),
           policies: policies.map((p) => p.id),
           files,
+          sleepAfter,
         },
       },
     });

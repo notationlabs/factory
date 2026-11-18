@@ -2,6 +2,7 @@ import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
 import {
+  DEFAULT_SLEEP_AFTER,
   type OutpostConfig,
   outpostKey,
   type Relay,
@@ -77,15 +78,33 @@ const relay = async (run: Run, text: string) => {
   }
 };
 
+/** The storage key of the `sleepAfter` that the last run gave. */
+const SLEEP_AFTER_KEY = "sleepAfter";
+
 /**
  * One outpost container, keyed by repo and container id. The runner in the
  * container queues the runs it's given. The container sleeps once it's idle
- * for `sleepAfter`.
+ * for its config's `sleepAfter`.
  */
 export class OutpostContainer extends Container<Env> {
   defaultPort = RUNNER_PORT;
-  sleepAfter = "10m";
+  sleepAfter = DEFAULT_SLEEP_AFTER;
   entrypoint = ["/usr/local/bin/factory-runner"];
+
+  constructor(ctx: ConstructorParameters<typeof Container>[0], env: Env) {
+    super(ctx, env);
+    // The object can restart while its container runs, and then the alarm
+    // that stops the container would use the default.
+    void this.ctx.blockConcurrencyWhile(async () => {
+      const stored = (await this.ctx.storage.get(SLEEP_AFTER_KEY)) as string | undefined;
+      if (stored) this.#setSleepAfter(stored);
+    });
+  }
+
+  #setSleepAfter(sleepAfter: string) {
+    this.sleepAfter = sleepAfter;
+    this.renewActivityTimeout();
+  }
 
   /**
    * Hands `run` to the runner in an alarm, so that the container may take
@@ -97,6 +116,10 @@ export class OutpostContainer extends Container<Env> {
 
   async deliver(run: Run) {
     try {
+      if (run.sleepAfter !== this.sleepAfter) {
+        await this.ctx.storage.put(SLEEP_AFTER_KEY, run.sleepAfter);
+        this.#setSleepAfter(run.sleepAfter);
+      }
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.#credentials(run.runtimes) },
         cancellationOptions: { instanceGetTimeoutMS: START_TIMEOUT_MS, portReadyTimeoutMS: START_TIMEOUT_MS },

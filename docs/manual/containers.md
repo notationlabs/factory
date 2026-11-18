@@ -18,7 +18,7 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares an outpost machine: its Docker image, the runtimes it installs, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
+`Container` declares an outpost machine: its Docker image, the runtimes it installs, the `Policy` objects it can request tokens for, and startup files written into `/data/home`. It sleeps once it has had no run in progress for `sleepAfter`, which defaults to `"10m"`.
 
 ## Dockerfile
 

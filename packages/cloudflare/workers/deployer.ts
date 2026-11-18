@@ -106,9 +106,10 @@ export class OutpostContainer extends Container<Env> {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(run),
       });
-      if (!response.ok) {
-        throw new Error(`The runner refused the run with status ${response.status}: ${await response.text()}`);
-      }
+      // `containerFetch` counts the request as in flight until its body is read,
+      // and the container never sleeps while a request is in flight.
+      const body = await response.text();
+      if (!response.ok) throw new Error(`The runner refused the run with status ${response.status}: ${body}`);
       console.log(JSON.stringify({ run: run.id, repo: run.repo, container: run.container, delivered: true }));
     } catch (error) {
       console.error(JSON.stringify({ run: run.id, error: message(error) }));

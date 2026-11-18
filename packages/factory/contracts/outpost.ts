@@ -1,8 +1,14 @@
 import type { ResourceGroup } from "@notation/resource";
 import type { ChannelEntry } from "./channel.ts";
 
-/** A kind of agent, which a container's image installs the CLI of. `setup` is a root shell script that installs the CLI system-wide; the deployer adds it to the container's build context. */
-export type Runtime = { id: string; setup?: string };
+/**
+ * A kind of agent, which a container's image installs the CLI of. `setup`
+ * is a root shell script that installs the CLI system-wide, which the
+ * deployer adds to the container's image. `runner` is the source of its
+ * runner module, a `RuntimeRunner`, which the runner imports to run the
+ * runtime's agents.
+ */
+export type Runtime = { id: string; setup?: string; runner?: string };
 
 /** An agent persona for a runtime. Its provider decides its settings. */
 export interface Agent extends ResourceGroup {

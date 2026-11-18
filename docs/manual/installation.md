@@ -18,7 +18,7 @@ In your infrastructure repository, add `@notation/factory` and the plugins `fact
 @pm.dev("@notation/factory @notation/factory-cloudflare @notation/factory-github @notation/factory-claude")
 ```
 
-In each outpost repository, add `@notation/factory` and the plugins `.factory/config.ts` uses:
+In each outpost repository, add `@notation/factory` and the plugins `.factory/infra.ts` uses:
 
 ```bash
 @pm.dev("@notation/factory @notation/factory-github @notation/factory-claude")

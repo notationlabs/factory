@@ -18,6 +18,7 @@ export type {
   Runtime,
   TriggerEntry,
 } from "./outpost.ts";
+export type { CodeHostRunner, RunContext, RuntimeOutput, RuntimeRunner } from "./runner.ts";
 export type {
   CodeHostEntry,
   ConnectionEntry,

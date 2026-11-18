@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { CodeHostRunner, RuntimeRunner } from "../contracts/runner.ts";
 import type { Relay, Run, TokenRequest, Tokens } from "../router/run.ts";
 
 const PORT = Number(process.env.FACTORY_RUNNER_PORT ?? 8080);
@@ -11,11 +14,13 @@ const DATA = process.env.FACTORY_DATA ?? "/data";
 const HOME = homedir();
 /** The container's state store, which outlives the container. The provider answers this host. */
 const STATE_URL = process.env.FACTORY_STATE_URL ?? "http://state.factory";
+/** Where the hub serves its plugins' runner modules. The provider answers this host. */
+const MODULES_URL = process.env.FACTORY_MODULES_URL ?? "http://runner.factory";
 
 /** How often a run asks the router for new tokens. GitHub's installation tokens last an hour. */
 const TOKEN_REFRESH_MS = Number(process.env.FACTORY_TOKEN_REFRESH_MS ?? 30 * 60 * 1000);
 
-/** Where the runner puts a `gh` that reads its token from `FACTORY_TOKEN_FILE`. */
+/** First on the agent's PATH, for the code host's wrappers, such as a `gh` that reads its token from `FACTORY_TOKEN_FILE`. */
 const BIN = join(DATA, "bin");
 
 /** The longest a run's agent may take. */
@@ -70,17 +75,12 @@ const exec = (
     });
   });
 
-/** Runs git, and returns its output. Throws with its stderr if it fails. */
+/** Runs git, and returns its output. Throws with its stderr if it fails. `auth` is the code host's options for this command only. */
 const git = async (
   args: string[],
-  options: { cwd?: string; token?: string; env?: Record<string, string | undefined> } = {},
+  options: { cwd?: string; auth?: string[]; env?: Record<string, string | undefined> } = {},
 ) => {
-  // The token goes in a header for this command only, so the agent can't
-  // read it from the repo's config.
-  const auth = options.token
-    ? ["-c", `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${options.token}`).toString("base64")}`]
-    : [];
-  const result = await exec("git", [...auth, ...args], {
+  const result = await exec("git", [...(options.auth ?? []), ...args], {
     cwd: options.cwd,
     env: options.env && { ...process.env, ...options.env },
   });
@@ -115,16 +115,18 @@ const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-
  * time. Its remote branches are `origin/*`. Returns its path and the
  * default branch.
  */
-const fetchRepo = (run: Run) =>
+const fetchRepo = (run: Run, codeHost: CodeHostRunner) =>
   repoLock(run.repo, async () => {
     const path = join(DATA, "repos", `${slug(run.repo)}.git`);
-    const url = `https://github.com/${run.repo}.git`;
+    // The clone token goes in this command's options, so the agent can't
+    // read it from the repo's config.
+    const auth = codeHost.gitAuth(run.cloneToken);
     if (!existsSync(path)) {
       await mkdir(dirname(path), { recursive: true });
-      await git(["clone", "--bare", url, path], { token: run.cloneToken });
+      await git(["clone", "--bare", codeHost.cloneUrl(run.repo), path], { auth });
       await git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], { cwd: path });
     }
-    await git(["fetch", "--prune", "origin"], { cwd: path, token: run.cloneToken });
+    await git(["fetch", "--prune", "origin"], { cwd: path, auth });
     const head = await git(["symbolic-ref", "--short", "HEAD"], { cwd: path });
     return { path, defaultBranch: head };
   });
@@ -320,74 +322,49 @@ const readSession = async (run: Run): Promise<Session | undefined> => {
 
 const sessionKey = (run: Run) => `sessions/${slug(run.conversation.id)}/${slug(run.agent.id)}`;
 
-/** A runtime the runner runs: the CLI a container's image installs, and how a run invokes it. */
-type RuntimeAdapter = {
-  /** The command the image must have. */
-  command: string;
-  /** The CLI's name, for errors. */
-  name: string;
-  /** Where the CLI keeps its sessions' transcripts, in a directory per working directory. */
-  transcripts: string;
-  /** The CLI's arguments for a run. */
-  args: (run: Run, cwd: string) => Promise<string[]>;
-  /** The arguments that resume a session. */
-  resume: (sessionId: string) => string[];
-  /** Extra environment for the CLI. */
-  env?: Record<string, string>;
+/** Imports the hub's runner module at `path`, once for each version of it. */
+const loadModule = async <T>(path: string): Promise<T> => {
+  const response = await fetch(`${MODULES_URL}/${path}`);
+  if (response.status === 404) throw new Error(`The hub has no runner module ${path}.`);
+  if (!response.ok) throw new Error(`The hub refused the runner module ${path} with status ${response.status}.`);
+  const source = await response.text();
+  // A file per version, since an import of the same path returns the module it imported first.
+  const file = join(DATA, "modules", `${createHash("sha256").update(source).digest("hex").slice(0, 16)}.ts`);
+  if (!existsSync(file)) {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(`${file}.new`, source);
+    await rename(`${file}.new`, file);
+  }
+  return ((await import(pathToFileURL(file).href)) as { default: T }).default;
 };
 
-const claude: RuntimeAdapter = {
-  command: "claude",
-  name: "Claude Code",
-  transcripts: join(HOME, ".claude", "projects"),
-  args: async (run, cwd) => {
-    const { agent } = run;
-    const args = ["-p", run.conversation.prompt, "--output-format", "json", "--dangerously-skip-permissions"];
-    if (typeof agent.model === "string") args.push("--model", agent.model);
-    if (typeof agent.effort === "string") args.push("--effort", agent.effort);
-    args.push("--append-system-prompt", await systemPrompt(run, cwd));
-    if (agent.settings) args.push("--settings", JSON.stringify(agent.settings));
-    return args;
-  },
-  resume: (sessionId) => ["--resume", sessionId],
-  env: { DISABLE_AUTOUPDATER: "1" },
+/** The code host's setups that have run, by module, so concurrent runs don't write git's config at once. */
+const codeHostSetups = new Map<CodeHostRunner, Promise<void>>();
+
+/** The code host's runner module, set up. */
+const loadCodeHost = async () => {
+  const codeHost = await loadModule<CodeHostRunner>("code-host.ts");
+  let setup = codeHostSetups.get(codeHost);
+  if (!setup) {
+    setup = codeHost.setup({ bin: BIN });
+    codeHostSetups.set(codeHost, setup);
+    setup.catch(() => codeHostSetups.delete(codeHost));
+  }
+  await setup;
+  return codeHost;
 };
 
-const droid: RuntimeAdapter = {
-  command: "droid",
-  name: "Droid",
-  transcripts: join(HOME, ".factory", "sessions"),
-  args: async (run, cwd) => {
-    const { agent } = run;
-    const args = ["exec", run.conversation.prompt, "--output-format", "json"];
-    // A container is disposable, so a run skips every permission prompt
-    // unless the agent sets an autonomy level.
-    if (typeof agent.autonomy === "string") args.push("--auto", agent.autonomy);
-    else args.push("--skip-permissions-unsafe");
-    if (typeof agent.model === "string") args.push("--model", agent.model);
-    if (typeof agent.effort === "string") args.push("--reasoning-effort", agent.effort);
-    args.push("--append-system-prompt", await systemPrompt(run, cwd));
-    if (agent.settings) {
-      // `--settings` takes a file, which a run merges for that run only.
-      const path = join(DATA, "agents", agent.id, "settings.json");
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, `${JSON.stringify(agent.settings, null, 2)}\n`);
-      args.push("--settings", path);
-    }
-    return args;
-  },
-  resume: (sessionId) => ["--session-id", sessionId],
-};
-
-/** The runtimes the runner runs, by id. */
-const runtimes: Record<string, RuntimeAdapter> = { claude, droid };
+const loadRuntime = (id: string) =>
+  loadModule<RuntimeRunner>(`runtimes/${encodeURIComponent(id)}.ts`).catch((error) => {
+    throw new Error(`The runner can't run agents of the runtime ${id}: ${message(error)}`);
+  });
 
 /**
  * Saves the conversation's session to the state store: its transcript
  * files, as a tarball of their paths under the runtime's transcripts
  * directory, and then the session's id and working directory.
  */
-const saveSession = async (run: Run, adapter: RuntimeAdapter) => {
+const saveSession = async (run: Run, adapter: RuntimeRunner) => {
   const session = await readSession(run);
   if (!session) return;
   const paths: string[] = [];
@@ -410,7 +387,7 @@ const saveSession = async (run: Run, adapter: RuntimeAdapter) => {
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
-const restoreSession = async (run: Run, adapter: RuntimeAdapter) => {
+const restoreSession = async (run: Run, adapter: RuntimeRunner) => {
   if (existsSync(sessionPath(run))) return;
   const session = await getState(`${sessionKey(run)}.json`);
   if (!session) return;
@@ -432,8 +409,8 @@ const restoreSession = async (run: Run, adapter: RuntimeAdapter) => {
  * final message. It resumes the conversation's session if the session ran
  * in the same worktree.
  */
-const runAgent = async (adapter: RuntimeAdapter, run: Run, cwd: string) => {
-  const args = await adapter.args(run, cwd);
+const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string) => {
+  const args = await adapter.args(run, { cwd, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA });
   const session = await readSession(run);
   if (session?.cwd === cwd) args.push(...adapter.resume(session.id));
 
@@ -442,15 +419,12 @@ const runAgent = async (adapter: RuntimeAdapter, run: Run, cwd: string) => {
     env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run), ...adapter.env },
     timeout: RUN_TIMEOUT_MS,
   });
-  let output: { result?: string; is_error?: boolean; session_id?: string } | undefined;
-  try {
-    output = JSON.parse(result.stdout);
-  } catch {}
-  if (output?.session_id) {
+  const output = adapter.parse(result.stdout);
+  if (output?.sessionId) {
     await mkdir(dirname(sessionPath(run)), { recursive: true });
-    await writeFile(sessionPath(run), JSON.stringify({ id: output.session_id, cwd } satisfies Session));
+    await writeFile(sessionPath(run), JSON.stringify({ id: output.sessionId, cwd } satisfies Session));
   }
-  if (result.code !== 0 || !output || output.is_error) {
+  if (result.code !== 0 || !output || output.isError) {
     const detail = output?.result ?? (result.stderr.trim() || result.stdout.trim()).slice(-4000);
     throw new Error(`${adapter.name} exited with code ${result.code}: ${detail}`);
   }
@@ -479,7 +453,8 @@ let active = 0;
 
 /**
  * Runs one run:
- * 1. Updates the repo's clone, and checks out the run's worktree.
+ * 1. Imports the runtime's and the code host's runner modules, updates the
+ *    repo's clone, and checks out the run's worktree.
  * 2. Restores the conversation's session if this container doesn't have it.
  * 3. Writes the container's files and the policies' tokens.
  * 4. Runs the agent in the worktree, and has the router mint new tokens
@@ -493,16 +468,16 @@ const execute = async (run: Run) => {
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const worktree = worktreeOf(run);
   const notes: string[] = [];
-  const adapter = runtimes[run.agent.runtime];
+  let adapter: RuntimeRunner | undefined;
   let checkedOut = false;
   let text: string;
   try {
-    if (!adapter) throw new Error(`The runner can't run agents of the runtime ${run.agent.runtime}.`);
+    adapter = await loadRuntime(run.agent.runtime);
     await assertCommand(adapter.command, adapter.name);
-    const repo = await fetchRepo(run);
+    const repo = await fetchRepo(run, await loadCodeHost());
     await checkout(run, repo, worktree, notes);
     checkedOut = true;
-    await restoreSession(run, adapter).catch((error) =>
+    await restoreSession(run, adapter).catch((error: unknown) =>
       notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
     );
     await writeFiles(run, worktree.path);
@@ -561,37 +536,10 @@ const readBody = async (request: IncomingMessage) => {
   return Buffer.concat(chunks).toString("utf8");
 };
 
-/**
- * Git signs commits as the hub, and pushes with the token in the file that
- * `FACTORY_TOKEN_FILE` names. Each write locks the config file, so they
- * run in turn.
- */
+/** Git signs commits as the hub. Each write locks the config file, so they run in turn. */
 const configureGit = async () => {
   await git(["config", "--global", "user.name", "Notation Factory"]);
   await git(["config", "--global", "user.email", "notation-factory@users.noreply.github.com"]);
-  await git([
-    "config",
-    "--global",
-    "credential.https://github.com.helper",
-    '!f() { test -n "$FACTORY_TOKEN_FILE" || exit 0; echo username=x-access-token; echo "password=$(cat "$FACTORY_TOKEN_FILE")"; }; f',
-  ]);
-};
-
-/**
- * Puts a `gh` in `/data/bin` that runs the installed `gh` with the token in
- * `FACTORY_TOKEN_FILE`. `GH_TOKEN` would keep the first token after the
- * router refreshes it.
- */
-const installGh = async () => {
-  const found = await exec("sh", ["-c", "command -v gh"]);
-  const gh = found.stdout.trim();
-  if (found.code !== 0 || !gh) return;
-  await mkdir(BIN, { recursive: true });
-  const script = `#!/bin/sh
-if [ -n "$FACTORY_TOKEN_FILE" ]; then GH_TOKEN="$(cat "$FACTORY_TOKEN_FILE")"; export GH_TOKEN; fi
-exec ${JSON.stringify(gh)} "$@"
-`;
-  await writeFile(join(BIN, "gh"), script, { mode: 0o755 });
 };
 
 /**
@@ -626,5 +574,4 @@ process.on("SIGTERM", () => {
 });
 
 await configureGit();
-await installGh();
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

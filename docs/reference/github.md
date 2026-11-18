@@ -9,7 +9,7 @@
 | Used in | Exports |
 | --- | --- |
 | `factory.infra.ts` | `github.Connection` (provisions the GitHub App and webhook), `github.CodeHost` (where the repositories live), `github.OperatorAuth` (operator sign-in) |
-| `.factory/config.ts` | `Connection.get`, `Policy`, `channel.issue`, `channel.issueComment`, `collaborators`, `team`, `user` |
+| `.factory/infra.ts` | `Connection.get`, `Policy`, `channel.issue`, `channel.issueComment`, `collaborators`, `team`, `user` |
 
 On GitHub, one App is both the connection and the code host's token issuer.
 
@@ -83,7 +83,7 @@ The CLI signs you in through the connection's App as a user-to-server token, and
 
 Listen on this repo's issues:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import * as github from "@notation/factory-github";
 
 const gh = github.Connection.get("gh").channel({ id: "issues" }); // <-- scope defaults to the outpost's repo
@@ -93,7 +93,7 @@ const gh = github.Connection.get("gh").channel({ id: "issues" }); // <-- scope d
 
 Filter the issue or comment events that wake an agent:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("mention", {
   event: gh.issueComment({
     actions: ["created", "edited"], // <-- default: ["created"]
@@ -124,7 +124,7 @@ A conversation is an issue. Replies are posted as issue comments by the App, thr
 
 Grant an outpost container scoped installation tokens for a repository:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import * as github from "@notation/factory-github";
 
 const code = new github.Policy("code", {

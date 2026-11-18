@@ -43,7 +43,7 @@ The `Vault` holds the hub's secrets. `vault.secret(...)` only declares a secret.
 
 Wake an agent when someone you trust mentions it on an issue:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const gh = github.Connection.get("gh").channel({ id: "issues" }); // <-- this repo's issues
 
 const dev = new Container("dev", {

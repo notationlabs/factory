@@ -1,4 +1,5 @@
 import { type OutputRef, ResourceGroup } from "@notation/resource";
+import type { CodeHost } from "@notation/factory";
 import {
   bindingName,
   RandomKey,
@@ -49,6 +50,7 @@ export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
   readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: CloudflareSecret;
+  codeHost?: CodeHost;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
   readonly worker: Worker;

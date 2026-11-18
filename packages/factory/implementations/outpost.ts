@@ -23,7 +23,7 @@ const currentOutpost = (): Outpost => {
   const collection = getActiveResourceCollection();
   if (!collection) {
     throw new Error(
-      "Declare outpost resources in .factory/config.ts, which the deployer evaluates with Notation",
+      "Declare outpost resources in .factory/infra.ts, which the deployer evaluates with Notation",
     );
   }
   let outpost = outposts.get(collection);

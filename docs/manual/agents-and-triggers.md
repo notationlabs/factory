@@ -2,7 +2,7 @@
 
 Configure an agent persona and choose which channel events wake it:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const coder = new claude.Agent("coder", {
   model: "claude-opus-5-5",
   effort: "high",
@@ -33,7 +33,7 @@ Every agent gets the runner's own system prompt first, and then its `systemPromp
 
 Each channel builds selectors in its platform's own vocabulary. The router matches them as data, without running any of the repo's code:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 gh.issue({ actions: ["opened"], labels: ["bug"], from: github.collaborators() })
 gh.issueComment({ actions: ["created", "edited"], mention: "@claude", from: github.team("acme/core") })
 ops.mention("@claude", { from: slack.group("eng") })
@@ -65,7 +65,7 @@ Pass an array to accept several. On GitHub, a comment starts a run only if the i
 
 Specialize agents by cost and capability for different tasks:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const triage = new claude.Agent("triage", {
   model: "claude-haiku-5-5",
   systemPrompt: "./prompts/triage.md",
@@ -79,7 +79,7 @@ const coder = new claude.Agent("coder", {
 
 Bind each agent to its stage of the issue lifecycle. A function shared by several triggers types its parameter with the fields it reads, which both events have:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const branch = (event: { issue: { number: number } }) => `issue-${event.issue.number}`;
 
 new Trigger("on-open", {

@@ -10,7 +10,7 @@ new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 new slack.Connection("slack", { workspace: "acme", router });
 ```
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const gh = github.Connection.get("gh").channel({ id: "issues" });         // <-- this repo's issues
 const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- one Slack channel
 ```
@@ -21,13 +21,13 @@ const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" });
 | --- | --- | --- |
 | **Connection** | `factory.infra.ts` | Notation Factory's presence on a platform: its credentials, bot identity and event feed. Declared once and shared by every repo. Only the router holds its credentials |
 | **Grant** | On the platform | The reach a resource owner gives a connection, e.g. installing the GitHub App on a repo or inviting the Slack bot to a channel. It appears in neither config file |
-| **Channel** | `.factory/config.ts` | A connection plus a scope, such as this repo's issues or a Slack channel. A repo picks the channels its triggers listen on. Its `id` names it in the outpost |
+| **Channel** | `.factory/infra.ts` | A connection plus a scope, such as this repo's issues or a Slack channel. A repo picks the channels its triggers listen on. Its `id` names it in the outpost |
 | **CodeHost** | `factory.infra.ts` | Where repos live. It decides which repos Notation Factory serves (`allow`) and mints the credentials containers use to call it directly |
 | **Account** | `factory.infra.ts` | Credentials for an agent runtime, which the deployer injects into containers |
-| **Runtime** | `.factory/config.ts` | A kind of agent, such as `claude`. It matches a container to an `Account`, and names the CLI that the container's image must have |
-| **Container** | `.factory/config.ts` | A repo's machine, with the runtimes and policies it has |
-| **Worktree** | `.factory/config.ts` | A container's working directory on the branch a trigger's `worktree` function names from the event |
-| **Trigger** | `.factory/config.ts` | The complete dispatch rule: this event, from these authors, to this agent, in this container, optionally on a branch |
+| **Runtime** | `.factory/infra.ts` | A kind of agent, such as `claude`. It matches a container to an `Account`, and names the CLI that the container's image must have |
+| **Container** | `.factory/infra.ts` | A repo's machine, with the runtimes and policies it has |
+| **Worktree** | `.factory/infra.ts` | A container's working directory on the branch a trigger's `worktree` function names from the event |
+| **Trigger** | `.factory/infra.ts` | The complete dispatch rule: this event, from these authors, to this agent, in this container, optionally on a branch |
 
 On GitHub, one App is both the connection and the code host's token issuer, so these concepts look like one thing. On Slack, the connection is only a channel: code still lives on the code host.
 
@@ -48,7 +48,7 @@ A scope that isn't granted fails the deploy with `#ops isn't granted`, and `FACT
 
 Every event selector takes a required `from`. Nothing is trusted by default:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 gh.issueComment({ mention: "@claude", from: github.collaborators() })
 gh.issueComment({ mention: "@claude", from: github.team("acme/core") })
 ops.mention("@claude", { from: slack.group("eng") })

@@ -52,6 +52,13 @@ echo "$prompt" >> "$HOME/.factory/sessions/-p-$(basename "$(pwd)")/$session.json
 echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
+/** The hub's runner modules, by the path the runner fetches them at. */
+const MODULES: Record<string, string> = {
+  "runtimes/claude.ts": join(import.meta.dirname, "../../claude/runtime/runner.ts"),
+  "runtimes/droid.ts": join(import.meta.dirname, "../../droid/runtime/runner.ts"),
+  "code-host.ts": join(import.meta.dirname, "../../github/runner/index.ts"),
+};
+
 /** A fake gh, which prints the token it gets. */
 const FAKE_GH = `#!/bin/sh
 echo "$GH_TOKEN"
@@ -102,6 +109,11 @@ before(async () => {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       const { pathname } = new URL(request.url!, "http://test");
+      if (pathname.startsWith("/modules/")) {
+        const file = MODULES[pathname.slice("/modules/".length)];
+        response.statusCode = file ? 200 : 404;
+        return response.end(file && readFileSync(file));
+      }
       if (pathname.startsWith("/state/")) {
         const key = pathname.slice("/state/".length);
         if (request.method === "PUT") {
@@ -143,6 +155,7 @@ const startRunner = async () => {
       FACTORY_DATA: data,
       FACTORY_RUNNER_PORT: String(port),
       FACTORY_STATE_URL: `${serverUrl()}/state`,
+      FACTORY_MODULES_URL: `${serverUrl()}/modules`,
       FACTORY_TOKEN_REFRESH_MS: "300",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
@@ -283,6 +296,11 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
   const scratch = join(data, "scratch", "github-acme-api-2");
   assert.equal(lastCall()[0], scratch);
   assert.ok(existsSync(join(scratch, ".factory", "prompt.md")));
+});
+
+test("a run of a runtime that the hub has no runner module for replies with the error", async () => {
+  await post(run({ agent: { id: "coder", runtime: "codex" }, conversation: { id: "github:acme/api#4", prompt: "go" } }));
+  assert.match((await nextReply()).text, /The run failed: The runner can't run agents of the runtime codex: The hub has no runner module runtimes\/codex\.ts\./);
 });
 
 test("a failed run replies with the error", async () => {

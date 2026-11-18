@@ -10,7 +10,7 @@ An organisation has one hub and one outpost per repo.
 
 | | Hub | Outpost |
 | --- | --- | --- |
-| Declared in | `factory.infra.ts` | `.factory/config.ts` in each repo |
+| Declared in | `factory.infra.ts` | `.factory/infra.ts` in each repo |
 | Contains | A router, a deployer, a vault, connections and agent accounts | Channels, containers, policies, agents and triggers |
 | Deployed by | Notation | The hub's deployer |
 
@@ -28,7 +28,7 @@ The router receives events from each connection. The deployer provisions contain
 | OperatorAuth | Who may operate the agents | `factory-github`, `factory-cloudflare` |
 | Account, Agent, runtime | Which coding agent runs | `factory-claude`, `factory-droid` |
 
-An outpost's `.factory/config.ts` does not name the hosting provider, so the hub can move from one provider to another without changes to each repo. To add a service, write a plugin that implements its contract (see `docs/manual/plugins.md`).
+An outpost's `.factory/infra.ts` does not name the hosting provider, so the hub can move from one provider to another without changes to each repo. To add a service, write a plugin that implements its contract (see `docs/manual/plugins.md`).
 
 ## The hub
 

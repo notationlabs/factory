@@ -68,6 +68,22 @@ export type DeployerOptions = DeployerConfig & {
 const dockerfileModule = () =>
   `export default ${JSON.stringify(readFileSync(new URL("../image/Dockerfile", import.meta.url), "utf8"))};`;
 
+/**
+ * A module whose default export is the hub's runner modules' sources, by
+ * the path that outpost Workers serve them at: `runtimes/<id>.ts` for each
+ * account's runtime, and `code-host.ts` for the router's code host.
+ */
+const runnerModulesModule = (id: string, accounts: Account[], router: Router) => {
+  // The bundle reads its modules when it's declared, so the code host must be declared already.
+  if (!router.codeHost) throw new Error(`Declare the infra's code host before the deployer ${id}, which serves its runner module.`);
+  const modules: Record<string, string> = {};
+  for (const { runtime } of accounts) {
+    if (runtime.runner) modules[`runtimes/${runtime.id}.ts`] = runtime.runner;
+  }
+  if (router.codeHost.runner) modules["code-host.ts"] = router.codeHost.runner;
+  return `export default ${JSON.stringify(modules)};`;
+};
+
 const workerRegistration = Symbol.for("@notation/cloudflare/WorkerDeclaration");
 
 /**
@@ -152,7 +168,10 @@ export class Deployer
       // same account without it, and containers reply through the router's.
       // isomorphic-git and memfs need Node's APIs.
       compatibilityFlags: ["global_fetch_strictly_public", "nodejs_compat"],
-      code: workerBundle(`${id}-deployer`, "deployer", { "factory:dockerfile": dockerfileModule() }),
+      code: workerBundle(`${id}-deployer`, "deployer", {
+        "factory:dockerfile": dockerfileModule(),
+        "factory:runner-modules": runnerModulesModule(id, accounts, router),
+      }),
       url: false,
       bindings: () => ({
         [KV_BINDING]: router.kv,

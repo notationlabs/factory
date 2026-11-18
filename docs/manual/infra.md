@@ -37,7 +37,7 @@ new cloudflare.Deployer("deployer", {
 });
 ```
 
-Each repository then declares its own outpost in [`.factory/config.ts`](./outposts.md), while `factory.infra.ts` owns the shared services:
+Each repository then declares its own outpost in [`.factory/infra.ts`](./outposts.md), while `factory.infra.ts` owns the shared services:
 
 | Component | Exposure | Role |
 | --- | --- | --- |

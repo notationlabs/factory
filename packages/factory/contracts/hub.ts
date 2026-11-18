@@ -8,6 +8,8 @@ import type { Vault, VaultSecret } from "./vault.ts";
 export interface CodeHost extends ResourceGroup {
   readonly connection: Connection;
   readonly allow: RepoPattern[];
+  /** The source of its runner module, a `CodeHostRunner`, which the runner imports to clone and push. */
+  readonly runner?: string;
 }
 
 /** Who may run the CLI against the running hub. Declared, not managed: it contributes to the router's config. */

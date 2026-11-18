@@ -1,6 +1,6 @@
 # `@notation/factory`
 
-`@notation/factory` holds what both the infrastructure config (`factory.infra.ts`) and repository outpost configs (`.factory/config.ts`) declare, and the contracts every plugin implements.
+`@notation/factory` holds what both the infrastructure config (`factory.infra.ts`) and repository outpost configs (`.factory/infra.ts`) declare, and the contracts every plugin implements.
 
 ```bash
 @pm.dev("@notation/factory")
@@ -8,13 +8,13 @@
 
 | Used in | Exports |
 | --- | --- |
-| `.factory/config.ts` | `Container`, `Policy`, `Trigger` |
+| `.factory/infra.ts` | `Container`, `Policy`, `Trigger` |
 | `factory.infra.ts` | `RandomKey` |
 | Plugins | The contracts (`Vault`, `Router`, `Connection`, …), `OutpostGroup`, `channelConfig`, `single`, `bindingName` |
 
 Plugins add the vendor-specific resources alongside it. Each has one entrypoint, used in both config files:
 
-| Package | In `factory.infra.ts` | In `.factory/config.ts` |
+| Package | In `factory.infra.ts` | In `.factory/infra.ts` |
 | --- | --- | --- |
 | [`@notation/factory-github`](./github.md) | `Connection`, `CodeHost`, `OperatorAuth` | `Connection.get`, `Policy`, selectors, author sets |
 | [`@notation/factory-slack`](./slack.md) | `Connection` | `Connection.get`, selectors, author sets |
@@ -22,19 +22,19 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 | [`@notation/factory-cloudflare`](./cloudflare.md) | `Vault`, `Router`, `Deployer`, `OperatorAuth` | |
 | [`@notation/factory-railway`](./railway.md) | `Vault`, `Router`, `Deployer` | |
 
-## Outpost primitives (`.factory/config.ts`)
+## Outpost primitives (`.factory/infra.ts`)
 
 ### `outpost`
 
 Declare a repo's outpost:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import { Container, Trigger } from "@notation/factory";
 
 // channels, containers, policies, agents and triggers
 ```
 
-The deployer runs Notation on `.factory/config.ts` for one repo at a time. Each channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The first one declared creates the outpost's `Outpost` group. Declaring one outside a Notation evaluation throws. The outpost config doesn't contain the repo's name: the deployer stores the config under the repo, and the hub fills in the repo where a GitHub channel has no `scope` or a GitHub policy has no `repo`. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
+The deployer runs Notation on `.factory/infra.ts` for one repo at a time. Each channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The first one declared creates the outpost's `Outpost` group. Declaring one outside a Notation evaluation throws. The outpost config doesn't contain the repo's name: the deployer stores the config under the repo, and the hub fills in the repo where a GitHub channel has no `scope` or a GitHub policy has no `repo`. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
 
 The deployer evaluates the config in an isolate with no network access and no bindings. The config can import `@notation/factory`, `@notation/factory-github`, `@notation/factory-slack` and `@notation/factory-claude`, and other `.ts` and `.js` files in `.factory/` by relative path. It gets each package's outpost exports, from the table above. An infra-only export, such as `RandomKey` or `new github.Connection(...)`, isn't there. A plugin whose package has infra-only code that the isolate can't load gives its outpost exports a `factory-outpost` export condition.
 
@@ -42,7 +42,7 @@ The deployer evaluates the config in an isolate with no network access and no bi
 
 Define an outpost machine alongside its runtimes, credentials and startup files:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const customPolicy = new Policy("custom", { provider: "acme-auth", scopes: ["read"] });
 
 const dev = new Container("dev", {
@@ -64,7 +64,7 @@ const dev = new Container("dev", {
 
 Run an agent when a channel event matches:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const coder = new claude.Agent("coder", { model: "claude-opus-5-5" });
 
 new Trigger("mention", {

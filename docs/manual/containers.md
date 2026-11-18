@@ -7,7 +7,7 @@
 
 Provision a persistent machine for your repository's agents:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const dev = new Container("dev", {
   image: "./Dockerfile",      // <-- optional; defaults to Factory's image
   runtimes: [claude.runtime], // <-- matched to an infra Account
@@ -22,44 +22,31 @@ const dev = new Container("dev", {
 
 ## Image
 
-A container without `image` runs Factory's default image, built from [`packages/cloudflare/image/Dockerfile`](../../packages/cloudflare/image/Dockerfile). It has `bun`, `git`, `gh`, `jq` and `ripgrep`, plus the CLI of each runtime the container lists, installed by the runtime plugin's `setup.sh`.
+A container without `image` runs Factory's default image, built from [`packages/cloudflare/image/Dockerfile`](../../packages/cloudflare/image/Dockerfile). It has `bun`, `git`, `gh`, `jq` and `ripgrep`.
 
-A repo that needs its own toolchain writes a Dockerfile in `.factory/`, and sets `image` to its path. The deployer adds the setup of each of the container's runtimes to the build context, as `factory-runtimes/<id>.sh`; the Dockerfile runs them, as root, before its user. This Dockerfile extends Factory's default with `postgresql-client`:
+A repo that needs its own toolchain writes a Dockerfile in `.factory/`, and sets `image` to its path. The Dockerfile only installs the toolchain. This one adds `postgresql-client` to the tools of the default image:
 
 ```dockerfile [.factory/Dockerfile]
 FROM oven/bun:1-debian
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git gh jq openssh-client ripgrep \
- && apt-get install -y --no-install-recommends postgresql-client \
+ && apt-get install -y --no-install-recommends ca-certificates curl git gh jq openssh-client ripgrep postgresql-client \
  && rm -rf /var/lib/apt/lists/*
-
-# The container's runtimes' setups, from the hub's plugins.
-COPY factory-runtimes /tmp/factory-runtimes
-RUN for setup in /tmp/factory-runtimes/*.sh; do sh "$setup"; done \
- && rm -rf /tmp/factory-runtimes
-
-# Claude Code refuses --dangerously-skip-permissions as root.
-RUN useradd --create-home --home-dir /data/home --shell /bin/bash factory \
- && chown -R factory:factory /data
-USER factory
-ENV HOME=/data/home
-WORKDIR /data/home
 ```
 
-The image holds nothing from Factory. The container's entrypoint fetches the runner from the outpost Worker each time the container starts, so the image doesn't change when Factory does. The entrypoint replaces the image's `ENTRYPOINT` and `CMD`.
+The deployer adds Factory's layers to the end of every Dockerfile, the default one and a repo's own. As root, they:
+1. Copy `bun` from `oven/bun:1-debian`. The container's entrypoint runs `bun -e`, which fetches the runner from `http://runner.factory` and runs it.
+2. Install `git` if the image has none. The runner clones the repo, and saves each worktree as a git bundle.
+3. Run the setup of each runtime the container lists, from its plugin, which installs the runtime's CLI.
+4. Create the user `factory`, unless the image has one, and give it `/data`. Claude Code refuses `--dangerously-skip-permissions` as root, and the runner keeps its state in `/data`.
 
-Each image needs these:
+Then they switch to `factory`, with `/data/home` as its home and working directory.
 
-| Requirement | Reason |
-| --- | --- |
-| **`bun`** | The entrypoint runs `bun -e`, which fetches the runner from `http://runner.factory` and runs it |
-| **`git`** | The runner clones the repo, and saves each worktree as a git bundle |
-| **The `factory-runtimes` contract lines** | They install the CLI of each runtime the container lists, from its plugin's setup. The runner checks for the CLI before each run, and fails the run if it's missing |
-| **A user other than root, who can write `/data`** | Claude Code refuses `--dangerously-skip-permissions` as root, and the runner keeps its state in `/data` |
-| **A working directory that the user can read** | Git fails in a directory it can't read, such as `oven/bun`'s `/home/bun/app` |
+So the image must be based on Debian or Ubuntu: the layers and the setups install packages with `apt-get`, and the `bun` they copy is built for glibc. A Dockerfile with more than one stage gets the layers in its last stage. Its `USER`, `WORKDIR` and `HOME` are replaced, and so are its `ENTRYPOINT` and `CMD`, by the container's entrypoint.
 
-`gh` is optional. The runner puts a `gh` in `/data/bin` that runs the image's `gh` with the run's token, so agents can open pull requests.
+The image holds nothing from Factory but those layers. The entrypoint fetches the runner from the outpost Worker each time the container starts, and the runner fetches the plugins' runner modules for each run, so the image doesn't change when Factory does.
+
+`gh` is optional. The code host's runner module puts a `gh` in `/data/bin` that runs the image's `gh` with the run's token, so agents can open pull requests.
 
 ### Builds
 
@@ -83,13 +70,17 @@ A runtime is an id, such as `claude` for `claude.runtime`. Listing a runtime in 
 - The deployer gives the container the credentials of each infra `Account` whose runtime it lists, and only those.
 - The runner checks the image for the runtime's CLI before each run.
 
-Each runtime's plugin ships the `setup.sh` that installs its CLI, and the deployer adds it to the container's build context as `factory-runtimes/<id>.sh`. A container with no `image` runs the setups in its default Dockerfile; a repo's own Dockerfile runs them with the contract lines above. Listing the same runtime twice in one container is a config error.
+Each runtime's plugin ships two files:
+- `setup.sh`, which installs its CLI. The deployer adds it to the container's build context as `factory-runtimes/<id>.sh`, and Factory's layers run it. A container with no `image` fails its deploy if the hub has no setup for one of its runtimes. A repo's own Dockerfile can install the CLI itself instead.
+- A runner module, which says how the runner runs the CLI: its arguments, how it resumes a session, and where it keeps transcripts. The hub serves it to containers, and the runner imports it for each run of the runtime's agents. A run fails if the hub has no runner module for its agent's runtime.
+
+The code host's plugin ships a runner module too, which clones the repo, and sets up git and `gh` to push with the run's token. Listing the same runtime twice in one container is a config error.
 
 ## Policies
 
 Grant the container scoped code host access to the repositories it needs:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const code = new github.Policy("code", {
   permissions: { contents: "write", pull_requests: "write" }, // <-- current repo (acme/webapp)
 });
@@ -117,7 +108,7 @@ Container writes tokens to /data/github/ and refreshes them during long runs
 | Stage | Verification |
 | --- | --- |
 | **Deploy time** | The code host validates every policy: each credential must cover only its repo and permissions, and expire soon. A code host that can't guarantee that fails the deploy |
-| **Run time** | Runner configures `git` credential helpers inside the container to pick the matching token per repository URL |
+| **Run time** | The code host's runner module configures `git`'s credential helper inside the container to read the run's token |
 
 Channel access is separate: containers read and reply on conversations through the router's [channel relay](./connections.md#channel-relay), never with a channel token.
 

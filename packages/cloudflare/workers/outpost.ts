@@ -32,14 +32,22 @@ const START_TIMEOUT_MS = 5 * 60 * 1000;
 /** The host that a container's runner reaches its state store at. */
 const STATE_HOST = "state.factory";
 
-/** The host that a container's entrypoint fetches the runner from. */
+/** The host that a container's entrypoint fetches the runner from, and the runner its plugins' runner modules. */
 const RUNNER_HOST = "runner.factory";
 
 /** Where the entrypoint writes the runner, which bun runs as it is. */
 const RUNNER_FILE = "/tmp/factory-runner.ts";
 
-/** Serves the runner, so an image needs only bun to run it. */
-const runnerSource = () => new Response(runner, { headers: { "content-type": "text/typescript" } });
+/**
+ * Serves the runner at `/runner.ts`, so an image needs only bun to run it,
+ * and the hub's runner modules, which the deployer has, at their paths.
+ */
+const runnerSource = async (request: Request, env: Env) => {
+  const path = new URL(request.url).pathname.slice(1);
+  const source = path === "runner.ts" ? runner : await env.DEPLOYER.runnerModule(path);
+  if (source === null) return new Response("not found", { status: 404 });
+  return new Response(source, { headers: { "content-type": "text/typescript" } });
+};
 
 /**
  * A container's state store: `GET` and `PUT` of objects, which the deployer

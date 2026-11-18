@@ -41,3 +41,21 @@ Read from the infrastructure repository root before any `factory` command runs:
 | Field | Behavior |
 | --- | --- |
 | `loadEnv` | Command prefix run once at startup; `factory` adopts the environment it sets before pre-flight checks |
+
+## `.factory/config.ts`
+
+Name the hub that an outpost subscribes to:
+
+```ts [.factory/config.ts]
+export default {
+  hub: { app: "acme", stage: "prod" },
+  repo: "acme/webapp",
+};
+```
+
+Read by the `factory repo` commands, beside `.factory/infra.ts`. The deployer doesn't read it:
+
+| Field | Behavior |
+| --- | --- |
+| `hub` | The hub's Notation app and stage, which name its GitHub Apps. `factory repo install` needs it |
+| `repo` | The outpost's repo, as `owner/name`, when the `origin` remote doesn't name it |

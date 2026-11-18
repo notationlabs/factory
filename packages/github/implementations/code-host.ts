@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { ResourceGroup } from "@notation/resource";
 import type { CodeHost as CodeHostContract, RepoPattern } from "@notation/factory";
 import * as v from "valibot";
@@ -15,7 +16,8 @@ export type CodeHostOptions = CodeHostConfig & { connection: Connection };
  * that match `allow` get outposts, and the router mints their containers'
  * installation tokens through the connection's App. Those last an hour and can
  * be limited to one repo and a set of permissions, so every `github.Policy`
- * passes.
+ * passes. Its runner module clones and pushes with those tokens, and gives
+ * the image's `gh` the run's token.
  */
 export class CodeHost
   extends ResourceGroup<CodeHostConfig>
@@ -29,6 +31,9 @@ export class CodeHost
     super("github/CodeHost", id, config);
     this.connection = connection;
     this.allow = allow;
+    const { router } = this.connection;
+    if (router.codeHost) throw new Error(`An infra has one code host, and ${router.codeHost.id} is declared already.`);
+    router.codeHost = this;
     this.connection.router.store.contribute({
       codeHost: {
         provider: "github",
@@ -36,5 +41,9 @@ export class CodeHost
         allow,
       },
     });
+  }
+
+  get runner() {
+    return readFileSync(new URL("../runner/index.ts", import.meta.url), "utf8");
   }
 }

@@ -4,6 +4,7 @@ import { type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@not
 import type { BuildWatch } from "./build-watch.ts";
 import { loaderContext } from "./loader.ts";
 import type { DeployerService } from "./outpost-api.ts";
+import runnerModules from "factory:runner-modules";
 import { deployOutposts, type OutpostsEnv, postRun, verifyRun } from "./outposts.ts";
 import type { DurableObjectNamespace, R2Bucket, SecretsStoreSecret, WorkerLoader } from "./types.ts";
 
@@ -85,6 +86,10 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
       for (const name of account.secrets) env[name] = await (this.env[name] as SecretsStoreSecret).get();
     }
     return env;
+  }
+
+  async runnerModule(path: string) {
+    return Object.hasOwn(runnerModules, path) ? runnerModules[path]! : null;
   }
 
   async getState(container: string, key: string) {

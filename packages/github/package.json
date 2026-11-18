@@ -21,7 +21,8 @@
     "implementations",
     "lib",
     "resources",
-    "router"
+    "router",
+    "runner"
   ],
   "publishConfig": {
     "access": "public"

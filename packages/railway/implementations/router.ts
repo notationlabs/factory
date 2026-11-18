@@ -1,4 +1,5 @@
 import { type OutputRef, ResourceGroup } from "@notation/resource";
+import type { CodeHost } from "@notation/factory";
 import {
   bindingName,
   RandomKey,
@@ -30,6 +31,7 @@ export class Router extends ResourceGroup implements RouterContract {
   readonly project: ProjectInstance;
   readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: RailwaySecret;
+  codeHost?: CodeHost;
   readonly service: ServiceInstance;
   readonly url: OutputRef<string>;
   readonly store: RouterConfigInstance;

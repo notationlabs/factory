@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, shell } from "./shell.ts";
+import { type HubConfig, loadConfig, shell } from "./shell.ts";
 
 const hubDir = () => {
   const dir = process.cwd();
@@ -14,7 +14,7 @@ const hubDir = () => {
 // node_modules, so Notation runs on bun.
 const notation = async (args: string) => {
   const dir = hubDir();
-  const { loadEnv } = await loadConfig(dir);
+  const { loadEnv } = await loadConfig<HubConfig>(join(dir, "factory.config.ts"));
   await shell(`${loadEnv ? `${loadEnv} ` : ""}bun x --bun notation ${args} --pretty`, dir);
 };
 

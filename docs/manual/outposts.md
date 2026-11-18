@@ -4,17 +4,18 @@ Each repository defines its own outpost in `.factory/`:
 
 ```text
 .factory/
-├── config.ts          # Channels, Containers, Policies, Agents, and Triggers
+├── infra.ts           # Channels, Containers, Policies, Agents, and Triggers
+├── config.ts          # the hub this repo subscribes to, for the CLI
 ├── Dockerfile         # container image definition
 └── prompts/
     └── system.md      # prompt files referenced by Agents
 ```
 
-The deployer evaluates `config.ts` in a sandbox that allows only `@notation/factory`, the plugins the infrastructure installs in containers (its connections', policies' and runtimes'), and files inside `.factory/`.
+The deployer evaluates `infra.ts` in a sandbox that allows only `@notation/factory`, the plugins the infrastructure installs in containers (its connections', policies' and runtimes'), and files inside `.factory/`.
 
-`config.ts` declares the outpost's resources at the top level:
+`infra.ts` declares the outpost's resources at the top level:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
@@ -22,9 +23,9 @@ import * as github from "@notation/factory-github";
 // channels, containers, policies, agents and triggers
 ```
 
-The deployer runs Notation on `config.ts` for the repo it's deploying. Every channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The snippets below all go in `config.ts`.
+The deployer runs Notation on `infra.ts` for the repo it's deploying. Every channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The snippets below all go in `infra.ts`. `config.ts` is the CLI's, and the deployer doesn't read it: see [CLI](./cli.md#config-files).
 
-Within `config.ts`, a trigger is the whole dispatch rule: which event, from whom, to which agent, in which container, on which branch:
+Within `infra.ts`, a trigger is the whole dispatch rule: which event, from whom, to which agent, in which container, on which branch:
 
 ```text
 Channel ("issues") ──► Trigger ("mention") ──► Agent ("coder")
@@ -36,7 +37,7 @@ Channel ("issues") ──► Trigger ("mention") ──► Agent ("coder")
 
 Pick the conversations this repo listens on, from connections the infra declares:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const gh = github.Connection.get("gh").channel({ id: "issues" });         // <-- this repo's issues
 const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- a Slack channel
 ```
@@ -47,7 +48,7 @@ A channel is a connection plus a scope. `id` names the channel in the outpost's 
 
 Define the remote machine, the runtimes it installs, and the credentials it is allowed to use:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const code = new github.Policy("code", {
   permissions: { contents: "write", pull_requests: "write" },
 });
@@ -65,7 +66,7 @@ const dev = new Container("dev", {
 
 Run an agent in a worktree when a trusted author mentions it:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const coder = new claude.Agent("coder", {
   model: "claude-opus-5-5",
   systemPrompt: "./prompts/system.md",

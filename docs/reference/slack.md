@@ -9,7 +9,7 @@
 | Used in | Exports |
 | --- | --- |
 | `factory.infra.ts` | `slack.Connection` (provisions the Slack app and its event subscription) |
-| `.factory/config.ts` | `Connection.get`, `channel.mention`, `group`, `user` |
+| `.factory/infra.ts` | `Connection.get`, `channel.mention`, `group`, `user` |
 
 Slack is a channel only. Code still lives on the infra's code host.
 
@@ -38,7 +38,7 @@ The connection declares two secrets in the hub vault, `slack-bot-token` and `sla
 
 Listen in one Slack channel:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import * as slack from "@notation/factory-slack";
 
 const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- `scope` is required and starts with `#`
@@ -50,7 +50,7 @@ The grant is the bot's membership: invite it with `/invite @<app>` in `#ops`. A 
 
 Wake an agent when someone mentions the bot:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("slack", {
   event: ops.mention("@claude", { from: slack.group("eng") }), // <-- `from` is required
   agent: coder,

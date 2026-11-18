@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { appName } from "@notation/factory-github/app-name";
 import { collectResourceGraph } from "@notation/resource";
-import { loadConfig, openBrowser, output } from "./shell.ts";
+import { loadConfig, openBrowser, type OutpostCliConfig, output } from "./shell.ts";
 
 /** The repo's `owner/name`, from its `origin` remote on GitHub. */
 const githubRepo = async (dir: string) => {
@@ -14,10 +14,10 @@ const githubRepo = async (dir: string) => {
   return `${match[1]}/${match[2]}`;
 };
 
-/** The names of the GitHub connections that `.factory/config.ts` uses. */
-const githubConnections = async (config: string) => {
+/** The names of the GitHub connections that `.factory/infra.ts` uses. */
+const githubConnections = async (infra: string) => {
   const graph = await collectResourceGraph(async () => {
-    await import(pathToFileURL(config).href);
+    await import(pathToFileURL(infra).href);
   });
   return graph.resourceGroups
     .filter((group) => group.type === "github/ConnectionRef")
@@ -34,30 +34,33 @@ const appSlug = (name: string) =>
 const gh = async <T>(path: string) =>
   JSON.parse(await output("gh", ["api", path])) as T;
 
-/** The outpost's directory: this one if it has `.factory/config.ts`, otherwise the root of its git repo. */
+/** The outpost's directory: this one if it has `.factory/infra.ts`, otherwise the root of its git repo. */
 const outpostDir = async () => {
-  if (existsSync(join(process.cwd(), ".factory", "config.ts"))) {
+  if (existsSync(join(process.cwd(), ".factory", "infra.ts"))) {
     return process.cwd();
   }
   const root = await output("git", ["rev-parse", "--show-toplevel"]);
-  if (!existsSync(join(root, ".factory", "config.ts"))) {
-    throw new Error(`There's no .factory/config.ts here or in ${root}.`);
+  if (!existsSync(join(root, ".factory", "infra.ts"))) {
+    throw new Error(`There's no .factory/infra.ts here or in ${root}.`);
   }
   return root;
 };
 
+/** The outpost's `.factory/config.ts`. */
+const outpostConfig = (dir: string) => loadConfig<OutpostCliConfig>(join(dir, ".factory", "config.ts"));
+
 /**
- * The outpost's repo: `given`, then `repo` in `factory.config.ts`, then the
+ * The outpost's repo: `given`, then `repo` in `.factory/config.ts`, then the
  * `origin` remote. The remote only names the outpost's repo when the outpost
  * is at the root of the git repo.
  */
 const outpostRepo = async (dir: string, given?: string) => {
-  const repo = given ?? (await loadConfig(dir)).repo;
+  const repo = given ?? (await outpostConfig(dir)).repo;
   if (repo) return repo;
   const root = await output("git", ["rev-parse", "--show-toplevel"], dir);
   if (realpathSync(root) !== realpathSync(dir)) {
     throw new Error(
-      `${dir} isn't the root of its git repo, so its origin remote may be another repo's. Pass --repo <owner/name>, or set repo in factory.config.ts.`,
+      `${dir} isn't the root of its git repo, so its origin remote may be another repo's. Pass --repo <owner/name>, or set repo in .factory/config.ts.`,
     );
   }
   return githubRepo(dir);
@@ -124,18 +127,17 @@ export const repoStatus = async ({ repo: given }: { repo?: string }) => {
  */
 export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   const dir = await outpostDir();
-  const config = join(dir, ".factory", "config.ts");
   const repo = await outpostRepo(dir, given);
   const since = new Date();
-  const names = await githubConnections(config);
+  const names = await githubConnections(join(dir, ".factory", "infra.ts"));
   if (names.length === 0) {
-    console.log(".factory/config.ts uses no GitHub connection, so there's nothing to install.");
+    console.log(".factory/infra.ts uses no GitHub connection, so there's nothing to install.");
     return;
   }
-  const { hub } = await loadConfig(dir);
+  const { hub } = await outpostConfig(dir);
   if (!hub) {
     throw new Error(
-      `Set hub in factory.config.ts to the hub's Notation app and stage, such as hub: { app: "factory", stage: "prod" }, which name its GitHub Apps.`,
+      `Set hub in .factory/config.ts to the hub's Notation app and stage, such as hub: { app: "factory", stage: "prod" }, which name its GitHub Apps.`,
     );
   }
   const { id: repoId, owner } = await gh<{ id: number; owner: { id: number } }>(`repos/${repo}`);

@@ -2,7 +2,7 @@
 
 Give each issue its own persistent branch so agents never overwrite each other's work:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("mention", {
   event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
   worktree: (event) => `issue-${event.issue.number}`, // <-- issue #42 checks out branch `issue-42`
@@ -24,7 +24,7 @@ TypeScript infers the event's type from `event`, so the function's parameter is 
 
 `base` is where a branch that doesn't exist yet is cut from. It defaults to the repo's default branch. A trigger that sets `base` without `worktree` throws:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("docs", {
   event: gh.issueComment({ mention: "@claude", labels: ["docs"], from: github.team("acme/docs") }),
   worktree: (event) => `docs/${event.issue.number}`,
@@ -38,13 +38,13 @@ The worktree function:
 
 - returns the same branch for the same event, because worktrees and sessions are keyed by it. It doesn't read the clock or the network.
 - returns `undefined` for no branch, which gives the same result as leaving `worktree` out.
-- runs in the deployer, in the same isolate that evaluates `.factory/config.ts`, with no network access. When a delivery matches the trigger, the router has the deployer run the config that the outpost was last deployed from, and call the function with the real event. The function isn't data, so it isn't in the outpost's config: the config records only that the trigger has a worktree, and its `base`. The deployer can't check branch names ahead of time. A name that git can't check out stops the run, and the router replies with the error.
+- runs in the deployer, in the same isolate that evaluates `.factory/infra.ts`, with no network access. When a delivery matches the trigger, the router has the deployer run the config that the outpost was last deployed from, and call the function with the real event. The function isn't data, so it isn't in the outpost's config: the config records only that the trigger has a worktree, and its `base`. The deployer can't check branch names ahead of time. A name that git can't check out stops the run, and the router replies with the error.
 
 ## No branch
 
 Leave `worktree` out when the agent should work out what to do from the message:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("slack", {
   event: ops.mention("@claude", { from: slack.group("eng") }),
   agent: coder,
@@ -67,7 +67,7 @@ An agent session is keyed by `(container, conversation)` in both cases, and repl
 
 Run separate environments in parallel on the same issue by pointing triggers at different containers:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 new Trigger("linux", {
   event: gh.issueComment({ mention: "@claude", from: github.collaborators() }),
   worktree: (event) => `linux-${event.issue.number}`,

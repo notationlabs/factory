@@ -3,14 +3,16 @@
 | Command group | Run from | Manages |
 | --- | --- | --- |
 | `factory infra *` | Infrastructure repo (`factory.infra.ts`) | Central `Router`, `Deployer`, `Vault` and `Connection` resources |
-| `factory repo *` | Subscriber repo (`.factory/config.ts`) | Repo subscription and outpost build status |
+| `factory repo *` | Subscriber repo (`.factory/infra.ts`) | Repo subscription and outpost build status |
 | `factory container *` | Subscriber repo (or `--repo <owner/name>`) | Interactive agent sessions (`resume`) and shells (`ssh`) |
 
 The `infra` commands use two kinds of credential. Your local provider credentials create, update and delete the hub (`up` and `down`). Operator auth signs you in to the running hub for everything else (`status`, `replay`, and the router calls `up` and `down` make). See [Secrets](./secrets.md#local-credentials).
 
-## `factory.config.ts`
+## Config files
 
-An optional `factory.config.ts` beside `factory.infra.ts` loads local credentials before every command:
+The CLI reads a config file beside each kind of declaration file: `factory.config.ts` beside the hub's `factory.infra.ts`, and `.factory/config.ts` beside an outpost's `.factory/infra.ts`.
+
+In the hub's repo, an optional `factory.config.ts` loads local credentials before every command:
 
 ```ts [factory.config.ts]
 export default {
@@ -18,16 +20,18 @@ export default {
 };
 ```
 
-In a subscriber repo, `factory.config.ts` names the hub it subscribes to, by the hub's Notation app and stage. `factory repo install` finds each connection's GitHub App from them: the hub `acme`/`prod` names the App of the connection `gh` `acme--prod--gh`. It can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
+`factory` runs the command once when it starts and adopts the environment it sets.
 
-```ts [factory.config.ts]
+In a subscriber repo, `.factory/config.ts` names the hub it subscribes to, by the hub's Notation app and stage. `factory repo install` finds each connection's GitHub App from them: the hub `acme`/`prod` names the App of the connection `gh` `acme--prod--gh`. It can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
+
+```ts [.factory/config.ts]
 export default {
   hub: { app: "acme", stage: "prod" }, // <-- the hub's notation.config.ts `app`, and the stage it's deployed to
   repo: "acme/webapp",
 };
 ```
 
-`factory` runs the command once when it starts and adopts the environment it sets.
+The deployer reads only `.factory/infra.ts`, and ignores `.factory/config.ts`.
 
 ## `factory infra`
 
@@ -101,7 +105,7 @@ factory repo install [--dry-run] [--repo <owner/name>]
 Grants the code host's connection access to the repository and waits for the initial container build:
 
 ```text
-1. Check .factory/config.ts against the infra's code host and accounts
+1. Check .factory/infra.ts against the infra's code host and accounts
 2. Open browser to install the GitHub App on the repo (if needed)
 3. Poll FACTORY_STATUS until outpost containers finish building
 4. Open builder authorization URL (if needed) and re-trigger deploy
@@ -171,4 +175,4 @@ Wakes the outpost container and attaches the agent's interactive TUI inside the 
 | `conversation` | Issue number (`42`) to filter sessions; other conversations are picked from the list |
 | `session` | Session UUID or agent name (`coder`) |
 | `--repo <owner/name>` | Target repository (defaults to `origin` remote) |
-| `--container <name>` | Container name when `.factory/config.ts` declares multiple containers |
+| `--container <name>` | Container name when `.factory/infra.ts` declares multiple containers |

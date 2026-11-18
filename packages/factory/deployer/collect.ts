@@ -11,7 +11,7 @@ export const collectOutpost = async (
   const store = graph.resources.find(
     (resource) => resource.type === "factory/deployer/OutpostConfig",
   );
-  if (!store) throw new Error(".factory/config.ts declares no outpost resources");
+  if (!store) throw new Error(".factory/infra.ts declares no outpost resources");
   return (await store.getParams()) as OutpostConfig;
 };
 
@@ -25,7 +25,7 @@ export const collectWorktree = async (
     await load();
   });
   const trigger = graph.resourceGroups.find((group) => group.type === "factory/Trigger" && group.id === id);
-  if (!trigger) throw new Error(`.factory/config.ts declares no trigger ${id}`);
+  if (!trigger) throw new Error(`.factory/infra.ts declares no trigger ${id}`);
   const worktree = trigger.config.worktree as ((event: unknown) => string | undefined) | undefined;
   return worktree?.(event);
 };

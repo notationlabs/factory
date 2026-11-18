@@ -4,6 +4,7 @@ import type {
   OutputRef,
   ResourceGroup,
 } from "@notation/resource";
+import type { CodeHost } from "./hub.ts";
 import type { Vault, VaultSecret } from "./vault.ts";
 
 /**
@@ -89,6 +90,8 @@ export interface Router extends ResourceGroup {
   readonly store: RouterConfigStore;
   readonly vault: Vault;
   readonly rootKey: VaultSecret;
+  /** The infra's code host, which sets itself here when it's declared. */
+  codeHost?: CodeHost;
   /**
    * Binds a secret from the router's vault to the router, and returns the
    * name the router reads it as. The name is made from the secret's id,

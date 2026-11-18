@@ -54,12 +54,12 @@
     "packages/*/lib/**/*.ts",
     "packages/*/router/**/*.ts",
     "packages/*/runner/**/*.ts",
+    "packages/*/runtime/**/*.ts",
     "packages/*/workers/**/*.ts",
     "packages/*/bin/**/*.ts",
     "packages/*/commands/**/*.ts",
     "examples/**/*.ts",
     ".factory/*.ts",
-    "factory.config.ts",
     "scripts/**/*.ts"
   ]
 }

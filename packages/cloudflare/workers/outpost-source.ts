@@ -3,28 +3,46 @@ import type { OutpostConfig } from "@notation/factory/router";
 /** A runtime's account, as the deployer binds it. `setup` is the script that installs the runtime's CLI. */
 export type RuntimeAccount = { setup?: string };
 
-/** Where the default image's Dockerfile takes the container's runtimes' setups. */
-const MARKER = "# factory:runtimes";
+/**
+ * The layers the deployer adds to the end of every container's Dockerfile:
+ * bun, which runs the runner, git, the container's runtimes' setups as
+ * root, and a user other than root who owns `/data`.
+ */
+const factoryLayers = (runtimes: number) => `
 
-/** The layer that runs every runtime's setup, as root, before the image's user. */
-const RUNTIMES_LAYER = `# The container's runtimes' setups, from the hub's plugins.
-COPY factory-runtimes /tmp/factory-runtimes
+# Notation Factory's layers, which the deployer adds to every image.
+USER root
+COPY --from=oven/bun:1-debian /usr/local/bin/bun /usr/local/bin/bun
+RUN command -v git >/dev/null 2>&1 || { apt-get update \\
+ && apt-get install -y --no-install-recommends ca-certificates git \\
+ && rm -rf /var/lib/apt/lists/*; }
+${
+  runtimes === 0
+    ? "# The container lists no runtimes."
+    : `COPY factory-runtimes /tmp/factory-runtimes
 RUN for setup in /tmp/factory-runtimes/*.sh; do sh "$setup"; done \\
- && rm -rf /tmp/factory-runtimes`;
-
-/** The default image's Dockerfile, with the container's runtimes' setups at its marker. */
-const withRuntimes = (dockerfile: string, runtimes: number) => {
-  if (!dockerfile.includes(MARKER)) throw new Error(`The default image's Dockerfile has no \`${MARKER}\` line.`);
-  return dockerfile.replace(MARKER, runtimes === 0 ? "# The container lists no runtimes." : RUNTIMES_LAYER);
-};
+ && rm -rf /tmp/factory-runtimes`
+}
+# Claude Code refuses --dangerously-skip-permissions as root.
+RUN { id -u factory >/dev/null 2>&1 || useradd --create-home --home-dir /data/home --shell /bin/bash factory; } \\
+ && mkdir -p /data/home \\
+ && chown -R factory:factory /data
+USER factory
+ENV HOME=/data/home
+WORKDIR /data/home
+EXPOSE 8080
+`;
 
 /**
  * The files the deployer adds to a container's build context for its image,
- * and where the build finds the Dockerfile:
- * - A container with no `image` gets the default Dockerfile, with each of
- *   its runtimes' setups at the marker, as `factory-runtimes/<id>.sh`.
- * - A container with an `image` gets the setups under its `.factory/`
- *   context, and its Dockerfile runs them with the contract's two lines.
+ * and where the build finds the Dockerfile. The Dockerfile is the
+ * container's `image`, or else Factory's default, with Factory's layers at
+ * the end. It's at the root of the source, outside the build context:
+ * - A container with no `image` builds with the source's root as its
+ *   context, and its runtimes' setups as `factory-runtimes/<id>.sh`.
+ * - A container with an `image` builds with `.factory/` as its context, and
+ *   the setups as `.factory/factory-runtimes/<id>.sh`. A runtime with no
+ *   setup is the image's to install.
  */
 export const imageSource = (
   container: OutpostConfig["containers"][string],
@@ -34,26 +52,25 @@ export const imageSource = (
 ) => {
   const source: Record<string, string> = {};
   const setups = container.runtimes.map((id) => ({ id, setup: accounts[id]?.setup }));
-  let image = "./Dockerfile";
+  let dockerfile = defaultDockerfile;
   let context = ".";
   if (container.image) {
     const path = container.image.replace(/^\.\//, "");
-    if (!(path in files)) throw new Error(`The image .factory/${path} doesn't exist.`);
-    image = `./.factory/${path}`;
+    const own = files[path];
+    if (own === undefined) throw new Error(`The image .factory/${path} doesn't exist.`);
+    dockerfile = own;
     context = "./.factory";
-    for (const { id, setup } of setups) {
-      if (setup) source[`.factory/factory-runtimes/${id}.sh`] = setup;
-    }
   } else {
-    for (const { id, setup } of setups) {
-      if (!setup) {
-        throw new Error(
-          `The hub has no setup for the runtime ${id}. Give the container an image that installs it, or deploy the hub with an account for ${id}.`,
-        );
-      }
-      source[`factory-runtimes/${id}.sh`] = setup;
+    const missing = setups.find(({ setup }) => !setup);
+    if (missing) {
+      throw new Error(
+        `The hub has no setup for the runtime ${missing.id}. Give the container an image that installs it, or deploy the hub with an account for ${missing.id}.`,
+      );
     }
-    source.Dockerfile = withRuntimes(defaultDockerfile, setups.length);
   }
-  return { source, image, context };
+  const dir = container.image ? ".factory/" : "";
+  const installed = setups.filter(({ setup }) => setup);
+  for (const { id, setup } of installed) source[`${dir}factory-runtimes/${id}.sh`] = setup!;
+  source.Dockerfile = `${dockerfile.trimEnd()}${factoryLayers(installed.length)}`;
+  return { source, image: "./Dockerfile", context };
 };

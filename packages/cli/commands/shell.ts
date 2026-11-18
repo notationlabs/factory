@@ -1,6 +1,5 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Runs `command` in a shell, with the terminal's input and output. */
@@ -35,18 +34,22 @@ export const openBrowser = (url: string) => {
   execFile(cmd, [url], () => {});
 };
 
-export type FactoryConfig = {
+/** A hub's `factory.config.ts`. */
+export type HubConfig = {
   /** A command prefix that sets credentials in the environment, such as `op run --env-file .env --`. */
   loadEnv?: string;
-  /** An outpost's repo, as `owner/name`, when its git remote doesn't name it. */
+};
+
+/** An outpost's `.factory/config.ts`. */
+export type OutpostCliConfig = {
+  /** The outpost's repo, as `owner/name`, when its git remote doesn't name it. */
   repo?: string;
-  /** The hub an outpost subscribes to: its Notation app and stage, which name the hub's GitHub Apps. */
+  /** The hub the outpost subscribes to: its Notation app and stage, which name the hub's GitHub Apps. */
   hub?: { app: string; stage: string };
 };
 
-/** Reads `factory.config.ts` in `dir`, if there is one. */
-export const loadConfig = async (dir: string): Promise<FactoryConfig> => {
-  const file = join(dir, "factory.config.ts");
-  if (!existsSync(file)) return {};
-  return ((await import(pathToFileURL(file).href)).default ?? {}) as FactoryConfig;
+/** Reads the default export of the config file at `file`, if there is one. */
+export const loadConfig = async <T>(file: string): Promise<T> => {
+  if (!existsSync(file)) return {} as T;
+  return ((await import(pathToFileURL(file).href)).default ?? {}) as T;
 };

@@ -56,7 +56,7 @@ GitHub returns the App's private key when it creates the App, and deploy writes 
 
 ## 2. Declare an outpost (`.factory/`)
 
-In `acme/webapp`, add the packages `.factory/config.ts` imports:
+In `acme/webapp`, add the packages `.factory/infra.ts` imports:
 
 ```bash
 @pm.dev("@notation/factory @notation/factory-github @notation/factory-claude")
@@ -64,7 +64,7 @@ In `acme/webapp`, add the packages `.factory/config.ts` imports:
 
 Wire `@claude` mentions from collaborators to that container:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 import * as github from "@notation/factory-github";
@@ -104,9 +104,9 @@ git add .factory && git commit -m "Add factory config" && git push
 
 ## 3. Subscribe the repository
 
-Name the hub in `acme/webapp`'s `factory.config.ts`, by the `app` in the hub's `notation.config.ts` and the stage you deployed it to. `factory repo install` finds the hub's GitHub App from them:
+Name the hub in `acme/webapp`'s `.factory/config.ts`, by the `app` in the hub's `notation.config.ts` and the stage you deployed it to. `factory repo install` finds the hub's GitHub App from them:
 
-```ts [factory.config.ts]
+```ts [.factory/config.ts]
 export default {
   hub: { app: "acme-factory", stage: "prod" }, // <-- the App is `acme-factory--prod--gh`
 };

@@ -23,7 +23,7 @@ test("deploy stores the evaluated outpost, with the repo as the scope of unscope
   const { ctx, stored } = context(async () => ({
     channels: { issues: { provider: "github", connection: "gh" } },
   }));
-  const status = await deploy("acme/api", { ref: "abc", files: { "config.ts": "" } }, ctx);
+  const status = await deploy("acme/api", { ref: "abc", files: { "infra.ts": "" } }, ctx);
   assert.equal(status.state, "deployed");
   assert.equal(status.ref, "abc");
   assert.deepEqual(stored["acme/api"], {
@@ -35,16 +35,16 @@ test("a config that fails leaves the outpost as it was", async () => {
   const { ctx, stored } = context(async () => {
     throw new Error("bad config");
   });
-  const status = await deploy("acme/api", { ref: "abc", files: { "config.ts": "" } }, ctx);
+  const status = await deploy("acme/api", { ref: "abc", files: { "infra.ts": "" } }, ctx);
   assert.equal(status.state, "failed");
   assert.equal(status.error, "bad config");
   assert.equal(stored["acme/api"], previous);
 });
 
-test("a repo with no config.ts loses its outpost", async () => {
+test("a repo with no infra.ts loses its outpost, even with the CLI's config.ts", async () => {
   const { ctx, stored } = context(async () => ({}));
-  const status = await deploy("acme/api", { ref: "abc", files: { Dockerfile: "" } }, ctx);
+  const status = await deploy("acme/api", { ref: "abc", files: { Dockerfile: "", "config.ts": "export default {};" } }, ctx);
   assert.equal(status.state, "failed");
-  assert.match(status.error!, /no \.factory\/config\.ts/);
+  assert.match(status.error!, /no \.factory\/infra\.ts/);
   assert.equal("acme/api" in stored, false);
 });

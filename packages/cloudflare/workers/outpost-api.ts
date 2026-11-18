@@ -4,6 +4,8 @@ export type DeployerService = {
   verifyRun(worker: string, timestamp: string, body: string, signature: string): Promise<boolean>;
   /** The secrets of the accounts of `runtimes`, by the env var names that containers read them as. */
   credentials(runtimes: string[]): Promise<Record<string, string>>;
+  /** The source of the hub's runner module at `path`, such as `runtimes/claude.ts`, or null if it has none. */
+  runnerModule(path: string): Promise<string | null>;
   getState(container: string, key: string): Promise<ReadableStream | null>;
   /** Stores `length` bytes of `body`. */
   putState(container: string, key: string, body: ReadableStream | null, length: number): Promise<void>;

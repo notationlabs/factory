@@ -40,7 +40,7 @@ const MAIN = "main.js";
  *    re-exports the SDK's build of it. The SDK's modules are under `sdk/`.
  */
 const configModules = (files: Record<string, string>) => {
-  if (!(`config.ts` in files)) throw new Error(`There's no ${FACTORY_DIR}/config.ts.`);
+  if (!(`infra.ts` in files)) throw new Error(`There's no ${FACTORY_DIR}/infra.ts.`);
   const modules: Record<string, string> = {};
   for (const [path, code] of Object.entries(files)) {
     if (/\.(m?js)$/.test(path)) modules[`${FACTORY_DIR}/${path}`] = code;
@@ -75,7 +75,7 @@ export const outpostProgram = (files: Record<string, string>): Program => {
   const modules = configModules(files);
   modules[MAIN] = [
     `import { collectOutpost } from "./${SDK_DIR}/${SDK_COLLECT}.js";`,
-    `export default () => collectOutpost(() => import("./${FACTORY_DIR}/config.ts"));`,
+    `export default () => collectOutpost(() => import("./${FACTORY_DIR}/infra.ts"));`,
   ].join("\n");
   return { main: MAIN, modules };
 };
@@ -85,7 +85,7 @@ export const worktreeProgram = (files: Record<string, string>, trigger: string, 
   const modules = configModules(files);
   modules[MAIN] = [
     `import { collectWorktree } from "./${SDK_DIR}/${SDK_COLLECT}.js";`,
-    `export default (payload) => collectWorktree(() => import("./${FACTORY_DIR}/config.ts"), ${JSON.stringify(trigger)}, payload);`,
+    `export default (payload) => collectWorktree(() => import("./${FACTORY_DIR}/infra.ts"), ${JSON.stringify(trigger)}, payload);`,
   ].join("\n");
   return { main: MAIN, modules, input: payload };
 };
@@ -131,7 +131,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /**
  * Deploys a repo's outpost from its `.factory/` files. A repo with no
- * `.factory/config.ts` loses its outpost. A config that fails leaves the
+ * `.factory/infra.ts` loses its outpost. A config that fails leaves the
  * outpost as it was.
  */
 export const deploy = async (
@@ -139,9 +139,9 @@ export const deploy = async (
   { ref, files }: SourceFiles,
   context: DeployerContext,
 ): Promise<FactoryStatus> => {
-  if (!("config.ts" in files)) {
+  if (!("infra.ts" in files)) {
     await context.deleteOutpost(repo);
-    return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/config.ts.`, at: new Date().toISOString() };
+    return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/infra.ts.`, at: new Date().toISOString() };
   }
   try {
     const building = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref);

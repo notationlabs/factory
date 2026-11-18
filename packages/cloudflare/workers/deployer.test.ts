@@ -52,7 +52,7 @@ test("evaluates an outpost's config in a loaded Worker", async () => {
 
 test("resolves imports between the config's own files", async () => {
   const { outpost, error } = await evaluate({
-    "config.ts": `import { Policy } from "@notation/factory-github";\nimport { id } from "./lib/ids.ts";\nnew Policy(id, { permissions: { contents: "read" } });`,
+    "infra.ts": `import { Policy } from "@notation/factory-github";\nimport { id } from "./lib/ids.ts";\nnew Policy(id, { permissions: { contents: "read" } });`,
     "lib/ids.ts": `export const id: string = "read";`,
   });
   assert.equal(error, undefined);
@@ -60,20 +60,20 @@ test("resolves imports between the config's own files", async () => {
 });
 
 test("returns the config's error", async () => {
-  const { error } = await evaluate({ "config.ts": `throw new Error("bad config");` });
+  const { error } = await evaluate({ "infra.ts": `throw new Error("bad config");` });
   assert.match(error!, /bad config/);
 });
 
 test("gives the config no network", async () => {
   const { error } = await evaluate({
-    "config.ts": `await fetch("https://example.com");`,
+    "infra.ts": `await fetch("https://example.com");`,
   });
   assert.ok(error);
 });
 
 test("refuses a hub-only export", async () => {
   const { error } = await evaluate({
-    "config.ts": `import { RandomKey } from "@notation/factory";\nnew RandomKey("k", { config: {} });`,
+    "infra.ts": `import { RandomKey } from "@notation/factory";\nnew RandomKey("k", { config: {} });`,
   });
   assert.match(error!, /RandomKey/);
 });

@@ -1,6 +1,6 @@
 # `@notation/factory-droid`
 
-`@notation/factory-droid` provides the Droid `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the `setup.sh` that installs `droid` in outpost images.
+`@notation/factory-droid` provides the Droid `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/infra.ts`, and the `setup.sh` that installs `droid` in outpost images.
 
 ```bash
 @pm.dev("@notation/factory-droid")
@@ -36,7 +36,7 @@ The account's `secrets` holds the key under the env var name `FACTORY_API_KEY`. 
 
 Give a container Droid's credentials:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import { Container } from "@notation/factory";
 import * as droid from "@notation/factory-droid";
 
@@ -45,13 +45,13 @@ const dev = new Container("dev", {
 });
 ```
 
-The image must have `droid`. This package ships the `setup.sh` that installs it, along with `procps` when the image has no `ps`, which Droid's Execute supervisor needs. A container with no `image` gets the setup automatically, and a repo's own Dockerfile runs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `droid`. A container that lists `droid.runtime` fails its deploy unless the infra's deployer has a `droid.Account` in its `accounts`.
+The image must have `droid`. This package ships the `setup.sh` that installs it, along with `procps` when the image has no `ps`, which Droid's Execute supervisor needs. The deployer adds the setup to every container that lists `droid.runtime` (see [Containers](../manual/containers.md#image)). It also ships the runner module that tells the runner how to run `droid exec`. The runner fails a run if the image has no `droid`. A container that lists `droid.runtime` fails its deploy unless the infra's deployer has a `droid.Account` in its `accounts`.
 
 ## Agent
 
 Configure a Droid agent for an outpost:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const coder = new droid.Agent("coder", {
   model: "claude-opus-5-5",
   effort: "high",

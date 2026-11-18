@@ -1,6 +1,6 @@
 # `@notation/factory-claude`
 
-`@notation/factory-claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/config.ts`, and the `setup.sh` that installs `claude` in outpost images.
+`@notation/factory-claude` provides the Claude Code `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/infra.ts`, and the `setup.sh` that installs `claude` in outpost images.
 
 ```bash
 @pm.dev("@notation/factory-claude")
@@ -36,7 +36,7 @@ The account's `secrets` holds the token under the env var name `CLAUDE_CODE_OAUT
 
 Give a container Claude Code's credentials:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 import { Container } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
 
@@ -45,13 +45,13 @@ const dev = new Container("dev", {
 });
 ```
 
-The image must have `claude`. This package ships the `setup.sh` that installs it: a container with no `image` gets it automatically, and a repo's own Dockerfile runs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `claude`. A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
+The image must have `claude`. This package ships the `setup.sh` that installs it, which the deployer adds to every container that lists `claude.runtime` (see [Containers](../manual/containers.md#image)). It also ships the runner module that tells the runner how to run `claude`. The runner fails a run if the image has no `claude`. A container that lists `claude.runtime` fails its deploy unless the infra's deployer has a `claude.Account` in its `accounts`.
 
 ## Agent
 
 Configure a Claude Code agent for an outpost:
 
-```ts [.factory/config.ts]
+```ts [.factory/infra.ts]
 const coder = new claude.Agent("coder", {
   model: "claude-opus-5-5",
   effort: "high",

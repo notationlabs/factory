@@ -175,11 +175,11 @@ const open = (path: string) => {
 process.env.CLOUDFLARE_ACCOUNT_ID ??= "<CLOUDFLARE_ACCOUNT_ID>";
 
 // A hub example is a folder with `factory.infra.ts`, and an outpost example
-// is a folder with `.factory/config.ts`.
+// is a folder with `.factory/infra.ts`.
 const examples: [string, CompiledExample["kind"], string][] = [];
 for (const name of (await readdir(examplesDir)).sort()) {
   const hub = join(examplesDir, name, "factory.infra.ts");
-  const outpost = join(examplesDir, name, ".factory", "config.ts");
+  const outpost = join(examplesDir, name, ".factory", "infra.ts");
   if (existsSync(hub)) examples.push([name, "hub", hub]);
   else if (existsSync(outpost)) examples.push([name, "outpost", outpost]);
 }

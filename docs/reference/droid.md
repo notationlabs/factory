@@ -45,7 +45,7 @@ const dev = new Container("dev", {
 });
 ```
 
-The image must have `droid`. This package ships the `setup.sh` that installs it: a container with no `image` gets it automatically, and a repo's own Dockerfile runs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `droid`. A container that lists `droid.runtime` fails its deploy unless the infra's deployer has a `droid.Account` in its `accounts`.
+The image must have `droid`. This package ships the `setup.sh` that installs it, along with `procps` when the image has no `ps`, which Droid's Execute supervisor needs. A container with no `image` gets the setup automatically, and a repo's own Dockerfile runs it (see [Containers](../manual/containers.md#image)). The runner fails a run if the image has no `droid`. A container that lists `droid.runtime` fails its deploy unless the infra's deployer has a `droid.Account` in its `accounts`.
 
 ## Agent
 

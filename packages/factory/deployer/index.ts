@@ -21,9 +21,10 @@ export interface DeployerContext {
   evaluate(program: Program): Promise<unknown>;
   /**
    * Stores the repo's outpost config, where the router reads it, and the
-   * `.factory/` files it was evaluated from.
+   * `.factory/` files it was evaluated from. `ref` is the commit they were
+   * read at. Resolves to the containers whose images started building.
    */
-  putOutpost(repo: string, outpost: OutpostConfig, files: Record<string, string>): Promise<void>;
+  putOutpost(repo: string, outpost: OutpostConfig, files: Record<string, string>, ref: string): Promise<string[]>;
   /** The `.factory/` files of the repo's outpost. */
   getFiles(repo: string): Promise<Record<string, string> | undefined>;
   deleteOutpost(repo: string): Promise<void>;
@@ -143,8 +144,8 @@ export const deploy = async (
     return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/config.ts.`, at: new Date().toISOString() };
   }
   try {
-    await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files);
-    return { state: "deployed", ref, at: new Date().toISOString() };
+    const building = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref);
+    return { state: "deployed", ref, at: new Date().toISOString(), ...(building.length && { building }) };
   } catch (error) {
     return { state: "failed", ref, error: message(error), at: new Date().toISOString() };
   }

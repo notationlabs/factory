@@ -6,6 +6,7 @@ import * as v from "valibot";
 import defaultDockerfile from "factory:dockerfile";
 import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
 import { cloudflare, cloudflareOrNone } from "../lib/cloudflare-api.ts";
+import type { StartedBuild } from "./build-watch.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
 import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
@@ -20,7 +21,7 @@ export type OutpostsEnv = {
   OUTPOST_SETTINGS_KEY: string;
 };
 
-const settingsOf = async (env: OutpostsEnv): Promise<OutpostSettings> => {
+export const settingsOf = async (env: OutpostsEnv): Promise<OutpostSettings> => {
   const settings = await env.FACTORY_KV.get(env.OUTPOST_SETTINGS_KEY, "json");
   if (!settings) throw new Error(`The deployer has no outpost settings in KV ${env.OUTPOST_SETTINGS_KEY}. Run \`factory infra up\`.`);
   return v.parse(OutpostSettingsSchema, settings);
@@ -41,7 +42,7 @@ export const outpostWorkerName = async (settings: OutpostSettings, repo: string,
 const workersKey = (repo: string) => `outpost-workers/${repo.toLowerCase()}`;
 
 /** The KV key of the hash of the source that an outpost Worker was last built from. */
-const sourceKey = (worker: string) => `outpost-source/${worker}`;
+export const sourceKey = (worker: string) => `outpost-source/${worker}`;
 
 const runKey = (rootKey: string, worker: string) => deriveKey(rootKey, `outpost:${worker}`);
 
@@ -113,7 +114,7 @@ const outpostSource = (
   return source;
 };
 
-/** Commits `files` as a root commit, and force-pushes it to `main` of `remote`. */
+/** Commits `files` as a root commit, force-pushes it to `main` of `remote`, and returns the commit. */
 const pushSource = async (remote: string, token: string, files: Record<string, string>, message: string) => {
   const fs = Volume.fromJSON({}) as unknown as Parameters<typeof git.init>[0]["fs"] & {
     mkdirSync(path: string, options: { recursive: true }): void;
@@ -127,7 +128,7 @@ const pushSource = async (remote: string, token: string, files: Record<string, s
     fs.writeFileSync(full, content);
     await git.add({ fs, dir, filepath: path });
   }
-  await git.commit({ fs, dir, message, author: { name: "Notation Factory", email: "notation-factory@users.noreply.github.com" } });
+  const commit = await git.commit({ fs, dir, message, author: { name: "Notation Factory", email: "notation-factory@users.noreply.github.com" } });
   const result = await git.push({
     fs,
     http,
@@ -138,6 +139,7 @@ const pushSource = async (remote: string, token: string, files: Record<string, s
     headers: { authorization: `Bearer ${token}` },
   });
   if (!result.ok) throw new Error(`The push to the outpost's Artifacts repo failed: ${result.error ?? "no reason given"}`);
+  return commit;
 };
 
 /** The build token that Workers Builds deploys with: the builds token, which this registers once. */
@@ -228,15 +230,17 @@ const build = async (
  * 3. Creates the Worker's build config, and starts its first build, if it has
  *    none. Later pushes to the Artifacts repo start builds by themselves. A
  *    build builds the image and deploys the Worker.
+ * Resolves to the builds it started.
  */
 export const deployOutposts = async (
   env: OutpostsEnv,
   repo: string,
   outpost: OutpostConfig | undefined,
   files: Record<string, string>,
-) => {
+): Promise<StartedBuild[]> => {
   const settings = await settingsOf(env);
   const token = await env.CLOUDFLARE_BUILDS_TOKEN.get();
+  const started: StartedBuild[] = [];
   const kv = env.FACTORY_KV;
   const previous = ((await kv.get(workersKey(repo), "json")) ?? {}) as Record<string, string>;
   const current: Record<string, string> = {};
@@ -248,10 +252,11 @@ export const deployOutposts = async (
     if ((await kv.get(sourceKey(worker))) === hash) continue;
     const artifact = await ensureRepo(token, settings.accountId, settings.namespace, worker);
     const write = await repoToken(token, settings.accountId, settings.namespace, worker);
-    await pushSource(artifact.remote, write, source, `${repo}: container ${id}`);
+    const commit = await pushSource(artifact.remote, write, source, `${repo}: container ${id}`);
     const tag = await ensureWorker(token, settings, worker);
     await build(token, settings, worker, tag, artifact, await buildToken(token, settings.accountId, kv));
     await kv.put(sourceKey(worker), hash);
+    started.push({ container: id, worker, tag, commit, hash });
     console.log(JSON.stringify({ repo, container: id, worker, building: true }));
   }
   for (const [id, worker] of Object.entries(previous)) {
@@ -263,6 +268,7 @@ export const deployOutposts = async (
   }
   if (Object.keys(current).length) await kv.put(workersKey(repo), JSON.stringify(current));
   else await kv.delete(workersKey(repo));
+  return started;
 };
 
 /** The account's workers.dev subdomain, which outpost Workers' URLs are under. */

@@ -16,6 +16,20 @@ export type TokenRequest = { ticket: TokenTicket; signature: string };
 /** A token for each of a container's code host policies. */
 export type Tokens = { policy: string; repo: string; token: string }[];
 
+/** A container image's build, as the deployer reports it. `ref` is the code host's commit that the build's source was read at. `expires` is in ms since the epoch. */
+export type BuildReport = {
+  repo: string;
+  ref: string;
+  container: string;
+  state: "in_progress" | "success" | "failure" | "cancelled";
+  url?: string;
+  summary?: string;
+  expires: number;
+};
+
+/** What the deployer posts to the router's `/builds` route. */
+export type BuildReportRequest = { report: BuildReport; signature: string };
+
 /** What a container's runner needs for one trigger match. */
 export type Run = {
   id: string;
@@ -60,6 +74,12 @@ export const signTokenTicket = (rootKey: string, ticket: TokenTicket) => sign(ro
 /** Whether the router signed `ticket`, and it hasn't expired. */
 export const verifyTokenTicket = (rootKey: string, ticket: TokenTicket, signature: string) =>
   verify(rootKey, "router:tokens", ticket, signature);
+
+export const signBuildReport = (rootKey: string, report: BuildReport) => sign(rootKey, "router:builds", report);
+
+/** Whether the deployer signed `report`, and it hasn't expired. */
+export const verifyBuildReport = (rootKey: string, report: BuildReport, signature: string) =>
+  verify(rootKey, "router:builds", report, signature);
 
 /** A git branch name the runner can check out: no `..`, no leading `-` or `/`, and only letters, digits and `._/-`. */
 export const isBranchName = (name: string) =>

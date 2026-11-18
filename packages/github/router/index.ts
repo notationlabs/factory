@@ -8,7 +8,7 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
-import { comment, readDir, repoToken, sourceChanges, writeStatus as writeRepoStatus } from "./repos.ts";
+import { comment, readDir, repoToken, sourceChanges, writeCheck as writeRepoCheck, writeStatus as writeRepoStatus } from "./repos.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -229,6 +229,10 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
 
     async writeStatus(repo, status) {
       await writeRepoStatus(await auth(), repo, status);
+    },
+
+    async writeCheck(repo, ref, check) {
+      await writeRepoCheck(await auth(), repo, ref, check);
     },
 
     conversation(delivery) {

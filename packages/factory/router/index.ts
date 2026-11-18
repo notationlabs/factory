@@ -9,6 +9,7 @@ export type {
 } from "../contracts/index.ts";
 export type {
   AuthorCheck,
+  BuildCheck,
   Channel,
   ChannelContext,
   ChannelModule,
@@ -21,6 +22,7 @@ export type {
   SourceFiles,
 } from "./channel.ts";
 export {
+  buildCheckName,
   FACTORY_DIR,
   handle,
   outpostKey,
@@ -31,16 +33,20 @@ export {
 } from "./handle.ts";
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 export {
+  type BuildReport,
+  type BuildReportRequest,
   isBranchName,
   type Relay,
   REPLY_TTL_MS,
   type ReplyTicket,
   type Run,
+  signBuildReport,
   signTicket,
   signTokenTicket,
   type TokenRequest,
   type Tokens,
   type TokenTicket,
+  verifyBuildReport,
   verifyTicket,
   verifyTokenTicket,
 } from "./run.ts";

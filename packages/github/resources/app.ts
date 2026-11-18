@@ -43,6 +43,7 @@ const permission = v.picklist(["read", "write"]);
 const permissions = v.partial(
   v.object({
     actions_variables: permission,
+    checks: permission,
     contents: permission,
     issues: permission,
     metadata: permission,
@@ -102,7 +103,7 @@ export const App = defineResource<AppApi>({
     read: async (key) => readApp(key),
     update: async (key, patch, params) => {
       if (patch.events !== undefined || patch.permissions !== undefined) {
-        await requestAppChange(key, {
+        await requestAppChange({ ...key, org: params.org }, {
           events: params.events,
           permissions: params.permissions,
         });

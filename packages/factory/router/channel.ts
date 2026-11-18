@@ -72,6 +72,8 @@ export interface Channel<E = unknown> {
   read?(repo: string, dir: string, ref?: string): Promise<SourceFiles>;
   /** For a code host's channel: shows the outpost's status on the repo, as `FACTORY_STATUS`. */
   writeStatus?(repo: string, status: FactoryStatus): Promise<void>;
+  /** For a code host's channel: creates or updates the check named `check.name` on commit `ref`. */
+  writeCheck?(repo: string, ref: string, check: BuildCheck): Promise<void>;
   /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
   conversation?(delivery: Delivery<E>): Conversation;
   /** Posts `text` to a conversation's thread. */
@@ -88,6 +90,17 @@ export type FactoryStatus = {
   error?: string;
   /** When the deploy finished, as an ISO date. */
   at: string;
+  /** The containers whose images started building. */
+  building?: string[];
+};
+
+/** A container image's build, as a check on the commit it was built from. */
+export type BuildCheck = {
+  name: string;
+  state: "queued" | "in_progress" | "success" | "failure" | "cancelled";
+  /** The build's log. */
+  url?: string;
+  summary?: string;
 };
 
 /** What a channel module exports. */

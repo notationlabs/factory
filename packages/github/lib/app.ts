@@ -150,12 +150,25 @@ export const readApp = async (key: {
   return { slug: app.slug, id: String(app.id) };
 };
 
-/** GitHub has no API for an App's events and permissions: they're changed on its settings page, and installs approve new permissions. */
+/**
+ * GitHub has no API for an App's events and permissions, so this opens the
+ * App's settings page and prints what to set there. Each installation then
+ * accepts the new permissions on its own page.
+ */
 export const requestAppChange = async (
-  _key: { slug: string },
-  _change: { events?: GithubEvent[]; permissions?: Permissions },
+  key: { slug: string; org?: string },
+  change: { events?: GithubEvent[]; permissions?: Permissions },
 ): Promise<void> => {
-  throw new Error(
-    "not implemented: change the App's events and permissions on its settings page",
+  const owner = key.org ? `/organizations/${key.org}` : "";
+  const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/permissions`;
+  const permissions = Object.entries(change.permissions ?? {}).map(([name, level]) => `${name}: ${level}`);
+  console.error(
+    [
+      `Set the GitHub App ${key.slug}'s permissions and events on ${url}`,
+      `  permissions: ${permissions.join(", ") || "none"}`,
+      `  events: ${(change.events ?? []).join(", ") || "none"}`,
+      "Then accept the new permissions on each installation's page.",
+    ].join("\n"),
   );
+  openBrowser(url);
 };

@@ -8,6 +8,7 @@ import {
 import { kvJson } from "@notation/cloudflare/kv";
 import { tokens } from "@notation/cloudflare/resources";
 import {
+  $durableObject,
   addBindings,
   json,
   type Worker,
@@ -95,7 +96,8 @@ const OUTPOST_PREFIX_MAX_LENGTH = 50;
  * For each repo's container, it commits the container's source to an
  * Artifacts repo, and Workers Builds builds the image and deploys an outpost
  * Worker that hosts the container. It builds with a user API token, which
- * deploy asks you for once. It binds the root key and the accounts' secrets.
+ * deploy asks you for once, and reports each build to the router. It binds
+ * the root key and the accounts' secrets.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
@@ -184,6 +186,10 @@ export class Deployer
         [R2_BINDING]: router.bucket,
         // Runs outposts' configs, each in an isolate with no network.
         LOADER: workerLoader(),
+        // Polls Workers Builds for the builds that the deployer starts. The
+        // class is a stand-in: Notation reads only its name, and the
+        // deployer's bundle exports the real one.
+        BUILDS: $durableObject({ id: `${id}-builds`, class: class BuildWatch {} }),
         CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,
         FACTORY_ROOT_KEY: router.rootKey.secret,
         CLOUDFLARE_ACCOUNT_ID: json(accountId),
@@ -208,6 +214,7 @@ export class Deployer
           namespace: this.namespace.outputRef("Name"),
           prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
           deployer: scriptNameRef(this.worker),
+          router: router.url,
           compatibilityDate: COMPATIBILITY_DATE,
           sleepAfter,
           ...(regions && { regions }),

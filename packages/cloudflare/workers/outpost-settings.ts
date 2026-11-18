@@ -13,6 +13,8 @@ export const OutpostSettingsSchema = v.object({
   prefix: v.string(),
   /** The deployer Worker's name, which outpost Workers bind as a service. */
   deployer: v.string(),
+  /** The router's URL, which the deployer reports builds to. */
+  router: v.string(),
   compatibilityDate: v.string(),
   sleepAfter: v.string(),
   regions: v.optional(v.array(v.string())),

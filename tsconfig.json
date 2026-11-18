@@ -58,6 +58,8 @@
     "packages/*/bin/**/*.ts",
     "packages/*/commands/**/*.ts",
     "examples/**/*.ts",
+    ".factory/*.ts",
+    "factory.config.ts",
     "scripts/**/*.ts"
   ]
 }

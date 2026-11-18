@@ -15,20 +15,46 @@ Nothing. Pick from Next.
 
 ## Next
 
-- [ ] **Stage 2: build each repo's outpost image with Workers Builds.** Workers Builds builds the repo's `.factory/Dockerfile`, or the default Dockerfile when the repo has none, so `factory infra up` no longer builds the outpost image with local Docker. Until then it does, and a slow uplink makes the first push take a long time. notationlabs/notation#175 asks for prebuilt images in `$durableObject`, which Factory won't use for now. Workers Builds builds from a Cloudflare Artifacts repo, so no forge needs Cloudflare's app. For each outpost container, the deploy:
-  1. Pushes the image's build context to an Artifacts repo, as one commit on `main`, the production branch. The image is minimal, and the container fetches what changes often: the runner clones the repo on each run, as it does today, and the start script fetches the runner at the version the deployer gives, with `bunx`, as `docs/manual/containers.md` says. The runtime setups stay in the image, since they change only with the hub's plugins, and installing them at start would slow a cold start. `factory infra up` stores them in the R2 bucket for the deployer. So the commit holds `.factory/`, the runtime setups with the `setup.sh` that runs them, the default Dockerfile when the repo has none, the `factory-runner` start script, the outpost Worker's bundle and its `wrangler.json`. The deployer writes the commit with a git client in the Worker, since Artifacts' import takes only public repos. Tested live with a read-only installation token in the URL: GitHub answered 401, as it did with no token.
-  2. Creates a Worker script, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. A container application belongs to one Durable Object namespace, so each container needs its own Worker and container name.
-  3. Starts a build, which builds the Dockerfile, pushes the image to the account's registry and runs `wrangler deploy`.
+- [ ] **Stage 2: build each repo's outpost image with Workers Builds.** So `factory infra up` no longer builds an image with local Docker, and a repo's `.factory/Dockerfile` takes effect. Until then, `FACTORY_STATUS` should say the Dockerfile is ignored.
 
-  The outpost Workers are created after the deployer, so the deployer can't bind to them. It posts each run to the outpost Worker's workers.dev URL, signed with a key derived from the root key, and the outpost Worker checks the signature. A Workers for Platforms dispatch namespace would avoid the public URLs, but it's a paid add-on.
+  **Image contract:**
+  - Built from `.factory/` with `.factory/Dockerfile`, or with Factory's default Dockerfile.
+  - Holds Debian, `bun`, `git`, and the CLI of each runtime the container lists. Nothing from Factory.
+  - `Runtime` loses `setup`. A repo's Dockerfile installs its runtimes itself.
 
-  The Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. The token is a custom credential resource:
-  - Its create opens the dashboard's create-token page with the permissions filled in, which the `permissionGroupKeys` query parameter does. Tested live: the page filled in all seven permissions.
-  - A TTY prompt asks for the token, and the deploy checks it.
-  - The deploy writes it to the vault as the deployer's token, and registers it as the build token.
-  - The deploy can't issue another user token, so a lost value works like a GitHub App's private key: deploy fails and asks for the token again. Tested live with only that token: the deploy's steps built a Dockerfile in Workers Builds and created the container application. Creating the build config starts no build. A deleted Artifacts namespace stays "not active", so its name can't be used again. `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
+  **At run time:**
 
-  Until then, `FACTORY_STATUS` should say the Dockerfile is ignored.
+  | What | How |
+  | --- | --- |
+  | Runner | The entrypoint fetches it from `runner.factory`, an outbound host that the outpost Worker answers from its bundle, and runs it with `bun` |
+  | Runtimes | The runner checks each runtime's CLI at start, and fails the run if one is missing |
+  | Credentials | Env vars at container start, as today |
+  | Repo | Cloned on each run, as today |
+
+  ```ts
+  entrypoint = ["bun", "-e", `await Bun.write("/tmp/runner.js", await fetch("http://runner.factory/runner.js")); await import("/tmp/runner.js")`];
+  ```
+
+  **Deploy, per outpost container:**
+  1. Commit `.factory/`, the default Dockerfile if needed, `wrangler.json` and the outpost Worker's bundle to an Artifacts repo, on `main`. The deployer writes the commit with a git client in the Worker.
+  2. Create the outpost Worker, then its build config with `POST /builds/workers` and `provider_type: "cloudflare_artifacts"`. Each container needs its own Worker: a container application belongs to one Durable Object namespace.
+  3. Start a build. It builds the image, pushes it to the account's registry and runs `wrangler deploy`.
+
+  **Runs:** the deployer posts each run to the outpost Worker's workers.dev URL, signed with a key derived from the root key. A dispatch namespace would avoid public URLs, but Workers for Platforms is paid.
+
+  **User token:** the Workers Builds API rejects account tokens, so the deploy needs a user token with Workers CI and Artifacts permissions. It's a custom credential resource:
+  - Create opens the dashboard's create-token page, filled in with `permissionGroupKeys`.
+  - A TTY prompt takes the token, and the deploy checks it.
+  - The deploy writes it to the vault, and registers it as the build token.
+  - A lost value works like a GitHub App's private key: deploy fails and asks again.
+
+  **Tested live:**
+  - With only the user token, the steps built a Dockerfile and created the container application.
+  - The create-token page filled in all seven permissions.
+  - Creating a build config starts no build.
+  - A deleted Artifacts namespace stays "not active", so its name can't be reused.
+  - `cloudflare_artifacts` isn't in the documented enum, and `PUT /builds/repos/connections` rejects it with 12065.
+  - Artifacts' import takes only public repos: with a read-only installation token in the URL, GitHub answered 401.
 
 ## Later
 

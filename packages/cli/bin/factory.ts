@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { infraDown, infraUp } from "../commands/infra.ts";
 import { repoInstall, repoStatus } from "../commands/repo.ts";
 

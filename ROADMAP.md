@@ -36,7 +36,9 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
   - An inbox that saves each delivery before answering.
   - De-duplication by delivery id.
   - A queue of failed deliveries, with replay.
-- [ ] **Deployer:** run the checks in `docs/manual/outposts.md#subscribing--deploys` before storing an outpost config.
+- [ ] **Deployer:**
+  - Run the checks in `docs/manual/outposts.md#subscribing--deploys` before storing an outpost config.
+  - Once Notation has queues, watch builds through a queue of Workers Builds events instead of the `BuildWatch` alarm. Events carry the build's uuid and arrive within seconds, so the deployer no longer polls or matches commit hashes. The deployer subscribes each outpost Worker when it creates it, and maps each Artifacts commit to its repo, commit and container in KV. A build that never starts still needs a timeout.
 - [ ] **Runner:**
   - Write an agent's `files`.
   - Support runtimes other than Claude Code.

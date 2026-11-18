@@ -12,17 +12,16 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Now
 
-Nothing. Pick from Next.
+- [ ] **Show outpost builds on GitHub.** Built, not yet tested live. Each container's build is a check on the pushed commit, such as `factory/build dev`.
+  - After a deploy, the router writes a queued check for each container whose image started building.
+  - The deployer's `BuildWatch` Durable Object polls the Builds API every 30 seconds for the build of the commit it pushed. It posts signed reports to the router's `/builds` route, which updates the check with the build's state and log link.
+  - A failed build clears the source's hash, so the next push builds it again.
+  - The App gets `checks: write`. Deploy opens the App's permissions page, since GitHub has no API for it, and each installation accepts the change.
+  - To test: the build log link's URL, and the build's `commit_hash` for an Artifacts repo, which the watch matches on.
 
 ## Next
 
-- [ ] **Show outpost builds on GitHub.** A check run per container on the pushed commit, such as `factory/build dev`, that links to the build's log.
-  - The GitHub App gets `checks: write`.
-  - The deployer starts the build and returns its uuid. The router holds the App's key, so it creates the check run as `in_progress`.
-  - Workers Builds has no webhook that we know of, so something polls `GET /builds/builds/{uuid}` and completes the check run. The deployer has no Durable Object or cron to poll with yet.
-  - A push that doesn't change a container's source gets no check run for that container.
 - [ ] **Stage 2 follow-ups:**
-  - Retry a failed build. The deployer saves the source's hash once the build starts, so a failed build isn't retried until `.factory/` changes.
   - `factory infra down` deletes the Artifacts repos, but not the outpost Workers or their container applications.
   - Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
   - Remove the deployer's account token, and its `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `KNOWN_HOSTS` bindings. The deployer Worker reads none of them.

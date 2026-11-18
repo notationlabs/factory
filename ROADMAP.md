@@ -21,12 +21,18 @@ These items have to be done before Factory's agents work on `notationlabs/factor
 - [ ] **Protect `main`.** Require a pull request for every change to `main`. Without that, an agent with `contents: write` could push to `main` directly, including to its own `.factory/`, and the push would redeploy the outpost. This is a repo setting, not code.
 - [x] **Give agents the runner's system prompt.** The runner passes a system prompt of its own to `--append-system-prompt`, followed by the agent's `systemPrompt`. It says the agent runs headless, that it acts only on the messages in its prompt, that its final message is the reply, and that it opens pull requests as drafts. Not yet tested live.
 - [x] **Trust only collaborators' threads.** A comment starts a run only if both its author and the issue's author match the selector's `from`, since the prompt quotes the opening post. Bot accounts never match, not just the hub's own App. Not yet tested live.
-- [ ] **Deploy a hub for `notationlabs`.** Create a repo, and use a stage of its own, apart from `test`. Its connection takes `org: "notationlabs"`, so the org owns the App, and its code host allows `{ owner: "notationlabs", repo: "factory" }`.
-- [ ] **Add this repo's outpost.** Add `.factory/config.ts` and a `.factory/Dockerfile` based on Node 24 with pnpm, since `pnpm test` and `pnpm typecheck` need them. Add instructions for agents to the repo, including those two commands, so their pull requests arrive checked. Then run `factory repo install`, and test a mention end to end.
+- [x] **Deploy a hub for `notationlabs`.** [`notationlabs/factory-hub`](https://github.com/notationlabs/factory-hub) deploys the stage `prod`. The org owns its App, `notation-factory`, and its code host allows only `notationlabs/factory`.
+- [ ] **Add this repo's outpost.** `.factory/` holds the config, with `@claude` and `@droid` triggers, and a Dockerfile based on Node 24 with pnpm and bun. `AGENTS.md` gives agents the checks to run. The App is installed, the outpost deployed, and its image built. Left: a mention answered end to end ([#1](https://github.com/notationlabs/factory/issues/1)).
+- [ ] **Release 0.1.2.** `factory infra` runs Notation on bun, since Node won't strip types from the packages' TypeScript under `node_modules`. 0.1.1's CLI still runs `npx notation`, so the hub deploys with `bun x --bun notation deploy` until then.
 
 ## Next
 
 In priority order.
+
+- [ ] **Found while deploying the `notationlabs` hub:**
+  - `factory repo install` derives the App's slug from the hub's app, stage and connection, such as `factory-prod-gh`. When the App is renamed as it's created, as `notation-factory` was, the CLI can't find it. Read the slug from the hub instead.
+  - The hubs on one Cloudflare account share its Secrets Store: `prod` took over the store that `test` created. `factory infra down` on either hub could delete the other's secrets.
+  - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
 
 - [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Untrusted messages are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
 - [ ] **Deliveries:** the old prototype had these, and Factory doesn't yet:

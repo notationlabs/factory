@@ -8,7 +8,7 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
-import { comment, readDir, repoToken, sourceChanges, writeCheck as writeRepoCheck, writeStatus as writeRepoStatus } from "./repos.ts";
+import { comment, readDir, repoToken, sourceChanges, writeCheck as writeRepoCheck, writers, writeStatus as writeRepoStatus } from "./repos.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -28,8 +28,11 @@ export const verifySignature = async (
 export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY" } as const;
 export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
 
-/** Someone who posted to a thread. `bot` is set for an App or another bot account. */
-export type Author = { login: string; association: string; bot: boolean };
+/**
+ * Someone who posted to a thread. `bot` is set for an App or another bot
+ * account. `write` is whether they can push to the repo.
+ */
+export type Author = { login: string; association: string; bot: boolean; write: boolean };
 
 /** The parts of an issue or comment event that selectors read. */
 export type GithubEvent = {
@@ -54,6 +57,7 @@ const authorOf = (post: Post): Author => ({
   login: post.user?.login ?? "",
   association: post.author_association ?? "",
   bot: post.user?.type === "Bot",
+  write: WRITE_ACCESS.has(post.author_association ?? ""),
 });
 
 const parse = (event: string, payload: any): GithubEvent | undefined => {
@@ -162,7 +166,7 @@ const checkOne = (sets: AuthorSet[], author: Author): AuthorCheck => {
   const allowed = sets.some((s) =>
     s.kind === "user"
       ? s.login.toLowerCase() === author.login.toLowerCase()
-      : s.kind === "collaborators" && WRITE_ACCESS.has(author.association),
+      : s.kind === "collaborators" && author.write,
   );
   if (allowed) return { result: "allowed" };
   const teams = sets.filter((s) => s.kind === "team");
@@ -180,6 +184,21 @@ const checkAuthor = (from: Selector["from"], { author, opener }: GithubEvent): A
   if (checks.some((c) => c.result === "denied")) return { result: "denied" };
   const pending = checks.find((c) => c.result === "check");
   return pending ?? { result: "allowed" };
+};
+
+/**
+ * Sets `write` on the event's humans whose association doesn't show it, by
+ * asking GitHub. If GitHub can't answer, they stay without write access.
+ */
+const resolveWriters = async (auth: { appId: string; privateKey: string }, repo: string, data: GithubEvent) => {
+  const unknown = [data.author, ...(data.opener ? [data.opener] : [])].filter((a) => !a.bot && !a.write && a.login);
+  if (unknown.length === 0) return;
+  try {
+    const found = await writers(auth, repo, [...new Set(unknown.map((a) => a.login))]);
+    for (const a of unknown) a.write = found.has(a.login);
+  } catch (error) {
+    console.log(JSON.stringify({ state: "permission check failed", repo, error: error instanceof Error ? error.message : String(error) }));
+  }
 };
 
 /** One GitHub App's webhook. A delivery's scope is its repo. */
@@ -208,6 +227,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
+      await resolveWriters(await auth(), repo, data);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {

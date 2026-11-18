@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync } from "node:crypto";
 import { test } from "node:test";
 import type { Delivery } from "@notation/factory/router";
 import { channel as github, type GithubEvent, mentions, verifySignature, webhookSecret } from "./index.ts";
@@ -57,8 +57,8 @@ test("receive parses a signed comment to its App", async () => {
       event: "issue_comment",
       data: {
         action: "created",
-        author: { login: "alice", association: "NONE", bot: false },
-        opener: { login: "bob", association: "", bot: false },
+        author: { login: "alice", association: "NONE", bot: false, write: false },
+        opener: { login: "bob", association: "", bot: false, write: false },
         body: "@claude fix",
         before: "@claude fix",
         labels: ["bug"],
@@ -107,7 +107,7 @@ const delivery = (data: Partial<GithubEvent>): Delivery<GithubEvent> => ({
   event: "issue_comment",
   data: {
     action: "created",
-    author: { login: "alice", association: "NONE", bot: false },
+    author: { login: "alice", association: "NONE", bot: false, write: false },
     body: "@claude fix",
     before: "@claude fix",
     labels: [],
@@ -126,34 +126,34 @@ const selector = (over: object = {}) => ({
 test("from allows a listed user, and a collaborator by author association", () => {
   assert.deepEqual(channel.match(selector(), delivery({})), { result: "allowed" });
   assert.deepEqual(
-    channel.match(selector(), delivery({ author: { login: "bob", association: "NONE", bot: false } })),
+    channel.match(selector(), delivery({ author: { login: "bob", association: "NONE", bot: false, write: false } })),
     { result: "denied" },
   );
   const collaborators = selector({ from: { kind: "collaborators" } });
   assert.deepEqual(
-    channel.match(collaborators, delivery({ author: { login: "bob", association: "COLLABORATOR", bot: false } })),
+    channel.match(collaborators, delivery({ author: { login: "bob", association: "COLLABORATOR", bot: false, write: true } })),
     { result: "allowed" },
   );
 });
 
 test("a comment matches only if the issue's author matches from too", () => {
   const collaborators = selector({ from: { kind: "collaborators" } });
-  const member = { login: "alice", association: "MEMBER", bot: false };
+  const member = { login: "alice", association: "MEMBER", bot: false, write: true };
   assert.deepEqual(
-    channel.match(collaborators, delivery({ author: member, opener: { login: "eve", association: "NONE", bot: false } })),
+    channel.match(collaborators, delivery({ author: member, opener: { login: "eve", association: "NONE", bot: false, write: false } })),
     { result: "denied" },
   );
   assert.deepEqual(
-    channel.match(collaborators, delivery({ author: member, opener: { login: "bob", association: "OWNER", bot: false } })),
+    channel.match(collaborators, delivery({ author: member, opener: { login: "bob", association: "OWNER", bot: false, write: true } })),
     { result: "allowed" },
   );
 });
 
 test("bots never match, even with write access", () => {
   const collaborators = selector({ from: { kind: "collaborators" } });
-  const bot = { login: "renovate[bot]", association: "MEMBER", bot: true };
+  const bot = { login: "renovate[bot]", association: "MEMBER", bot: true, write: true };
   assert.deepEqual(channel.match(collaborators, delivery({ author: bot })), { result: "denied" });
-  const human = { login: "alice", association: "MEMBER", bot: false };
+  const human = { login: "alice", association: "MEMBER", bot: false, write: true };
   assert.deepEqual(channel.match(collaborators, delivery({ author: human, opener: bot })), { result: "denied" });
 });
 
@@ -165,13 +165,13 @@ test("receive marks bot authors", async () => {
   const received = await channel.receive(await request("issue_comment", fromBot));
   assert.equal(received.status, "accepted");
   const { data } = (received as { delivery: Delivery<GithubEvent> }).delivery;
-  assert.deepEqual(data.opener, { login: "dependabot[bot]", association: "NONE", bot: true });
+  assert.deepEqual(data.opener, { login: "dependabot[bot]", association: "NONE", bot: true, write: false });
 });
 
 test("a team in from leaves a check for the router to make", () => {
   const team = selector({ from: [{ kind: "team", slug: "acme/core" }] });
   assert.deepEqual(
-    channel.match(team, delivery({ author: { login: "bob", association: "NONE", bot: false } })),
+    channel.match(team, delivery({ author: { login: "bob", association: "NONE", bot: false, write: false } })),
     { result: "check", sets: [{ kind: "team", slug: "acme/core" }] },
   );
 });
@@ -195,4 +195,38 @@ test("mentions match as GitHub does", () => {
   assert.equal(mentions("@claudette", "@claude"), false);
   assert.equal(mentions("me@claude.ai", "@claude"), false);
   assert.equal(mentions("@claude-bot", "@claude"), false);
+});
+
+test("receive asks GitHub whether authors whose association hides it can push", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const keyed = github({
+    secret: async (name) => (name === "ROOT_KEY" ? ROOT_KEY : privateKey),
+    value: (name) => (name === "APP_ID" ? "123" : ""),
+  });
+  const asked: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    asked.push(new URL(url).pathname);
+    if (url.endsWith("/installation")) return Response.json({ id: 1 });
+    if (url.endsWith("/access_tokens")) return Response.json({ token: "t" });
+    // A private member of the org, and an outsider.
+    if (url.endsWith("/collaborators/alice/permission")) return Response.json({ permission: "write", role_name: "write" });
+    return new Response("Not Found", { status: 404 });
+  }) as typeof fetch;
+  try {
+    const received = await keyed.receive(await request("issue_comment", commentPayload));
+    assert.equal(received.status, "accepted");
+    const { data } = (received as { delivery: Delivery<GithubEvent> }).delivery;
+    assert.equal(data.author.write, true);
+    assert.equal(data.opener?.write, false);
+    assert.ok(asked.includes("/repos/acme/api/collaborators/alice/permission"));
+    assert.ok(asked.includes("/repos/acme/api/collaborators/bob/permission"));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -60,6 +60,29 @@ export const repoToken = async (
   return token;
 };
 
+/** Permissions that let a user push to a repo. */
+const WRITE_PERMISSIONS = new Set(["admin", "maintain", "write"]);
+
+/**
+ * The logins among `logins` that can push to `repo`, asked of GitHub. A
+ * webhook's author association doesn't show private org membership, so the
+ * channel asks when the association doesn't show write access.
+ */
+export const writers = async (auth: AppAuth, repo: string, logins: string[]) => {
+  const token = await repoToken(auth, repo, { metadata: "read" });
+  const found = new Set<string>();
+  for (const login of logins) {
+    const response = await github("GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`, token);
+    if (response.status === 404) continue;
+    const { permission, role_name } = (await (await ok(response, `GET /repos/${repo}/collaborators/${login}/permission`)).json()) as {
+      permission: string;
+      role_name?: string;
+    };
+    if (WRITE_PERMISSIONS.has(permission) || WRITE_PERMISSIONS.has(role_name ?? "")) found.add(login);
+  }
+  return found;
+};
+
 /**
  * The files under `dir` in `repo` at `ref`, or at the default branch's head:
  * 1. Resolves the ref to a commit and its tree.

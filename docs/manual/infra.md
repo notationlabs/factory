@@ -10,19 +10,16 @@ import * as slack from "@notation/factory-slack";
 import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault"); // <-- where the hub's secrets live
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 
 new github.CodeHost("github", {
   connection: gh,             // <-- GitHub mints narrow tokens through the App
   allow: [{ owner: "acme" }], // <-- only repos owned by "acme" get outposts
 });
 
-new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
+new slack.Connection("slack", { workspace: "acme", router });
 
 new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
 
@@ -75,14 +72,11 @@ Connect several GitHub organizations, personal accounts or platforms to the same
 
 ```ts [factory.infra.ts]
 // …
-const org = new github.Connection("org", { name: "acme-agents", org: "acme", router });
+const org = new github.Connection("org", { org: "acme", router });
 
-new github.Connection("personal", {
-  name: "alice-agents", // <-- omit `org` for a personal GitHub App
-  router,
-});
+new github.Connection("personal", { router }); // <-- omit `org` for a personal GitHub App
 
-new slack.Connection("slack", { name: "acme-agents", workspace: "acme", router });
+new slack.Connection("slack", { workspace: "acme", router });
 ```
 
 All connections deliver events through the shared `Router`. Only one of them backs the `CodeHost`; the others are channels only. See [Connections & Channels](./connections.md).

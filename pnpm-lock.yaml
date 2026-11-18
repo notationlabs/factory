@@ -72,6 +72,9 @@ importers:
       '@notation/factory-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
+      '@notation/factory-droid':
+        specifier: workspace:*
+        version: link:../../packages/droid
       '@notation/factory-github':
         specifier: workspace:*
         version: link:../../packages/github
@@ -90,6 +93,9 @@ importers:
       '@notation/factory-cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@notation/factory-droid':
+        specifier: workspace:*
+        version: link:../../packages/droid
       '@notation/factory-github':
         specifier: workspace:*
         version: link:../../packages/github
@@ -139,6 +145,19 @@ importers:
       memfs:
         specifier: 4.80.1
         version: 4.80.1
+      valibot:
+        specifier: ^1.1.0
+        version: 1.5.0(typescript@7.0.2)
+    devDependencies:
+      '@notation/factory':
+        specifier: workspace:*
+        version: link:../factory
+
+  packages/droid:
+    dependencies:
+      '@notation/resource':
+        specifier: 0.28.0
+        version: 0.28.0
       valibot:
         specifier: ^1.1.0
         version: 1.5.0(typescript@7.0.2)

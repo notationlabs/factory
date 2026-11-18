@@ -3,6 +3,7 @@ import { ResourceGroup, text } from "@notation/resource";
 import {
   type Connection as ConnectionContract,
   type Router,
+  scopedName,
 } from "@notation/factory";
 import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
@@ -10,8 +11,10 @@ import { App, type AppInstance } from "../resources/app.ts";
 import { CHANNEL_SECRETS, CHANNEL_VALUES } from "../router/index.ts";
 import { ConnectionRef } from "./connection-ref.ts";
 
+/** GitHub App names are at most 34 characters. */
+const GITHUB_APP_NAME_MAX_LENGTH = 34;
+
 const connectionConfig = v.object({
-  name: v.string(),
   org: v.optional(v.string()),
 });
 export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
@@ -33,15 +36,15 @@ export class Connection
   readonly app: AppInstance;
 
   constructor(id: string, { router, ...config }: ConnectionOptions) {
-    const { name, org } = v.parse(connectionConfig, config);
+    const { org } = v.parse(connectionConfig, config);
     super("github/Connection", id, config);
-    this.name = name;
+    this.name = id;
     this.router = router;
-    const key = `github/${name}`;
+    const key = `github/${id}`;
     this.app = this.add(
       new App(`${id}-app`, {
         config: {
-          name,
+          name: scopedName(id, GITHUB_APP_NAME_MAX_LENGTH),
           org,
           hookUrl: text`${router.url}${webhookPath(key)}`,
         },

@@ -6,7 +6,7 @@ const containerConfig = v.object({
   /**
    * The container's Dockerfile, relative to `.factory/`, which builds with
    * `.factory/` as its context. Without it, the container gets Factory's
-   * default image, which has Claude Code.
+   * default image, which has Claude Code and Droid.
    */
   image: v.optional(v.string()),
   runtimes: v.optional(

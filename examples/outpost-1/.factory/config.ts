@@ -1,8 +1,9 @@
 import { Container, Trigger } from "@notation/factory";
 import * as claude from "@notation/factory-claude";
+import * as droid from "@notation/factory-droid";
 import * as github from "@notation/factory-github";
 
-const gh = github.Connection.get("notation-factory-test").channel({
+const gh = github.Connection.get("gh").channel({
   id: "issues",
 });
 
@@ -12,7 +13,7 @@ const code = new github.Policy("code", {
 
 const dev = new Container("dev", {
   image: "./Dockerfile",
-  runtimes: [claude.runtime],
+  runtimes: [claude.runtime, droid.runtime],
   policies: [code],
 });
 
@@ -29,5 +30,21 @@ new Trigger("mention", {
   }),
   worktree: (event) => `issue-${event.issue.number}`,
   agent: coder,
+  container: dev,
+});
+
+const droidCoder = new droid.Agent("droid-coder", {
+  model: "claude-opus-5-5",
+  effort: "low",
+});
+
+new Trigger("droid-mention", {
+  event: gh.issueComment({
+    actions: ["created", "edited"],
+    mention: "@droid",
+    from: github.collaborators(),
+  }),
+  worktree: (event) => `issue-${event.issue.number}`,
+  agent: droidCoder,
   container: dev,
 });

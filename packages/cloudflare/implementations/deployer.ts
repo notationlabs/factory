@@ -169,7 +169,10 @@ export class Deployer
         OUTPOST_SETTINGS_KEY: json(settingsKey),
         ACCOUNTS: json(
           Object.fromEntries(
-            accounts.map((a) => [a.runtime.id, Object.keys(a.secrets)]),
+            accounts.map((a) => [
+              a.runtime.id,
+              { secrets: Object.keys(a.secrets), ...(a.runtime.setup && { setup: a.runtime.setup }) },
+            ]),
           ),
         ),
       }),

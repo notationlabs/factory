@@ -1,0 +1,37 @@
+import { type Agent as AgentContract, OutpostGroup } from "@notation/factory";
+import * as v from "valibot";
+import { runtime } from "./runtime.ts";
+
+const agentConfig = v.object({
+  model: v.string(),
+  /** Passed as `--reasoning-effort`. The levels a model accepts depend on the model. */
+  effort: v.optional(v.picklist(["none", "low", "medium", "high"])),
+  /**
+   * Passed as `--auto`. Without it, a run skips every permission prompt
+   * with `--skip-permissions-unsafe`, which only a disposable container
+   * should use.
+   */
+  autonomy: v.optional(v.picklist(["low", "medium", "high"])),
+  /** Relative to `.factory/`. Appended to the runner's prompt. */
+  systemPrompt: v.optional(v.string()),
+  /** Written to `/data/agents/<id>/settings.json`, and merged for each run. */
+  settings: v.optional(v.record(v.string(), v.unknown())),
+  /** `~/.factory/*` is written to `/data/agents/<id>/`, other `~/*` to `/data/home/`. */
+  files: v.optional(v.record(v.string(), v.string())),
+});
+export type AgentConfig = v.InferInput<typeof agentConfig>;
+
+export type AgentOptions = AgentConfig;
+
+/** A Droid agent. A trigger that runs it must target a container that lists `droid.runtime`. */
+export class Agent extends OutpostGroup<AgentConfig> implements AgentContract {
+  readonly runtime = runtime;
+
+  constructor(id: string, config: AgentOptions) {
+    const settings = v.parse(agentConfig, config);
+    super("droid/Agent", id, config);
+    this.outpost.store.contribute({
+      agents: { [id]: { runtime: runtime.id, ...settings } },
+    });
+  }
+}

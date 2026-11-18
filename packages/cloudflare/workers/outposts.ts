@@ -10,6 +10,7 @@ import { deleteOutpostWorker } from "../lib/outpost-workers.ts";
 import type { StartedBuild } from "./build-watch.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
+import { imageSource, type RuntimeAccount } from "./outpost-source.ts";
 import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
 import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
 
@@ -20,6 +21,8 @@ export type OutpostsEnv = {
   CLOUDFLARE_BUILDS_TOKEN: SecretsStoreSecret;
   /** The KV key of the outpost settings. */
   OUTPOST_SETTINGS_KEY: string;
+  /** Each runtime's account: its secret names, and its CLI's setup. */
+  ACCOUNTS: Record<string, { secrets: string[]; setup?: string }>;
 };
 
 export const settingsOf = async (env: OutpostsEnv): Promise<OutpostSettings> => {
@@ -58,7 +61,8 @@ const PLACEHOLDER = `export default { fetch: () => new Response("building", { st
 /**
  * The files of a container's Artifacts repo:
  * 1. `.factory/`, as the repo has it.
- * 2. `Dockerfile`, Factory's default, if the container names no image.
+ * 2. The image's files: `Dockerfile`, Factory's default, if the container
+ *    names no image, and each of its runtimes' setups.
  * 3. `wrangler.json` and `outpost.js`, the outpost Worker, which Workers
  *    Builds deploys as it is.
  */
@@ -67,19 +71,12 @@ const outpostSource = (
   worker: string,
   container: OutpostConfig["containers"][string],
   files: Record<string, string>,
+  accounts: Record<string, RuntimeAccount>,
 ) => {
+  const image = imageSource(container, files, accounts, defaultDockerfile);
   const source: Record<string, string> = {};
   for (const [path, content] of Object.entries(files)) source[`.factory/${path}`] = content;
-  let image = "./Dockerfile";
-  let context = ".";
-  if (container.image) {
-    const path = container.image.replace(/^\.\//, "");
-    if (!(path in files)) throw new Error(`The image .factory/${path} doesn't exist.`);
-    image = `./.factory/${path}`;
-    context = "./.factory";
-  } else {
-    source.Dockerfile = defaultDockerfile;
-  }
+  Object.assign(source, image.source);
   const config = {
     name: worker,
     main: "outpost.js",
@@ -98,8 +95,8 @@ const outpostSource = (
         // refuses a name with `--`, which Notation's generated names have.
         name: worker.replace(/-{2,}/g, "-"),
         class_name: CONTAINER_CLASS,
-        image,
-        image_build_context: context,
+        image: image.image,
+        image_build_context: image.context,
         max_instances: 1,
         instance_type: "standard-1",
         ...(settings.regions && { constraints: { regions: settings.regions } }),
@@ -248,7 +245,7 @@ export const deployOutposts = async (
   for (const [id, container] of Object.entries(outpost?.containers ?? {})) {
     const worker = await outpostWorkerName(settings, repo, id);
     current[id] = worker;
-    const source = outpostSource(settings, worker, container, files);
+    const source = outpostSource(settings, worker, container, files, env.ACCOUNTS);
     const hash = await sha256(JSON.stringify(Object.entries(source).sort(([a], [b]) => a.localeCompare(b))));
     if ((await kv.get(sourceKey(worker))) === hash) continue;
     const artifact = await ensureRepo(token, settings.accountId, settings.namespace, worker);

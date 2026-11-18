@@ -106,11 +106,8 @@ import * as github from "@notation/factory-github";
 import { sources } from "@notation/std/resources";
 
 const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const router = new cloudflare.Router("router", { vault });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
 const claudeToken = new sources.Env("claude-oauth-token", {
@@ -169,7 +166,7 @@ interface Router {
 // A connection's channel: the module that exports it, and the secrets and
 // values it reads by name.
 type RouterChannelOptions = {
-  connection: string; // such as "github/acme-agents"
+  connection: string; // such as "github/gh"
   module: string; // absolute path of a module that exports `channel`
   secrets?: Record<string, VaultSecret>;
   values?: Record<string, Input<string>>;

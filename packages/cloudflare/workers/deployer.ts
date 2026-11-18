@@ -11,8 +11,6 @@ type Env = OutpostsEnv & {
   LOADER: WorkerLoader;
   FACTORY_BUCKET: R2Bucket;
   BUILDS: DurableObjectNamespace<BuildWatch>;
-  /** The names of each runtime's account secrets, which the deployer binds under those names. */
-  ACCOUNTS: Record<string, string[]>;
 } & Record<string, unknown>;
 
 /** The KV key of the `.factory/` files that a repo's outpost was deployed from. */
@@ -82,9 +80,9 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
   async credentials(runtimes: string[]) {
     const env: Record<string, string> = {};
     for (const runtime of runtimes) {
-      const names = this.env.ACCOUNTS[runtime];
-      if (!names) throw new Error(`The hub has no account for the runtime ${runtime}.`);
-      for (const name of names) env[name] = await (this.env[name] as SecretsStoreSecret).get();
+      const account = this.env.ACCOUNTS[runtime];
+      if (!account) throw new Error(`The hub has no account for the runtime ${runtime}.`);
+      for (const name of account.secrets) env[name] = await (this.env[name] as SecretsStoreSecret).get();
     }
     return env;
   }

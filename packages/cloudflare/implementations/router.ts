@@ -17,7 +17,6 @@ import {
   type Worker,
   worker,
 } from "@notation/cloudflare/workers";
-import * as v from "valibot";
 import {
   ROUTER_CONFIG_KEY,
   RouterConfigSchema,
@@ -30,12 +29,7 @@ import {
   type Vault,
 } from "./vault.ts";
 
-const routerConfig = v.object({
-  project: v.string(),
-});
-export type RouterGroupConfig = v.InferInput<typeof routerConfig>;
-
-export type RouterOptions = RouterGroupConfig & { vault: Vault };
+export type RouterOptions = { vault: Vault };
 
 /** A Worker id from `parts`: lowercase letters, digits and single hyphens. */
 const workerId = (...parts: string[]) =>
@@ -46,16 +40,12 @@ const workerId = (...parts: string[]) =>
     .replace(/^-|-$/g, "");
 
 /**
- * `new cloudflare.Router(...)`: a Worker, the project's KV namespace and R2
+ * `new cloudflare.Router(...)`: a Worker, the hub's KV namespace and R2
  * bucket, and the KV entry its config is contributed to. It generates the
  * root key, and keeps it in the vault. Each connection's channel is a Worker
  * of its own, which the router binds as a service.
  */
-export class Router
-  extends ResourceGroup<RouterGroupConfig>
-  implements RouterContract
-{
-  readonly project: string;
+export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
   readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: CloudflareSecret;
@@ -70,10 +60,8 @@ export class Router
     { module: string; bundle: ReturnType<typeof workerBundle> }
   >();
 
-  constructor(id: string, { vault, ...config }: RouterOptions) {
-    const { project } = v.parse(routerConfig, config);
-    super("cloudflare/Router", id, config);
-    this.project = project;
+  constructor(id: string, { vault }: RouterOptions) {
+    super("cloudflare/Router", id);
     this.vault = vault;
 
     this.rootKeyValue = this.add(
@@ -86,13 +74,13 @@ export class Router
 
     this.kv = this.add(
       new kv.KVNamespace(`${id}-kv`, {
-        config: { Title: scopedName(project, 512) },
+        config: { Title: scopedName(id, 512) },
       }),
     );
     this.bucket = this.add(
       new r2.R2Bucket(`${id}-bucket`, {
         config: {
-          BucketName: scopedName(project, 64),
+          BucketName: scopedName(workerId(id), 64),
           Jurisdiction: "default",
           StorageClass: "Standard",
         },

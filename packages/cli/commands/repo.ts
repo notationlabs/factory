@@ -121,7 +121,7 @@ export const repoStatus = async ({ repo: given }: { repo?: string }) => {
  * 2. Waits for the hub to deploy the repo's outpost, which GitHub's install
  *    event starts, and prints the outcome.
  */
-export const repoInstall = async ({ repo: given }: { repo?: string }) => {
+export const repoInstall = async ({ repo: given, app: givenApp }: { repo?: string; app?: string }) => {
   const dir = await outpostDir();
   const config = join(dir, ".factory", "config.ts");
   const repo = await outpostRepo(dir, given);
@@ -131,20 +131,22 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
     console.log(".factory/config.ts uses no GitHub connection, so there's nothing to install.");
     return;
   }
+  const app = givenApp ?? (await loadConfig(dir)).app;
+  if (!app) {
+    throw new Error("Pass --app <slug>, or set app in factory.config.ts, to name the hub's GitHub App.");
+  }
   const { id: repoId, owner } = await gh<{ id: number; owner: { id: number } }>(`repos/${repo}`);
+  const slug = appSlug(app);
+  await gh(`apps/${slug}`).catch(() => {
+    throw new Error(`There's no GitHub App ${slug}. Run \`factory infra up\` in the hub's repo first.`);
+  });
+  const url = `https://github.com/apps/${slug}/installations/new/permissions?suggested_target_id=${owner.id}&repository_ids[]=${repoId}`;
+  console.log(`Install the GitHub App ${slug} on ${repo}:\n  ${url}`);
+  openBrowser(url);
 
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    for (const name of names) {
-      const slug = appSlug(name);
-      await gh(`apps/${slug}`).catch(() => {
-        throw new Error(`There's no GitHub App ${slug}. Run \`factory infra up\` in the hub's repo first.`);
-      });
-      const url = `https://github.com/apps/${slug}/installations/new/permissions?suggested_target_id=${owner.id}&repository_ids[]=${repoId}`;
-      console.log(`Install the GitHub App ${slug} on ${repo}:\n  ${url}`);
-      openBrowser(url);
-      await prompt.question("Press Enter when it's installed. ");
-    }
+    await prompt.question("Press Enter when it's installed. ");
   } finally {
     prompt.close();
   }

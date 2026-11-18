@@ -37,8 +37,8 @@ Channel ("issues") ──► Trigger ("mention") ──► Agent ("coder")
 Pick the conversations this repo listens on, from connections the infra declares:
 
 ```ts [.factory/config.ts]
-const gh = github.Connection.get("acme-agents").channel({ id: "issues" });         // <-- this repo's issues
-const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#ops" }); // <-- a Slack channel
+const gh = github.Connection.get("gh").channel({ id: "issues" });         // <-- this repo's issues
+const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- a Slack channel
 ```
 
 A channel is a connection plus a scope. `id` names the channel in the outpost's config. A GitHub channel's `scope` defaults to the outpost's repo; a Slack channel's is required. A scope belongs to at most one repo. See [Connections & Channels](./connections.md).

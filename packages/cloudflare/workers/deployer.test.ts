@@ -39,10 +39,12 @@ test("evaluates an outpost's config in a loaded Worker", async () => {
   assert.equal(error, undefined);
   assert.deepEqual(outpost.channels.issues, {
     provider: "github",
-    connection: "notation-factory-test",
+    connection: "gh",
     scope: REPO,
   });
-  assert.deepEqual(outpost.containers.dev.runtimes, ["claude"]);
+  assert.deepEqual(outpost.containers.dev.runtimes, ["claude", "droid"]);
+  assert.equal(outpost.agents["droid-coder"]?.runtime, "droid");
+  assert.equal(outpost.triggers["droid-mention"]?.agent, "droid-coder");
   assert.equal(outpost.agents.coder.runtime, "claude");
   assert.equal(outpost.triggers.mention.event, "issue_comment");
   assert.equal(outpost.triggers.mention.agent, "coder");

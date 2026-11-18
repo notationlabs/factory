@@ -24,6 +24,9 @@
       "@notation/factory-claude": [
         "./packages/claude/implementations/index.ts"
       ],
+      "@notation/factory-droid": [
+        "./packages/droid/implementations/index.ts"
+      ],
       "@notation/factory-railway": [
         "./packages/railway/implementations/index.ts"
       ],

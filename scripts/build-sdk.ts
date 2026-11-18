@@ -11,7 +11,7 @@ const deployerDir = join(root, "packages", "factory", "deployer");
 
 /** The workspace directory of each package, by name. */
 const packageDirs = Object.fromEntries(
-  ["factory", "github", "claude", "slack"].map((dir) => {
+  ["factory", "github", "claude", "droid", "slack"].map((dir) => {
     const path = join(root, "packages", dir);
     const { name } = JSON.parse(readFileSync(join(path, "package.json"), "utf8"));
     return [name as string, path];

@@ -65,7 +65,7 @@ export type RouterConfigStore = {
 
 /** A connection's channel, which the router runs and calls for each delivery to the connection. */
 export type RouterChannelOptions = {
-  /** The connection's key in the router's config, such as `github/acme-agents`. */
+  /** The connection's key in the router's config, such as `github/gh`. */
   connection: string;
   /** The absolute path of the module that exports the provider's `channel`, a `ChannelModule`. */
   module: string;

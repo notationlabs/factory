@@ -13,12 +13,9 @@ Stand up a central Notation Factory hub for your organisation to serve all of yo
 
 ```ts [factory.infra.ts]
 const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
 
 const claudeToken = new sources.Env("claude-oauth-token", {
@@ -47,7 +44,7 @@ The `Vault` holds the hub's secrets. `vault.secret(...)` only declares a secret.
 Wake an agent when someone you trust mentions it on an issue:
 
 ```ts [.factory/config.ts]
-const gh = github.Connection.get("acme-agents").channel({ id: "issues" }); // <-- this repo's issues
+const gh = github.Connection.get("gh").channel({ id: "issues" }); // <-- this repo's issues
 
 const dev = new Container("dev", {
   image: "./Dockerfile",

@@ -300,31 +300,94 @@ const readSession = async (run: Run): Promise<Session | undefined> => {
   }
 };
 
-/** Where Claude Code keeps its sessions' transcripts, in a directory per working directory. */
-const TRANSCRIPTS = join(HOME, ".claude", "projects");
-
 const sessionKey = (run: Run) => `sessions/${slug(run.conversation.id)}`;
+
+/** A runtime the runner runs: the CLI a container's image installs, and how a run invokes it. */
+type RuntimeAdapter = {
+  /** The command the image must have. */
+  command: string;
+  /** The CLI's name, for errors. */
+  name: string;
+  /** Where the CLI keeps its sessions' transcripts, in a directory per working directory. */
+  transcripts: string;
+  /** The CLI's arguments for a run. */
+  args: (run: Run, cwd: string) => Promise<string[]>;
+  /** The arguments that resume a session. */
+  resume: (sessionId: string) => string[];
+  /** Extra environment for the CLI. */
+  env?: Record<string, string>;
+};
+
+const claude: RuntimeAdapter = {
+  command: "claude",
+  name: "Claude Code",
+  transcripts: join(HOME, ".claude", "projects"),
+  args: async (run, cwd) => {
+    const { agent } = run;
+    const args = ["-p", run.conversation.prompt, "--output-format", "json", "--dangerously-skip-permissions"];
+    if (typeof agent.model === "string") args.push("--model", agent.model);
+    if (typeof agent.effort === "string") args.push("--effort", agent.effort);
+    if (typeof agent.systemPrompt === "string") {
+      args.push("--append-system-prompt", await readFile(inside(join(cwd, ".factory"), agent.systemPrompt), "utf8"));
+    }
+    if (agent.settings) args.push("--settings", JSON.stringify(agent.settings));
+    return args;
+  },
+  resume: (sessionId) => ["--resume", sessionId],
+  env: { DISABLE_AUTOUPDATER: "1" },
+};
+
+const droid: RuntimeAdapter = {
+  command: "droid",
+  name: "Droid",
+  transcripts: join(HOME, ".factory", "sessions"),
+  args: async (run, cwd) => {
+    const { agent } = run;
+    const args = ["exec", run.conversation.prompt, "--output-format", "json"];
+    // A container is disposable, so a run skips every permission prompt
+    // unless the agent sets an autonomy level.
+    if (typeof agent.autonomy === "string") args.push("--auto", agent.autonomy);
+    else args.push("--skip-permissions-unsafe");
+    if (typeof agent.model === "string") args.push("--model", agent.model);
+    if (typeof agent.effort === "string") args.push("--reasoning-effort", agent.effort);
+    if (typeof agent.systemPrompt === "string") {
+      args.push("--append-system-prompt", await readFile(inside(join(cwd, ".factory"), agent.systemPrompt), "utf8"));
+    }
+    if (agent.settings) {
+      // `--settings` takes a file, which a run merges for that run only.
+      const path = join(DATA, "agents", agent.id, "settings.json");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify(agent.settings, null, 2)}\n`);
+      args.push("--settings", path);
+    }
+    return args;
+  },
+  resume: (sessionId) => ["--session-id", sessionId],
+};
+
+/** The runtimes the runner runs, by id. */
+const runtimes: Record<string, RuntimeAdapter> = { claude, droid };
 
 /**
  * Saves the conversation's session to the state store: its transcript
- * files, as a tarball of their paths under `~/.claude/projects`, and then
- * the session's id and working directory.
+ * files, as a tarball of their paths under the runtime's transcripts
+ * directory, and then the session's id and working directory.
  */
-const saveSession = async (run: Run) => {
+const saveSession = async (run: Run, adapter: RuntimeAdapter) => {
   const session = await readSession(run);
   if (!session) return;
   const paths: string[] = [];
-  for (const project of await readdir(TRANSCRIPTS).catch(() => [])) {
-    for (const name of [`${session.id}.jsonl`, session.id]) {
-      // Claude Code names the directories after the working directory, so
+  for (const project of await readdir(adapter.transcripts).catch(() => [])) {
+    for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
+      // Runtimes name the directories after the working directory, so
       // they start with "-", which tar would read as an option.
-      if (existsSync(join(TRANSCRIPTS, project, name))) paths.push(`./${join(project, name)}`);
+      if (existsSync(join(adapter.transcripts, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
   if (paths.length > 0) {
     await withTempDir(async (dir) => {
       const tarball = join(dir, "session.tar.gz");
-      const result = await exec("tar", ["-czf", tarball, "-C", TRANSCRIPTS, ...paths]);
+      const result = await exec("tar", ["-czf", tarball, "-C", adapter.transcripts, ...paths]);
       if (result.code !== 0) throw new Error(`tar failed: ${result.stderr.trim()}`);
       await putState(`${sessionKey(run)}.tar.gz`, await readFile(tarball));
     });
@@ -333,16 +396,16 @@ const saveSession = async (run: Run) => {
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
-const restoreSession = async (run: Run) => {
+const restoreSession = async (run: Run, adapter: RuntimeAdapter) => {
   if (existsSync(sessionPath(run))) return;
   const session = await getState(`${sessionKey(run)}.json`);
   if (!session) return;
   const tarball = await getState(`${sessionKey(run)}.tar.gz`);
   if (tarball) {
-    await mkdir(TRANSCRIPTS, { recursive: true });
+    await mkdir(adapter.transcripts, { recursive: true });
     await withTempDir(async (dir) => {
       await writeFile(join(dir, "session.tar.gz"), tarball);
-      const result = await exec("tar", ["-xzf", join(dir, "session.tar.gz"), "-C", TRANSCRIPTS]);
+      const result = await exec("tar", ["-xzf", join(dir, "session.tar.gz"), "-C", adapter.transcripts]);
       if (result.code !== 0) throw new Error(`tar failed: ${result.stderr.trim()}`);
     });
   }
@@ -351,25 +414,18 @@ const restoreSession = async (run: Run) => {
 };
 
 /**
- * Runs Claude Code in `cwd` with the run's prompt, and returns its final
- * message. It resumes the conversation's session if the session ran in the
- * same worktree.
+ * Runs the run's agent in `cwd` with the run's prompt, and returns its
+ * final message. It resumes the conversation's session if the session ran
+ * in the same worktree.
  */
-const claude = async (run: Run, cwd: string) => {
-  const { agent } = run;
-  const args = ["-p", run.conversation.prompt, "--output-format", "json", "--dangerously-skip-permissions"];
-  if (typeof agent.model === "string") args.push("--model", agent.model);
-  if (typeof agent.effort === "string") args.push("--effort", agent.effort);
-  if (typeof agent.systemPrompt === "string") {
-    args.push("--append-system-prompt", await readFile(inside(join(cwd, ".factory"), agent.systemPrompt), "utf8"));
-  }
-  if (agent.settings) args.push("--settings", JSON.stringify(agent.settings));
+const runAgent = async (adapter: RuntimeAdapter, run: Run, cwd: string) => {
+  const args = await adapter.args(run, cwd);
   const session = await readSession(run);
-  if (session?.cwd === cwd) args.push("--resume", session.id);
+  if (session?.cwd === cwd) args.push(...adapter.resume(session.id));
 
-  const result = await exec("claude", args, {
+  const result = await exec(adapter.command, args, {
     cwd,
-    env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run) },
+    env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run), ...adapter.env },
     timeout: RUN_TIMEOUT_MS,
   });
   let output: { result?: string; is_error?: boolean; session_id?: string } | undefined;
@@ -382,7 +438,7 @@ const claude = async (run: Run, cwd: string) => {
   }
   if (result.code !== 0 || !output || output.is_error) {
     const detail = output?.result ?? (result.stderr.trim() || result.stdout.trim()).slice(-4000);
-    throw new Error(`Claude Code exited with code ${result.code}: ${detail}`);
+    throw new Error(`${adapter.name} exited with code ${result.code}: ${detail}`);
   }
   return output.result ?? "";
 };
@@ -423,15 +479,16 @@ const execute = async (run: Run) => {
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const worktree = worktreeOf(run);
   const notes: string[] = [];
+  const adapter = runtimes[run.agent.runtime];
   let checkedOut = false;
   let text: string;
   try {
-    if (run.agent.runtime !== "claude") throw new Error(`The runner can't run agents of the runtime ${run.agent.runtime}.`);
-    await assertCommand("claude", "Claude Code");
+    if (!adapter) throw new Error(`The runner can't run agents of the runtime ${run.agent.runtime}.`);
+    await assertCommand(adapter.command, adapter.name);
     const repo = await fetchRepo(run);
     await checkout(run, repo, worktree, notes);
     checkedOut = true;
-    await restoreSession(run).catch((error) =>
+    await restoreSession(run, adapter).catch((error) =>
       notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
     );
     await writeFiles(run, worktree.path);
@@ -447,7 +504,7 @@ const execute = async (run: Run) => {
       TOKEN_REFRESH_MS,
     );
     try {
-      text = await claude(run, worktree.path);
+      text = await runAgent(adapter, run, worktree.path);
     } finally {
       clearInterval(refreshing);
     }
@@ -456,10 +513,10 @@ const execute = async (run: Run) => {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
     text = `The run failed: ${message(error)}`;
   }
-  if (checkedOut) {
+  if (checkedOut && adapter) {
     try {
       await saveWorktree(worktree);
-      await saveSession(run);
+      await saveSession(run, adapter);
     } catch (error) {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);

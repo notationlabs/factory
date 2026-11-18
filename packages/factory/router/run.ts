@@ -26,8 +26,6 @@ export type Run = {
   runtimes: string[];
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
-  /** How long the container stays up with no run in progress, such as `"10m"`. */
-  sleepAfter: string;
   agent: { id: string } & AgentEntry;
   conversation: { id: string; prompt: string };
   /** The branch to run on, cut from `base` if it doesn't exist. Without it, the run gets a scratch checkout of the default branch. */

@@ -41,6 +41,18 @@ const deployerConfig = v.object({
   regions: v.optional(
     v.array(v.picklist(["ENAM", "WNAM", "EEUR", "WEUR", "APAC", "SAM", "ME", "OC", "AFR"])),
   ),
+  /**
+   * How long an outpost container stays up with no run in progress, such as
+   * `"30s"`, `"10m"` or `"1h"`. A shorter time costs less, and makes more
+   * runs wait for a cold start.
+   */
+  sleepAfter: v.optional(
+    v.pipe(
+      v.string(),
+      v.regex(/^[1-9]\d*[smh]$/, 'sleepAfter is a number of seconds, minutes or hours, such as "30s", "10m" or "1h".'),
+    ),
+    "10m",
+  ),
 });
 export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
@@ -81,6 +93,7 @@ export class Deployer
       knownHosts,
       maxContainers,
       regions,
+      sleepAfter,
       accountId = process.env.CLOUDFLARE_ACCOUNT_ID,
     } = v.parse(deployerConfig, config);
     if (!accountId) {
@@ -148,6 +161,7 @@ export class Deployer
         FACTORY_ROOT_KEY: router.rootKey.secret,
         CLOUDFLARE_ACCOUNT_ID: json(accountId),
         KNOWN_HOSTS: json(knownHosts),
+        SLEEP_AFTER: json(sleepAfter),
         ACCOUNTS: json(
           Object.fromEntries(
             accounts.map((a) => [a.runtime.id, Object.keys(a.secrets)]),

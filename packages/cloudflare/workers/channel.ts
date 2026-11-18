@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
+  BuildCheck,
   ChannelContext,
   Delivery,
   FactoryStatus,
@@ -54,6 +55,12 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     const { writeStatus } = channel(context(this.env));
     if (!writeStatus) throw new Error("This connection's channel can't write a repo's status.");
     return writeStatus(repo, status);
+  }
+
+  writeCheck(repo: string, ref: string, check: BuildCheck) {
+    const { writeCheck } = channel(context(this.env));
+    if (!writeCheck) throw new Error("This connection's channel can't write checks.");
+    return writeCheck(repo, ref, check);
   }
 
   conversation(delivery: Delivery<unknown>) {

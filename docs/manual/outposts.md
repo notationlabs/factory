@@ -109,5 +109,5 @@ Once subscribed, pushing changes to `.factory/` on the default branch automatica
 
 | Change in `.factory/` | What updates |
 | --- | --- |
-| `Dockerfile`, `Container` or its `runtimes` | Builds a new container image |
-| `Trigger`, `Agent`, `Policy`, or prompts | Takes effect on the next run (no image rebuild) |
+| Any file | Rebuilds each container's image, since `.factory/` is the image's build context |
+| `Trigger`, `Agent`, `Policy`, or prompts | Also takes effect on the next run, before the build finishes |

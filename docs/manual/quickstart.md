@@ -52,7 +52,9 @@ export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 factory infra up
 ```
 
-`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser once, to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook/github/acme-agents`, where `Url` is the router's `Url` output.
+`factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser twice on its first run:
+- to create the `acme-agents` GitHub App with its webhook set to `<Url>/webhook/github/acme-agents`, where `Url` is the router's `Url` output;
+- on Cloudflare, to take the deployer's builds token, a user API token that Workers Builds needs. See [Providers](./providers.md#cloudflare).
 
 GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
 
@@ -62,15 +64,6 @@ In `acme/webapp`, add the packages `.factory/config.ts` imports:
 
 ```bash
 @pm.dev("@notation/factory @notation/factory-github @notation/factory-claude")
-```
-
-Define the container image where agents will run:
-
-```dockerfile [.factory/Dockerfile]
-FROM node:22.18-bookworm
-RUN npm install -g bun@1.4.3
-RUN curl -fsSL https://raw.githubusercontent.com/notationlabs/factory/main/install.sh | sh
-RUN --mount=type=bind,from=runtime,target=/runtime sh /runtime/setup.sh
 ```
 
 Wire `@claude` mentions from collaborators to that container:
@@ -87,8 +80,7 @@ const code = new github.Policy("code", {
 });
 
 const dev = new Container("dev", {
-  image: "./Dockerfile",
-  runtimes: [claude.runtime],
+  runtimes: [claude.runtime], // <-- no image: Factory's default image has Claude Code
   policies: [code],
 });
 
@@ -105,6 +97,8 @@ new Trigger("mention", {
   container: dev,
 });
 ```
+
+`dev` has no `image`, so it runs Factory's default image. To add your own toolchain, see [Containers](./containers.md#image).
 
 Push `.factory/` to `main` so the remote deployer can read it:
 
@@ -124,7 +118,7 @@ factory repo install
 
 ```text
 1. Opens GitHub in browser ──► Install `acme-agents` on `acme/webapp`
-2. Webhook wakes Deployer  ──► Checks the config, builds `dev` from `.factory/Dockerfile`
+2. Webhook wakes Deployer  ──► Checks the config, builds `dev`'s image
 3. Deploy completes        ──► `FACTORY_STATUS` reports `dev` ready
 ```
 

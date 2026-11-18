@@ -24,7 +24,7 @@ const ops = slack.Connection.get("acme-agents").channel({ id: "ops", scope: "#op
 | **Channel** | `.factory/config.ts` | A connection plus a scope, such as this repo's issues or a Slack channel. A repo picks the channels its triggers listen on. Its `id` names it in the outpost |
 | **CodeHost** | `factory.infra.ts` | Where repos live. It decides which repos Notation Factory serves (`allow`) and mints the credentials containers use to call it directly |
 | **Account** | `factory.infra.ts` | Credentials for an agent runtime, which the deployer injects into containers |
-| **Runtime** | `.factory/config.ts` | What a container's image installs so it can run a kind of agent |
+| **Runtime** | `.factory/config.ts` | A kind of agent, such as `claude`. It matches a container to an `Account`, and names the CLI that the container's image must have |
 | **Container** | `.factory/config.ts` | A repo's machine, with the runtimes and policies it has |
 | **Worktree** | `.factory/config.ts` | A container's working directory on the branch a trigger's `worktree` function names from the event |
 | **Trigger** | `.factory/config.ts` | The complete dispatch rule: this event, from these authors, to this agent, in this container, optionally on a branch |

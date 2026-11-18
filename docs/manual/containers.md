@@ -2,15 +2,15 @@
 
 | Ephemeral CI runner | Outpost `Container` |
 | --- | --- |
-| Fresh VM per run; disk discarded on exit | Sleeps when idle; `/data` disk persists across runs |
+| Fresh VM per run; disk discarded on exit | Sleeps when idle; worktrees and sessions persist across runs |
 | Long-lived secrets in environment variables | Short-lived tokens minted on demand by `Router` |
 
 Provision a persistent machine for your repository's agents:
 
 ```ts [.factory/config.ts]
 const dev = new Container("dev", {
-  image: "./Dockerfile",
-  runtimes: [claude.runtime], // <-- installed at image build, matched to an infra Account
+  image: "./Dockerfile",      // <-- optional; defaults to Factory's image
+  runtimes: [claude.runtime], // <-- matched to an infra Account
   policies: [code, shared],   // <-- credentials the container is allowed to mint
   files: {
     "~/.npmrc": "./npmrc",    // <-- copies .factory/npmrc to /data/home/.npmrc
@@ -18,43 +18,65 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares an outpost machine: its Docker image, the runtimes it installs, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
+`Container` declares an outpost machine: its image, the runtimes the image has, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
 
-## Dockerfile
+## Image
 
-Install your project's toolchain alongside the Notation Factory runner, then the container's runtimes:
+A container without `image` runs Factory's default image. It is built from [`packages/cloudflare/image/Dockerfile`](../../packages/cloudflare/image/Dockerfile), and has `bun`, `git`, `gh`, `jq`, `ripgrep` and Claude Code.
+
+A repo that needs its own toolchain writes a Dockerfile in `.factory/`, and sets `image` to its path. This Dockerfile extends Factory's default with `postgresql-client`:
 
 ```dockerfile [.factory/Dockerfile]
-FROM node:22.18-bookworm
-RUN npm install -g bun@1.4.3
+FROM oven/bun:1-debian
 
-# Repo-specific packages and toolchains
-RUN apt-get update && apt-get install -y jq postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git gh jq openssh-client ripgrep \
+ && apt-get install -y --no-install-recommends postgresql-client \
+ && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://raw.githubusercontent.com/notationlabs/factory/main/install.sh | sh
-RUN --mount=type=bind,from=runtime,target=/runtime sh /runtime/setup.sh
+# The installer puts claude in root's home, which the factory user can't read.
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+ && install -m 0755 "$(readlink -f /root/.local/bin/claude)" /usr/local/bin/claude \
+ && rm -rf /root/.local /root/.claude /root/.claude.json
+ENV DISABLE_AUTOUPDATER=1
+
+# Claude Code refuses --dangerously-skip-permissions as root.
+RUN useradd --create-home --home-dir /data/home --shell /bin/bash factory \
+ && chown -R factory:factory /data
+USER factory
+ENV HOME=/data/home
+WORKDIR /data/home
 ```
+
+The image holds nothing from Factory. The container's entrypoint fetches the runner from the outpost Worker each time the container starts, so the image doesn't change when Factory does. The entrypoint replaces the image's `ENTRYPOINT` and `CMD`.
+
+Each image needs these:
 
 | Requirement | Reason |
 | --- | --- |
-| **Debian/Ubuntu base** | `install.sh` uses `apt-get` to install `git`, `gh`, `curl`, and process tools |
-| **Global `bun`** | `/usr/local/bin/factory-runner` runs `@notation/factory-runner` with `bunx`, at the version the deployer gives the container, and installs the infrastructure's plugins under `/data/plugins` |
-| **`runtime` mount** | The deployer builds the `runtime` context from the container's runtimes |
-| **System-wide paths** | Runner drops privileges to user `agent` (`HOME=/data/home`) |
-| **No `CMD` / `ENTRYPOINT`** | Container provider starts `/usr/local/bin/factory-runner` directly |
+| **`bun`** | The entrypoint runs `bun -e`, which fetches the runner from `http://runner.factory` and runs it |
+| **`git`** | The runner clones the repo, and saves each worktree as a git bundle |
+| **Each runtime's CLI**, such as `claude` | The runner checks for it before each run, and fails the run if it's missing |
+| **A user other than root, who can write `/data`** | Claude Code refuses `--dangerously-skip-permissions` as root, and the runner keeps its state in `/data` |
+| **A working directory that the user can read** | Git fails in a directory it can't read, such as `oven/bun`'s `/home/bun/app` |
+
+`gh` is optional. The runner puts a `gh` in `/data/bin` that runs the image's `gh` with the run's token, so agents can open pull requests.
+
+### Builds
+
+The deployer builds the image when a push to the default branch changes the container's source. The source is `.factory/`, and also Factory's default Dockerfile and outpost Worker, which change when you update the hub. On Cloudflare:
+1. The deployer commits the source to an Artifacts repo for the container.
+2. Workers Builds builds the image, with `.factory/` as its context, and deploys the container's outpost Worker.
+
+A run that arrives before the first build finishes fails, with a message that the container has no image yet. See [Providers](./providers.md#cloudflare).
 
 ## Runtimes
 
-The Dockerfile has one `runtime` mount, however many runtimes the container lists. The deployer puts each runtime's setup under its own id, and generates a `setup.sh` that runs them in the order the container lists them:
+A runtime is an id, such as `claude` for `claude.runtime`. Listing a runtime in a container does two things:
+- The deployer gives the container the credentials of each infra `Account` whose runtime it lists, and only those.
+- The runner checks the image for the runtime's CLI before each run.
 
-```text
-runtime/
-  setup.sh          # generated: runs each runtime's setup in order, stopping at the first failure
-  claude/setup.sh
-  codex/setup.sh
-```
-
-Runtime setups must not depend on each other, and listing the same runtime twice in one container is a config error. At run time, the deployer injects the credentials of every infra `Account` whose runtime the container lists, and only those.
+The image installs each runtime's CLI itself. Listing the same runtime twice in one container is a config error.
 
 ## Policies
 
@@ -94,18 +116,19 @@ Channel access is separate: containers read and reply on conversations through t
 
 ## Volume layout
 
-State persists across runs and image rebuilds on the `/data` volume:
+The runner keeps its state under `/data`:
 
 ```text
 /data/
-├── home/                        # $HOME for the unprivileged `agent` user
-├── mirror.git/                  # bare git mirror (worktrees branch locally in ms)
-├── config/<commit>/             # `.factory/` as of each event's commit
-├── worktrees/<branch>/          # git checkout per branch a worktree function returns
-├── scratch/<conversation>/      # detached checkout per conversation without a branch
-├── agents/<agent>/              # isolated config and transcripts per Agent
-├── sessions/<conversation>.json # each agent's session in the conversation
-└── github/                      # short-lived code host tokens
+├── home/                          # $HOME for the image's user
+├── repos/<repo>.git               # bare clone of each repo
+├── worktrees/<repo>/<branch>/     # git checkout per branch a worktree function returns
+├── scratch/<conversation>/        # detached checkout per conversation without a branch
+├── sessions/<conversation>.json   # each agent's session in the conversation
+├── github/                        # short-lived code host tokens
+└── bin/                           # the `gh` that uses the run's token
 ```
+
+A container's disk doesn't survive sleep. So after each run, the runner saves the worktree and the agent's session to the hub, and a new container restores them at the next run.
 
 `factory container ssh` opens a shell inside `/data`.

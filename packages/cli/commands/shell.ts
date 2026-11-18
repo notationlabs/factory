@@ -40,8 +40,8 @@ export type FactoryConfig = {
   loadEnv?: string;
   /** An outpost's repo, as `owner/name`, when its git remote doesn't name it. */
   repo?: string;
-  /** The hub's GitHub App slug, for `factory repo install`. */
-  app?: string;
+  /** The hub an outpost subscribes to: its Notation app and stage, which name the hub's GitHub Apps. */
+  hub?: { app: string; stage: string };
 };
 
 /** Reads `factory.config.ts` in `dir`, if there is one. */

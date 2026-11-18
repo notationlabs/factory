@@ -29,6 +29,8 @@
     "@notation/core": "0.27.0",
     "@notation/resource": "0.27.0",
     "@notation/std": "0.27.0",
+    "isomorphic-git": "1.44.16",
+    "memfs": "4.80.1",
     "valibot": "^1.1.0"
   },
   "peerDependencies": {

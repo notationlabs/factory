@@ -6,8 +6,7 @@ RUN apt-get update \
 
 COPY --from=oven/bun:1-debian /usr/local/bin/bun /usr/local/bin/bun
 
-COPY runtimes /opt/factory/runtimes
-RUN sh /opt/factory/runtimes/setup.sh
+RUN npm install --global @anthropic-ai/claude-code
 
 # Claude Code refuses --dangerously-skip-permissions as root.
 RUN useradd --create-home --home-dir /data/home --shell /bin/bash factory \

@@ -1,13 +1,12 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { ResourceGroup } from "@notation/resource";
 import {
   type Account,
   type Deployer as DeployerContract,
+  scopedName,
 } from "@notation/factory";
 import { tokens } from "@notation/cloudflare/resources";
 import {
-  $durableObject,
   addBindings,
   json,
   type Worker,
@@ -17,7 +16,9 @@ import {
 import * as v from "valibot";
 import { DEPLOYER_BINDING, KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
-import { outpostImage } from "./image.ts";
+import { ArtifactsNamespace, type ArtifactsNamespaceInstance } from "../resources/artifacts.ts";
+import { BuildsToken, type BuildsTokenInstance } from "../resources/builds-token.ts";
+import type { OutpostSettings } from "../workers/outposts.ts";
 import type { Router } from "./router.ts";
 import {
   assertCloudflareSecret,
@@ -33,8 +34,6 @@ const deployerConfig = v.object({
    * Defaults to `CLOUDFLARE_ACCOUNT_ID`.
    */
   accountId: v.optional(v.string()),
-  /** The most outpost containers that can run at once, across all repos. */
-  maxContainers: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1)), 10),
   /**
    * The regions where outpost containers may run, such as `["WEUR"]`.
    * Without it, Cloudflare starts a container in the location nearest to
@@ -64,22 +63,22 @@ export type DeployerOptions = DeployerConfig & {
   accounts?: Account[];
 };
 
-/** A module whose default export is the runner's source, which containers fetch at start. */
-const runnerModule = () => {
-  const path = createRequire(import.meta.url).resolve("@notation/factory/runner");
-  return `export default ${JSON.stringify(readFileSync(path, "utf8"))};`;
-};
+/** A module whose default export is Factory's default outpost Dockerfile. */
+const dockerfileModule = () =>
+  `export default ${JSON.stringify(readFileSync(new URL("../image/Dockerfile", import.meta.url), "utf8"))};`;
 
-// Notation finds a Durable Object's class by its name, which the deployer
-// Worker's bundle exports. The class itself only runs in the Worker.
-const OutpostContainer = class OutpostContainer {};
+/** Notation's rule for a Worker's name, which outpost Workers need to bind the deployer as a service. */
+const WORKER_NAME_MAX_LENGTH = 54;
+
+/** Leaves room in an outpost Worker's name for `-` and a 12-character hash, within a DNS label. */
+const OUTPOST_PREFIX_MAX_LENGTH = 50;
 
 /**
- * `new cloudflare.Deployer(...)`: a Worker that evaluates outposts' configs,
- * and hosts their containers as Durable Objects with an API token of its
- * own. It binds the root key and the accounts' secrets. Every outpost
- * container runs one image, which deploy builds with local Docker: it has
- * bun and the accounts' runtimes. Containers fetch the runner at start.
+ * `new cloudflare.Deployer(...)`: a Worker that evaluates outposts' configs.
+ * For each repo's container, it commits the container's source to an
+ * Artifacts repo, and Workers Builds builds the image and deploys an outpost
+ * Worker that hosts the container. It builds with a user API token, which
+ * deploy asks you for once. It binds the root key and the accounts' secrets.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
@@ -91,6 +90,12 @@ export class Deployer
   readonly token: tokens.AccountTokenInstance;
   /** Holds the token's value. */
   readonly tokenSecret: CloudflareSecret;
+  /** Holds each outpost Worker's source. */
+  readonly namespace: ArtifactsNamespaceInstance;
+  /** The user API token that the deployer builds outpost Workers with. */
+  readonly buildsToken: BuildsTokenInstance;
+  /** Holds the builds token's value. */
+  readonly buildsTokenSecret: CloudflareSecret;
   readonly worker: Worker;
 
   constructor(
@@ -99,7 +104,6 @@ export class Deployer
   ) {
     const {
       knownHosts,
-      maxContainers,
       regions,
       sleepAfter,
       accountId = process.env.CLOUDFLARE_ACCOUNT_ID,
@@ -136,18 +140,15 @@ export class Deployer
       value: this.token.credentials.Value,
     });
 
-    const runtimes = [
-      ...new Map(accounts.map((a) => [a.runtime.id, a.runtime])).values(),
-    ];
-    const outposts = $durableObject({
-      id: `${id}-outposts`,
-      class: OutpostContainer,
-      container: {
-        image: { context: outpostImage(id, runtimes) },
-        maxInstances: maxContainers,
-        instanceType: "standard-1",
-        ...(regions && { constraints: { regions } }),
-      },
+    this.namespace = this.add(
+      new ArtifactsNamespace(`artifacts:${id}-outposts`, { config: { AccountId: accountId } }),
+    );
+    this.buildsToken = this.add(
+      new BuildsToken(`token:${id}-builds`, { config: { AccountId: accountId, Name: scopedName(`${id}-builds`, 100) } }),
+    );
+    this.buildsTokenSecret = vault.secret({
+      id: `${id}-builds-token`,
+      value: this.buildsToken.credentials.Value,
     });
 
     this.worker = worker({
@@ -155,11 +156,11 @@ export class Deployer
       compatibilityDate: COMPATIBILITY_DATE,
       // Cloudflare refuses a Worker's fetch of another workers.dev URL on the
       // same account without it, and containers reply through the router's.
-      compatibilityFlags: ["global_fetch_strictly_public"],
-      code: workerBundle(`${id}-deployer`, "deployer", { "factory:runner": runnerModule() }),
+      // isomorphic-git and memfs need Node's APIs.
+      compatibilityFlags: ["global_fetch_strictly_public", "nodejs_compat"],
+      code: workerBundle(`${id}-deployer`, "deployer", { "factory:dockerfile": dockerfileModule() }),
       url: false,
       bindings: () => ({
-        OUTPOSTS: outposts,
         [KV_BINDING]: router.kv,
         // Keeps outposts' worktrees and sessions while their containers sleep.
         [R2_BINDING]: router.bucket,
@@ -169,7 +170,16 @@ export class Deployer
         FACTORY_ROOT_KEY: router.rootKey.secret,
         CLOUDFLARE_ACCOUNT_ID: json(accountId),
         KNOWN_HOSTS: json(knownHosts),
-        SLEEP_AFTER: json(sleepAfter),
+        CLOUDFLARE_BUILDS_TOKEN: this.buildsTokenSecret.secret,
+        ARTIFACTS_NAMESPACE: this.namespace.outputRef("Name"),
+        OUTPOST_SETTINGS: json({
+          accountId,
+          prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
+          deployer: scopedName(id, WORKER_NAME_MAX_LENGTH),
+          compatibilityDate: COMPATIBILITY_DATE,
+          sleepAfter,
+          ...(regions && { regions }),
+        } satisfies Omit<OutpostSettings, "namespace">),
         ACCOUNTS: json(
           Object.fromEntries(
             accounts.map((a) => [a.runtime.id, Object.keys(a.secrets)]),

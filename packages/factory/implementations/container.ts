@@ -3,9 +3,12 @@ import type { PolicyContract, Runtime } from "../contracts/outpost.ts";
 import { OutpostGroup } from "./outpost.ts";
 
 const containerConfig = v.object({
-  image: v.string(),
-  // Only the id is checked: a runtime's setup is read where images are built,
-  // and not where an outpost's config is evaluated.
+  /**
+   * The container's Dockerfile, relative to `.factory/`, which builds with
+   * `.factory/` as its context. Without it, the container gets Factory's
+   * default image, which has Claude Code.
+   */
+  image: v.optional(v.string()),
   runtimes: v.optional(
     v.array(
       v.custom<Runtime>(
@@ -33,7 +36,7 @@ export type ContainerOptions = ContainerConfig & {
   policies?: PolicyContract[];
 };
 
-/** A repo's machine: its image, the runtimes it installs, and the policies it may mint credentials for. */
+/** A repo's machine: its image, the runtimes its image installs, and the policies it may mint credentials for. */
 export class Container extends OutpostGroup<ContainerConfig> {
   readonly runtimes: Runtime[];
   readonly policies: PolicyContract[];
@@ -53,7 +56,7 @@ export class Container extends OutpostGroup<ContainerConfig> {
     this.outpost.store.contribute({
       containers: {
         [id]: {
-          image,
+          ...(image && { image }),
           runtimes: runtimes.map((r) => r.id),
           policies: policies.map((p) => p.id),
           files,

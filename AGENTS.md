@@ -19,10 +19,12 @@ The packages ship their TypeScript source. The only builds are the SDK and the o
 Run both before you open a pull request, and say in the pull request if either fails:
 
 ```bash
-pnpm install
+pnpm install --filter '!@notation/factory-docs-site'
 pnpm typecheck
 pnpm test
 ```
+
+The docs site depends on a private repo over SSH, which outpost containers can't clone, and neither check needs it.
 
 Tests use `node:test` and sit next to the code they test, as `*.test.ts`.
 

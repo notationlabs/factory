@@ -8,6 +8,7 @@ import {
   type Run,
   type SourceFiles,
 } from "@notation/factory/router";
+import runner from "factory:runner";
 import { loaderContext } from "./loader.ts";
 import type { KVNamespace, R2Bucket, SecretsStoreSecret, WorkerLoader } from "./types.ts";
 
@@ -41,6 +42,15 @@ const START_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** The host that a container's runner reaches its state store at. */
 const STATE_HOST = "state.factory";
+
+/** The host that a container's entrypoint fetches the runner from. */
+const RUNNER_HOST = "runner.factory";
+
+/** Where the entrypoint writes the runner, which bun runs as it is. */
+const RUNNER_FILE = "/tmp/factory-runner.ts";
+
+/** Serves the runner, so an image needs only bun to run it. */
+const runnerSource = () => new Response(runner, { headers: { "content-type": "text/typescript" } });
 
 /**
  * A container's state store: `GET` and `PUT` of objects, which the bucket
@@ -86,7 +96,11 @@ const relay = async (run: Run, text: string) => {
  */
 export class OutpostContainer extends Container<Env> {
   defaultPort = RUNNER_PORT;
-  entrypoint = ["/usr/local/bin/factory-runner"];
+  entrypoint = [
+    "bun",
+    "-e",
+    `await Bun.write(${JSON.stringify(RUNNER_FILE)}, await fetch("http://${RUNNER_HOST}/runner.ts")); await import(${JSON.stringify(RUNNER_FILE)});`,
+  ];
 
   constructor(ctx: ConstructorParameters<typeof Container>[0], env: Env) {
     super(ctx, env);
@@ -153,7 +167,7 @@ export class OutpostContainer extends Container<Env> {
 
 // The setter registers the handlers by class name. A static field would
 // define its own property instead, and the proxy wouldn't find them.
-OutpostContainer.outboundByHost = { [STATE_HOST]: stateStore };
+OutpostContainer.outboundByHost = { [STATE_HOST]: stateStore, [RUNNER_HOST]: runnerSource };
 
 /** The hub's deployer, which the router calls over its service binding. */
 export default class DeployerWorker extends WorkerEntrypoint<Env> {

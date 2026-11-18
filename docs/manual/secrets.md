@@ -126,7 +126,7 @@ Deploy holds a value only in the process that received it. When a secret needs a
 | Credential | Deploy |
 | --- | --- |
 | A source | Reads the value from the source again |
-| The router's `RandomKey`, the Cloudflare deployer's token | Rotates it: makes a new value, and writes every secret that holds it |
+| The router's `RandomKey` | Rotates it: makes a new value, and writes every secret that holds it |
 | A GitHub App's private key, a Slack app's tokens, the Railway deployer's token | Fails, because the provider has no API that issues another value |
 
 **For the last row, plan and deploy fail and print two commands.** One command passes a value that you issue at the provider, such as a private key that you generate on the GitHub App's settings page:
@@ -146,7 +146,7 @@ For the example at the top of this page, the vault holds these secrets:
 | `router-root-key` | `FACTORY_ROOT_KEY` | `Router`, as `router.rootKey` | Router and deployer | The router's `RandomKey` |
 | `gh-private-key` | `GH_PRIVATE_KEY` | `github.Connection` | Router | The App, `app.credentials.privateKey` |
 | `slack-bot-token`, `slack-signing-secret` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` | `slack.Connection`, if the hub has one | Router | The Slack app, `botToken` and `signingSecret` |
-| `deployer-token` | `CLOUDFLARE_API_TOKEN` | `Deployer` | Deployer | The deployer's API token |
+| `deployer-builds-token` | `CLOUDFLARE_BUILDS_TOKEN` | `Deployer` | Deployer | The builds token, which you paste on a local page during the first `factory infra up` |
 | `claude-oauth-token` | `CLAUDE_CODE_OAUTH_TOKEN` | You, in the account's `auth` | Deployer | `sources.Env` |
 
 A connection's secret ids start with the connection's id, and the router makes each binding name from the id. So several connections of one provider each get their own bindings. For example, connections with the ids `gh` and `personal` bind `GH_PRIVATE_KEY` and `PERSONAL_PRIVATE_KEY`.
@@ -174,7 +174,7 @@ The deployer has a provider token of its own, which it owns as a resource and ke
 
 | Provider | Token | The deployer reads it as |
 | --- | --- | --- |
-| Cloudflare | An account API token, with Workers Scripts Write, Workers CI Write and Workers Containers Write in the deployer's account | `CLOUDFLARE_API_TOKEN` |
+| Cloudflare | The builds token, a user API token with the seven permissions that `factory infra up` fills in on Cloudflare's create-token page | `CLOUDFLARE_BUILDS_TOKEN` |
 | Railway | A project token | `RAILWAY_TOKEN` |
 
 ### Losing the vault
@@ -192,7 +192,7 @@ The vault's secrets belong to the hub's Notation stage, so `factory infra down` 
 
 | Step | Credential |
 | --- | --- |
-| Create and deploy the hub on Cloudflare | `npx wrangler login`, or `CLOUDFLARE_API_TOKEN` (e.g. in CI). Creating the deployer's token needs the Account API Tokens: Edit permission |
+| Create and deploy the hub on Cloudflare | `npx wrangler login`, or `CLOUDFLARE_API_TOKEN` (e.g. in CI). See [Providers](./providers.md#cloudflare) for the permissions that `CLOUDFLARE_API_TOKEN` needs |
 | Choose the deployer's Cloudflare account | `CLOUDFLARE_ACCOUNT_ID`, or `accountId` on `cloudflare.Deployer` |
 | Create and deploy the hub on Railway | `RAILWAY_API_TOKEN` |
 | Create a GitHub App or Slack app | Your browser, through the platform's manifest flow |

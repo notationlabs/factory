@@ -39,7 +39,6 @@ new cloudflare.Deployer("deployer", {
   router,
   vault,
   accounts: [claudeAccount],
-  knownHosts: ["ssh-ed25519 AAAA... me@laptop"], // <-- ~/.ssh/id_ed25519.pub for `factory container resume`
 });
 ```
 
@@ -47,7 +46,7 @@ Sign in to Cloudflare and Claude, then bring the hub up:
 
 ```bash
 @pm.dlx("wrangler login")
-export CLOUDFLARE_ACCOUNT_ID="<account id>" # <-- the account the deployer's API token may act in
+export CLOUDFLARE_ACCOUNT_ID="<account id>" # <-- the account that outpost Workers are created in
 export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 factory infra up
 ```

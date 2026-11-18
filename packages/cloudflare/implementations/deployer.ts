@@ -6,7 +6,6 @@ import {
   scopedName,
 } from "@notation/factory";
 import { kvJson } from "@notation/cloudflare/kv";
-import { tokens } from "@notation/cloudflare/resources";
 import {
   $durableObject,
   addBindings,
@@ -21,6 +20,7 @@ import { DEPLOYER_BINDING, KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import { ArtifactsNamespace, type ArtifactsNamespaceInstance } from "../resources/artifacts.ts";
 import { BuildsToken, type BuildsTokenInstance } from "../resources/builds-token.ts";
+import { OutpostWorkers } from "../resources/outpost-workers.ts";
 import { OutpostSettingsSchema } from "../workers/outpost-settings.ts";
 import type { Router } from "./router.ts";
 import {
@@ -30,10 +30,8 @@ import {
 } from "./vault.ts";
 
 const deployerConfig = v.object({
-  /** Written to outposts' authorized_keys, for `container ssh` and `resume`. */
-  knownHosts: v.optional(v.array(v.string()), []),
   /**
-   * The Cloudflare account that the deployer's API token may act in.
+   * The Cloudflare account that outpost Workers are created in.
    * Defaults to `CLOUDFLARE_ACCOUNT_ID`.
    */
   accountId: v.optional(v.string()),
@@ -97,7 +95,8 @@ const OUTPOST_PREFIX_MAX_LENGTH = 50;
  * Artifacts repo, and Workers Builds builds the image and deploys an outpost
  * Worker that hosts the container. It builds with a user API token, which
  * deploy asks you for once, and reports each build to the router. It binds
- * the root key and the accounts' secrets.
+ * the root key and the accounts' secrets. Destroying it deletes the outpost
+ * Workers and their container applications.
  */
 export class Deployer
   extends ResourceGroup<DeployerConfig>
@@ -106,9 +105,6 @@ export class Deployer
   readonly router: Router;
   readonly vault: Vault;
   readonly accounts: Account[];
-  readonly token: tokens.AccountTokenInstance;
-  /** Holds the token's value. */
-  readonly tokenSecret: CloudflareSecret;
   /** Holds each outpost Worker's source. */
   readonly namespace: ArtifactsNamespaceInstance;
   /** The user API token that the deployer builds outpost Workers with. */
@@ -122,42 +118,19 @@ export class Deployer
     { router, vault, accounts = [], ...config }: DeployerOptions,
   ) {
     const {
-      knownHosts,
       regions,
       sleepAfter,
       accountId = process.env.CLOUDFLARE_ACCOUNT_ID,
     } = v.parse(deployerConfig, config);
     if (!accountId) {
       throw new Error(
-        `The deployer ${id} needs the Cloudflare account that its API token may act in. Set CLOUDFLARE_ACCOUNT_ID, or pass accountId.`,
+        `The deployer ${id} needs the Cloudflare account to create outpost Workers in. Set CLOUDFLARE_ACCOUNT_ID, or pass accountId.`,
       );
     }
     super("cloudflare/Deployer", id, config);
     this.router = router;
     this.vault = vault;
     this.accounts = accounts;
-
-    this.token = this.add(
-      new tokens.AccountToken(`token:${id}-token`, {
-        config: {
-          Policies: [
-            {
-              effect: "allow",
-              permissionGroups: [
-                "Workers Scripts Write",
-                "Workers CI Write",
-                "Workers Containers Write",
-              ],
-              resources: { [`com.cloudflare.api.account.${accountId}`]: "*" },
-            },
-          ],
-        },
-      }),
-    );
-    this.tokenSecret = vault.secret({
-      id: `${id}-token`,
-      value: this.token.credentials.Value,
-    });
 
     this.namespace = this.add(
       new ArtifactsNamespace(`artifacts:${id}-outposts`, { config: { AccountId: accountId } }),
@@ -171,6 +144,7 @@ export class Deployer
     });
 
     const settingsKey = `outpost-settings/${id}`;
+    const prefix = scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH);
     this.worker = worker({
       id,
       compatibilityDate: COMPATIBILITY_DATE,
@@ -190,10 +164,7 @@ export class Deployer
         // class is a stand-in: Notation reads only its name, and the
         // deployer's bundle exports the real one.
         BUILDS: $durableObject({ id: `${id}-builds`, class: class BuildWatch {} }),
-        CLOUDFLARE_API_TOKEN: this.tokenSecret.secret,
         FACTORY_ROOT_KEY: router.rootKey.secret,
-        CLOUDFLARE_ACCOUNT_ID: json(accountId),
-        KNOWN_HOSTS: json(knownHosts),
         CLOUDFLARE_BUILDS_TOKEN: this.buildsTokenSecret.secret,
         OUTPOST_SETTINGS_KEY: json(settingsKey),
         ACCOUNTS: json(
@@ -212,13 +183,18 @@ export class Deployer
         value: {
           accountId,
           namespace: this.namespace.outputRef("Name"),
-          prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
+          prefix,
           deployer: scriptNameRef(this.worker),
           router: router.url,
           compatibilityDate: COMPATIBILITY_DATE,
           sleepAfter,
           ...(regions && { regions }),
         },
+      }),
+    );
+    this.add(
+      new OutpostWorkers(`outposts:${id}-outposts`, {
+        config: { AccountId: accountId, Prefix: prefix, Deployer: scriptNameRef(this.worker) },
       }),
     );
     // The router hands the deployer the repos that a push or an install changed.

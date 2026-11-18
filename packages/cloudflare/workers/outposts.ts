@@ -2,38 +2,29 @@ import { deriveKey, hmacHex, type OutpostConfig, type Run, timingSafeEqual } fro
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { Volume } from "memfs";
+import * as v from "valibot";
 import defaultDockerfile from "factory:dockerfile";
 import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
 import { cloudflare, cloudflareOrNone } from "../lib/cloudflare-api.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
+import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
 import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
-
-/** How the deployer builds outpost Workers, which `cloudflare.Deployer` sets. */
-export type OutpostSettings = {
-  accountId: string;
-  /** The Artifacts namespace that holds each outpost Worker's source. */
-  namespace: string;
-  /** The start of each outpost Worker's name. */
-  prefix: string;
-  /** The deployer Worker's name, which outpost Workers bind as a service. */
-  deployer: string;
-  compatibilityDate: string;
-  sleepAfter: string;
-  regions?: string[];
-};
 
 export type OutpostsEnv = {
   FACTORY_KV: KVNamespace;
   FACTORY_ROOT_KEY: SecretsStoreSecret;
   /** A user API token, since the Workers Builds API refuses account tokens. */
   CLOUDFLARE_BUILDS_TOKEN: SecretsStoreSecret;
-  OUTPOST_SETTINGS: Omit<OutpostSettings, "namespace">;
-  /** The name of the Artifacts namespace, which deploy generates. */
-  ARTIFACTS_NAMESPACE: string;
+  /** The KV key of the outpost settings. */
+  OUTPOST_SETTINGS_KEY: string;
 };
 
-const settingsOf = (env: OutpostsEnv): OutpostSettings => ({ ...env.OUTPOST_SETTINGS, namespace: env.ARTIFACTS_NAMESPACE });
+const settingsOf = async (env: OutpostsEnv): Promise<OutpostSettings> => {
+  const settings = await env.FACTORY_KV.get(env.OUTPOST_SETTINGS_KEY, "json");
+  if (!settings) throw new Error(`The deployer has no outpost settings in KV ${env.OUTPOST_SETTINGS_KEY}. Run \`factory infra up\`.`);
+  return v.parse(OutpostSettingsSchema, settings);
+};
 
 const encoder = new TextEncoder();
 
@@ -239,7 +230,7 @@ export const deployOutposts = async (
   outpost: OutpostConfig | undefined,
   files: Record<string, string>,
 ) => {
-  const settings = settingsOf(env);
+  const settings = await settingsOf(env);
   const token = await env.CLOUDFLARE_BUILDS_TOKEN.get();
   const kv = env.FACTORY_KV;
   const previous = ((await kv.get(workersKey(repo), "json")) ?? {}) as Record<string, string>;
@@ -270,14 +261,14 @@ export const deployOutposts = async (
 };
 
 /** The account's workers.dev subdomain, which outpost Workers' URLs are under. */
-const subdomain = async (env: OutpostsEnv) => {
+const subdomain = async (env: OutpostsEnv, settings: OutpostSettings) => {
   const key = "workers-subdomain";
   const cached = await env.FACTORY_KV.get(key);
   if (cached) return cached;
   const { subdomain } = await cloudflare<{ subdomain: string }>(
     await env.CLOUDFLARE_BUILDS_TOKEN.get(),
     "GET",
-    `/accounts/${env.OUTPOST_SETTINGS.accountId}/workers/subdomain`,
+    `/accounts/${settings.accountId}/workers/subdomain`,
   );
   await env.FACTORY_KV.put(key, subdomain);
   return subdomain;
@@ -285,11 +276,12 @@ const subdomain = async (env: OutpostsEnv) => {
 
 /** Posts `run` to the outpost Worker of its repo's container, signed with the Worker's key. */
 export const postRun = async (env: OutpostsEnv, run: Run) => {
-  const worker = await outpostWorkerName(settingsOf(env), run.repo, run.container);
+  const settings = await settingsOf(env);
+  const worker = await outpostWorkerName(settings, run.repo, run.container);
   const body = JSON.stringify(run);
   const timestamp = String(Date.now());
   const signature = await signed(await runKey(await env.FACTORY_ROOT_KEY.get(), worker), timestamp, body);
-  const response = await fetch(`https://${worker}.${await subdomain(env)}.workers.dev/runs`, {
+  const response = await fetch(`https://${worker}.${await subdomain(env, settings)}.workers.dev/runs`, {
     method: "POST",
     headers: { "content-type": "application/json", [RUN_HEADERS.timestamp]: timestamp, [RUN_HEADERS.signature]: signature },
     body,

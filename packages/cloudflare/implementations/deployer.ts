@@ -5,9 +5,11 @@ import {
   type Deployer as DeployerContract,
   scopedName,
 } from "@notation/factory";
+import { kvJson } from "@notation/cloudflare/kv";
 import { tokens } from "@notation/cloudflare/resources";
 import {
   addBindings,
+  isWorkerGroup,
   json,
   type Worker,
   worker,
@@ -18,7 +20,7 @@ import { DEPLOYER_BINDING, KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import { ArtifactsNamespace, type ArtifactsNamespaceInstance } from "../resources/artifacts.ts";
 import { BuildsToken, type BuildsTokenInstance } from "../resources/builds-token.ts";
-import type { OutpostSettings } from "../workers/outposts.ts";
+import { OutpostSettingsSchema } from "../workers/outpost-settings.ts";
 import type { Router } from "./router.ts";
 import {
   assertCloudflareSecret,
@@ -66,9 +68,6 @@ export type DeployerOptions = DeployerConfig & {
 /** A module whose default export is Factory's default outpost Dockerfile. */
 const dockerfileModule = () =>
   `export default ${JSON.stringify(readFileSync(new URL("../image/Dockerfile", import.meta.url), "utf8"))};`;
-
-/** Notation's rule for a Worker's name, which outpost Workers need to bind the deployer as a service. */
-const WORKER_NAME_MAX_LENGTH = 54;
 
 /** Leaves room in an outpost Worker's name for `-` and a 12-character hash, within a DNS label. */
 const OUTPOST_PREFIX_MAX_LENGTH = 50;
@@ -151,6 +150,7 @@ export class Deployer
       value: this.buildsToken.credentials.Value,
     });
 
+    const settingsKey = `outpost-settings/${id}`;
     this.worker = worker({
       id,
       compatibilityDate: COMPATIBILITY_DATE,
@@ -171,15 +171,7 @@ export class Deployer
         CLOUDFLARE_ACCOUNT_ID: json(accountId),
         KNOWN_HOSTS: json(knownHosts),
         CLOUDFLARE_BUILDS_TOKEN: this.buildsTokenSecret.secret,
-        ARTIFACTS_NAMESPACE: this.namespace.outputRef("Name"),
-        OUTPOST_SETTINGS: json({
-          accountId,
-          prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
-          deployer: scopedName(id, WORKER_NAME_MAX_LENGTH),
-          compatibilityDate: COMPATIBILITY_DATE,
-          sleepAfter,
-          ...(regions && { regions }),
-        } satisfies Omit<OutpostSettings, "namespace">),
+        OUTPOST_SETTINGS_KEY: json(settingsKey),
         ACCOUNTS: json(
           Object.fromEntries(
             accounts.map((a) => [a.runtime.id, Object.keys(a.secrets)]),
@@ -187,6 +179,24 @@ export class Deployer
         ),
       }),
     });
+    if (!isWorkerGroup(this.worker)) throw new Error(`worker() didn't return a WorkerGroup for the deployer ${id}.`);
+    this.add(
+      kvJson({
+        id: `${id}-outpost-settings`,
+        namespace: router.kv,
+        key: settingsKey,
+        schema: OutpostSettingsSchema,
+        value: {
+          accountId,
+          namespace: this.namespace.outputRef("Name"),
+          prefix: scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH),
+          deployer: this.worker.script.outputRef("ScriptName"),
+          compatibilityDate: COMPATIBILITY_DATE,
+          sleepAfter,
+          ...(regions && { regions }),
+        },
+      }),
+    );
     // The router hands the deployer the repos that a push or an install changed.
     addBindings(router.worker, { [DEPLOYER_BINDING]: this.worker });
     for (const account of accounts) {

@@ -186,7 +186,11 @@ const ensureWorker = async (token: string, settings: OutpostSettings, worker: st
   return uploaded.tag;
 };
 
-/** Creates the build config of the Worker `tag` from its Artifacts repo, and starts its first build, if it has no config. */
+/**
+ * Creates the build config of the Worker `tag` from its Artifacts repo, and
+ * starts its first build, if it has no config. Resolves to the uuid of the
+ * build it started.
+ */
 const build = async (
   token: string,
   settings: OutpostSettings,
@@ -198,7 +202,7 @@ const build = async (
   const base = `/accounts/${settings.accountId}/builds`;
   const triggers = await cloudflare<{ trigger_uuid: string }[]>(token, "GET", `${base}/workers/${tag}/triggers`);
   // A push to a repo with a build config starts a build by itself.
-  if (triggers.length > 0) return;
+  if (triggers.length > 0) return undefined;
   const build = { build_command: "", deploy_command: "npx wrangler deploy", build_token_uuid: buildTokenUuid, root_directory: "/" };
   await cloudflare(token, "POST", `${base}/workers`, {
     script_tag: tag,
@@ -216,7 +220,13 @@ const build = async (
   });
   const [trigger] = await cloudflare<{ trigger_uuid: string }[]>(token, "GET", `${base}/workers/${tag}/triggers`);
   if (!trigger) throw new Error(`Workers Builds has no build trigger for ${worker}.`);
-  await cloudflare(token, "POST", `${base}/triggers/${trigger.trigger_uuid}/builds`, { branch: "main" });
+  const started = await cloudflare<{ build_uuid?: string } | null>(
+    token,
+    "POST",
+    `${base}/triggers/${trigger.trigger_uuid}/builds`,
+    { branch: "main" },
+  );
+  return started?.build_uuid;
 };
 
 /**
@@ -252,9 +262,9 @@ export const deployOutposts = async (
     const write = await repoToken(token, settings.accountId, settings.namespace, worker);
     const commit = await pushSource(artifact.remote, write, source, `${repo}: container ${id}`);
     const tag = await ensureWorker(token, settings, worker);
-    await build(token, settings, worker, tag, artifact, await buildToken(token, settings.accountId, kv));
+    const uuid = await build(token, settings, worker, tag, artifact, await buildToken(token, settings.accountId, kv));
     await kv.put(sourceKey(worker), hash);
-    started.push({ container: id, worker, tag, commit, hash });
+    started.push({ container: id, worker, tag, commit, hash, ...(uuid && { build: uuid }) });
     console.log(JSON.stringify({ repo, container: id, worker, building: true }));
   }
   for (const [id, worker] of Object.entries(previous)) {

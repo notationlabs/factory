@@ -30,12 +30,16 @@ These items have to be done before Factory's agents work on `notationlabs/factor
 
 In priority order.
 
+- [ ] **Session Feedback**
+  - React to the triggering comment with 👀, before the run starts.
+  - Write intermediate messages (the non-final messages from the agent) which replace each other, then replaced finally by the final end-of-run message.
+
 - [ ] **Found while deploying the `notationlabs` hub:**
   - `factory repo install` derives the App's slug from the hub's app, stage and connection, such as `factory-prod-gh`. When the App is renamed as it's created, as `notation-factory` was, the CLI can't find it. Read the slug from the hub instead.
   - The hubs on one Cloudflare account share its Secrets Store: `prod` took over the store that `test` created. `factory infra down` on either hub could delete the other's secrets.
   - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
 
-- [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Untrusted messages are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
+- [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Identity and permissions are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
 - [ ] **Deliveries:** the old prototype had these, and Factory doesn't yet:
   - An inbox that saves each delivery before answering, and replays saved deliveries when the router starts.
   - De-duplication by delivery id.
@@ -47,8 +51,6 @@ In priority order.
   - Add `factory infra status`, which shows each repo's deploys and the failed deliveries, as `docs/manual/cli.md` already describes.
   - Have `factory infra up` wait for the deployer's sync to finish, and report its result.
 - [ ] **Stage 2 follow-up:** Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
-- [ ] **Sessions:**
-  - React to the triggering comment, for example with 👀, before the run starts.
 - [ ] **Runner:**
   - Write an agent's `files`. Give each Claude agent its own `CLAUDE_CONFIG_DIR`, so agents in one container don't share settings or files.
 
@@ -62,7 +64,6 @@ In priority order.
 - [ ] **Runner:**
   - Disable harness commit trailers. Optionally set a custom commit trailer.
   - Make the run timeout configurable, instead of the fixed 2 hours, and cap how many runs a container runs at once.
-  - Write intermediate messages which replace each other, then replaced finally by the final end-of-run message.
 - [ ] **CLI:**
   - Add `factory container ssh`.
   - Add `factory container resume`, which lists a container's sessions and attaches to one in the agent's interactive interface.

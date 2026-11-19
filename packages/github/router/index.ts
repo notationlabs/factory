@@ -268,14 +268,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
   const appId = ctx.value(CHANNEL_VALUES.appId);
   const rootKey = () => ctx.secret(CHANNEL_SECRETS.rootKey);
   const auth = async () => ({ appId, privateKey: await ctx.secret(CHANNEL_SECRETS.privateKey) });
-  let client: Promise<string> | undefined;
-  const appClientId = async () => {
-    client ??= auth().then(clientId);
-    return client.catch((error) => {
-      client = undefined;
-      throw error;
-    });
-  };
+  const appClientId = async () => clientId(await auth());
   return {
     async receive(request) {
       const target = request.headers.get("x-github-hook-installation-target-id");

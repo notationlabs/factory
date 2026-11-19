@@ -5,7 +5,8 @@ allowBuilds:
   # Pulled in by Wrangler's image bindings, which the docs site does not use.
   sharp: false
   # The docs framework ships no dist/; its prepare script builds it after clone.
-  "@notation/docs@git+ssh://git@github.com/djgrant/docs.git": true
+  # pnpm only matches the full locked specifier, so update the commit here when the lockfile pin moves.
+  "@notation/docs@git+ssh://git@github.com/djgrant/docs.git#9b19b945c04aa81df20208c21e9cd975394a09a4&path:/packages/docs": true
 minimumReleaseAgeExclude:
   - '@notation/*'
   - isomorphic-git@1.44.16

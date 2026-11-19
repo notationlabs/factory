@@ -296,9 +296,10 @@ const subdomain = async (env: OutpostsEnv, settings: OutpostSettings) => {
 
 /**
  * Posts `run` to the outpost Worker of its repo's container, signed with
- * the Worker's key. A 5xx, or an image whose first build hasn't finished,
- * is worth retrying. A failed request isn't, since the Worker may already
- * have queued the run, and a retry would run it twice.
+ * the Worker's key. Resolves to "building" while the Worker is the
+ * placeholder that stands until the image's first build deploys. Throws for
+ * any other failure, which the router doesn't retry, since the Worker may
+ * already have queued the run.
  */
 export const postRun = async (env: OutpostsEnv, run: Run): Promise<RunResult> => {
   const settings = await settingsOf(env);
@@ -318,22 +319,11 @@ export const postRun = async (env: OutpostsEnv, run: Run): Promise<RunResult> =>
     text = await response.text();
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { ok: false, retryable: false, error: `The container \`${run.container}\`'s Worker ${worker} didn't answer: ${reason}` };
+    throw new Error(`The container \`${run.container}\`'s Worker ${worker} didn't answer: ${reason}`);
   }
-  if (response.status === 503 && text === "building") {
-    return {
-      ok: false,
-      retryable: true,
-      building: true,
-      error: `The container \`${run.container}\` has no image yet. Its first build hasn't finished.`,
-    };
-  }
+  if (response.status === 503 && text === "building") return "building";
   if (!response.ok) {
-    return {
-      ok: false,
-      retryable: response.status >= 500,
-      error: `The container \`${run.container}\`'s Worker ${worker} refused the run with status ${response.status}: ${text.slice(0, 500)}`,
-    };
+    throw new Error(`The container \`${run.container}\`'s Worker ${worker} refused the run with status ${response.status}: ${text.slice(0, 500)}`);
   }
-  return { ok: true };
+  return "queued";
 };

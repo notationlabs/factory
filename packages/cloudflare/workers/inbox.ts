@@ -49,7 +49,7 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
       await this.ctx.storage.deleteAll();
       return;
     }
-    const { wake } = await advance(record, await routerStore(this.env));
+    const wake = await advance(record, await routerStore(this.env));
     await this.ctx.storage.put(RECORD, record);
     if (wake !== undefined) {
       await this.ctx.storage.setAlarm(wake);

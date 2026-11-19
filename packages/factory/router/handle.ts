@@ -28,11 +28,11 @@ import type {
   SourceFiles,
 } from "./channel.ts";
 import {
+  BUILD_POLL_MS,
+  BUILD_WAIT_MS,
   type DeliveryRecord,
   failureNotice,
   type Inbox,
-  RETRY_FOR_MS,
-  retryDelay,
   settled,
   type TriggerDispatch,
   waitingNotice,
@@ -72,12 +72,8 @@ export type RouterStore = {
   rootKey(): Promise<string>;
   /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
   background?(task: Promise<unknown>): void;
-  /**
-   * Where the router saves deliveries, which retries their dispatch and
-   * keeps the failed ones. Without it, the router tries each dispatch once,
-   * and keeps nothing.
-   */
-  inbox?: Inbox;
+  /** Where the router saves deliveries, which dispatches them and keeps the failed ones. */
+  inbox: Inbox;
   /** Where the router keeps each repo's last deploy. Without it, operators can't list deploys. */
   deploys?: DeployLog;
 };
@@ -90,7 +86,7 @@ export type RemoteDeployer = {
   remove(repo: string): Promise<void>;
   /** Calls the worktree function of the repo's trigger with `payload`, in the isolate that evaluates configs. */
   worktree(repo: string, trigger: string, payload: unknown): Promise<string | undefined>;
-  /** Hands `run` to its container, which queues it. */
+  /** Hands `run` to its container, which queues it. Throws if the container refuses it or doesn't answer. */
   run(run: Run): Promise<RunResult>;
 };
 
@@ -128,7 +124,7 @@ const channels = (store: RouterStore) =>
  * 4. If any match's author may start a run, saves the delivery to the
  *    inbox before it answers, and the inbox dispatches it with `advance`.
  *    A delivery whose connection and id the inbox has seen is a duplicate,
- *    and starts nothing. Without an inbox, the router dispatches it at once.
+ *    and starts nothing.
  */
 const webhook = async (request: Request, key: string, store: RouterStore) => {
   const found = channels(store).find((c) => c.key === key);
@@ -161,7 +157,7 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
     }
     const run = crypto.randomUUID();
     matches.push({ trigger: id, author, run });
-    dispatches.push({ trigger: id, run, state: "pending", attempts: 0 });
+    dispatches.push({ trigger: id, run, state: "pending" });
   }
   if (dispatches.length) {
     const record: DeliveryRecord = {
@@ -172,18 +168,10 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
       received: Date.now(),
       dispatches,
     };
-    if (store.inbox) {
-      if (!(await store.inbox.receive(record))) {
-        const result = { ...summary, duplicate: true };
-        console.log(JSON.stringify(result));
-        return json(200, result);
-      }
-    } else {
-      const task = advance(record, store).catch((error) =>
-        console.error(JSON.stringify({ delivery: delivery.id, error: message(error) })),
-      );
-      if (store.background) store.background(task);
-      else await task;
+    if (!(await store.inbox.receive(record))) {
+      const result = { ...summary, duplicate: true };
+      console.log(JSON.stringify(result));
+      return json(200, result);
     }
   }
   const result = { ...summary, matches };
@@ -210,19 +198,17 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  *    once.
  * 2. Reads the repo's outpost config as it is now, and dispatches each due
  *    trigger with new tokens.
- * 3. With an inbox, a dispatch whose container didn't take the run, or
- *    whose image is still building, is tried again after a wait, for
- *    `RETRY_FOR_MS`. The thread shows that the run is waiting.
- * 4. Once no dispatch is left, posts one message to the thread if any
- *    failed. With an inbox, it says that the event was kept for replay.
+ * 3. A dispatch whose container's first image build hasn't finished waits
+ *    for it. See `waitForBuild`.
+ * 4. When the last dispatch settles, posts a notice to the thread of each
+ *    failed one.
  */
-export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<{ wake?: number }> => {
-  const kept = Boolean(store.inbox);
-  const found = channels(store).find((c) => c.key === record.connection);
+export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<number | undefined> => {
   const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
-  if (!found) {
+  const found = channels(store).find((c) => c.key === record.connection);
+  if (due.length && !found) {
     for (const d of due) Object.assign(d, { state: "failed", error: `The hub has no channel for connection ${record.connection}.` });
-  } else if (due.length) {
+  } else if (due.length && found) {
     const { entry, channel } = found;
     if (!record.acknowledged) {
       await channel.acknowledge(record.delivery).catch((error) =>
@@ -234,63 +220,66 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
     const name = record.connection.slice(entry.provider.length + 1);
     await Promise.all(
       due.map(async (d) => {
-        const attempt = await dispatch(
-          { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
-          store,
-        ).catch((error): Attempt => ({ ok: false, retryable: false, error: message(error) }));
-        await settle(d, attempt, channel, kept, now);
+        try {
+          const building = await dispatch(
+            { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
+            store,
+          );
+          if (building) await waitForBuild(d, building, record.delivery.repo, channel, store, now);
+          else d.state = "dispatched";
+        } catch (error) {
+          Object.assign(d, { state: "failed", error: message(error) });
+          console.error(JSON.stringify({ run: d.run, trigger: d.trigger, error: d.error }));
+        }
       }),
     );
-  }
-  if (!settled(record)) {
-    return { wake: Math.min(...record.dispatches.filter((d) => d.state === "pending").map((d) => d.next ?? now)) };
-  }
-  const failed = record.dispatches.filter((d) => d.state === "failed");
-  if (failed.length && !record.noticed && found) {
-    const target = failed.find((d) => d.waiting?.message) ?? failed.find((d) => d.thread !== undefined);
-    if (target) {
-      await found.channel
-        .reply(target.thread, failureNotice(failed, kept), target.waiting?.message)
-        .catch((error) => console.error(JSON.stringify({ delivery: record.id, state: "notice failed", error: message(error) })));
+    // Only a call that dispatched something can settle the record, so each notice is posted once.
+    if (settled(record)) {
+      const failed = record.dispatches.filter((d) => d.state === "failed" && d.thread !== undefined);
+      await Promise.all(
+        failed.map((d) =>
+          channel
+            .reply(d.thread, failureNotice(d), d.waiting)
+            .catch((error) => console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) }))),
+        ),
+      );
     }
   }
-  record.noticed = true;
-  return {};
+  const pending = record.dispatches.filter((d) => d.state === "pending");
+  return pending.length ? Math.min(...pending.map((d) => d.next ?? now)) : undefined;
 };
 
-/** Records the outcome of one attempt of a dispatch, and has the thread show that a retried run is waiting. */
-const settle = async (d: TriggerDispatch, attempt: Attempt, channel: RemoteChannel, kept: boolean, now: number) => {
-  if (attempt.thread !== undefined) d.thread = attempt.thread;
-  if (attempt.ok) {
-    d.state = "dispatched";
-    delete d.next;
-    delete d.error;
-    return;
+/**
+ * Has a dispatch wait for its container's first image build, and try again
+ * in `BUILD_POLL_MS`. The first time, it posts the waiting message to the
+ * thread. Throws if the repo's last deploy says the build failed, or the
+ * dispatch has waited `BUILD_WAIT_MS`.
+ */
+const waitForBuild = async (
+  d: TriggerDispatch,
+  container: string,
+  repo: string,
+  channel: RemoteChannel,
+  store: RouterStore,
+  now: number,
+) => {
+  const build = (await store.deploys?.get(repo))?.builds?.[container];
+  if (build?.state === "failure" || build?.state === "cancelled") {
+    const outcome = build.state === "failure" ? "failed" : "was cancelled";
+    const details = [build.summary, build.url && `The build's log: ${build.url}`].filter(Boolean).join(" ");
+    throw new Error(`The first image build of container \`${container}\` ${outcome}.${details ? ` ${details}` : ""}`);
   }
-  d.error = attempt.error;
-  d.attempts += 1;
-  d.since ??= now;
-  console.error(JSON.stringify({ run: d.run, trigger: d.trigger, attempt: d.attempts, retryable: attempt.retryable, error: attempt.error }));
-  if (kept && attempt.retryable && now - d.since < RETRY_FOR_MS) {
-    d.next = now + retryDelay(d.attempts);
-    if (!d.waiting && d.thread !== undefined && attempt.container) {
-      try {
-        const id = await channel.reply(d.thread, waitingNotice(attempt.container, Boolean(attempt.building)));
-        d.waiting = typeof id === "string" ? { message: id } : {};
-      } catch (error) {
-        console.error(JSON.stringify({ run: d.run, state: "waiting notice failed", error: message(error) }));
-      }
-    }
-    return;
+  if (d.since !== undefined && now - d.since >= BUILD_WAIT_MS) {
+    throw new Error(`The first image build of container \`${container}\` didn't finish within ${BUILD_WAIT_MS / 3_600_000} hours.`);
   }
-  d.state = "failed";
-  delete d.next;
-};
-
-/** The outcome of one attempt of a dispatch. A failure names the thread and container, if the attempt got that far. */
-type Attempt = ({ ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean }) & {
-  thread?: unknown;
-  container?: string;
+  d.next = now + BUILD_POLL_MS;
+  if (d.since !== undefined) return;
+  d.since = now;
+  try {
+    d.waiting = await channel.reply(d.thread, waitingNotice(container));
+  } catch (error) {
+    console.error(JSON.stringify({ run: d.run, state: "waiting notice failed", error: message(error) }));
+  }
 };
 
 type Dispatch = {
@@ -335,7 +324,8 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
 };
 
 /**
- * Starts one run of a matched trigger:
+ * Starts one run of a matched trigger, and resolves to the run's container
+ * if its first image build hasn't finished. Throws if the run can't start.
  * 1. Checks that the outpost still has the trigger, and that it still
  *    matches the delivery and its author. Has the delivery's channel name
  *    the conversation, and signs a ticket for reading and replying to its
@@ -345,82 +335,75 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
  *    for new tokens.
- * 4. Hands the run to the deployer. An error thrown over RPC means the
- *    deployer couldn't be reached, which is worth retrying.
+ * 4. Hands the run to the deployer.
  */
-const dispatch = async (d: Dispatch, store: RouterStore): Promise<Attempt> => {
+const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undefined> => {
   const { delivery, outpost } = d;
   const { trigger: triggerId, run: runId, waiting } = d.dispatch;
   const repo = delivery.repo;
   const trigger = outpost?.triggers?.[triggerId];
-  if (!outpost || !trigger) {
-    return { ok: false, retryable: false, error: `The outpost of ${repo} no longer has the trigger \`${triggerId}\`.` };
-  }
+  if (!outpost || !trigger) throw new Error(`The outpost of ${repo} no longer has the trigger \`${triggerId}\`.`);
   if (
     !listens(outpost, trigger, d.provider, d.name, delivery) ||
     (await d.channel.match(trigger.match, delivery))?.result !== "allowed"
   ) {
-    return { ok: false, retryable: false, error: `The trigger \`${triggerId}\` no longer matches the event.` };
+    throw new Error(`The trigger \`${triggerId}\` no longer matches the event.`);
   }
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
+  d.dispatch.thread = conversation.thread;
   const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
   const signature = await signTicket(rootKey, ticket);
   const reply: Run["reply"] = { url: `${d.origin}/relay`, ticket, signature };
-  if (waiting?.message) reply.message = { id: waiting.message, signature: await signMessage(rootKey, signature, waiting.message) };
-  const failed = { thread: conversation.thread, container: trigger.container };
-  try {
-    const { deployer } = store;
-    if (!deployer) throw new Error("The hub has no deployer.");
-    const container = outpost.containers[trigger.container];
-    const agent = outpost.agents[trigger.agent];
-    if (!container) throw new Error(`The outpost has no container ${trigger.container}.`);
-    if (!agent) throw new Error(`The outpost has no agent ${trigger.agent}.`);
-    const codeHost = codeHostChannel(store);
-    if (!codeHost?.channel) throw new Error("The hub has no code host whose channel mints tokens.");
+  if (waiting) reply.message = { id: waiting, signature: await signMessage(rootKey, signature, waiting) };
+  const { deployer } = store;
+  if (!deployer) throw new Error("The hub has no deployer.");
+  const container = outpost.containers[trigger.container];
+  const agent = outpost.agents[trigger.agent];
+  if (!container) throw new Error(`The outpost has no container ${trigger.container}.`);
+  if (!agent) throw new Error(`The outpost has no agent ${trigger.agent}.`);
+  const codeHost = codeHostChannel(store);
+  if (!codeHost?.channel) throw new Error("The hub has no code host whose channel mints tokens.");
 
-    let worktree: Run["worktree"];
-    if (trigger.worktree) {
-      const branch = await deployer.worktree(repo, triggerId, delivery.payload);
-      if (branch !== undefined) {
-        if (typeof branch !== "string" || !isBranchName(branch)) {
-          throw new Error(`The worktree function of ${triggerId} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
-        }
-        worktree = { branch, ...(trigger.worktree.base && { base: trigger.worktree.base }) };
+  let worktree: Run["worktree"];
+  if (trigger.worktree) {
+    const branch = await deployer.worktree(repo, triggerId, delivery.payload);
+    if (branch !== undefined) {
+      if (typeof branch !== "string" || !isBranchName(branch)) {
+        throw new Error(`The worktree function of ${triggerId} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
       }
+      worktree = { branch, ...(trigger.worktree.base && { base: trigger.worktree.base }) };
     }
-
-    const tokens = await mintTokens(store, outpost, repo, trigger.container);
-    const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
-    const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
-
-    const result = await deployer.run({
-      id: runId,
-      repo,
-      trigger: triggerId,
-      container: trigger.container,
-      runtimes: container.runtimes,
-      files: container.files ?? {},
-      agent: { id: trigger.agent, ...agent },
-      conversation: {
-        id: conversation.id,
-        ...(conversation.message && { message: conversation.message }),
-        ...(conversation.event && { event: conversation.event }),
-        ...(conversation.channel && { channel: conversation.channel }),
-        ...(conversation.context && { context: conversation.context }),
-      },
-      ...(worktree && { worktree }),
-      cloneToken: await codeHost.channel.token(repo, { contents: "read" }),
-      tokens,
-      refresh,
-      reply,
-    }).catch((error): RunResult => ({ ok: false, retryable: false, error: message(error) }));
-    if (!result.ok) return { ...result, ...failed };
-    console.log(JSON.stringify({ run: runId, repo, trigger: triggerId, container: trigger.container, worktree }));
-    return { ok: true, thread: conversation.thread };
-  } catch (error) {
-    return { ok: false, retryable: false, error: message(error), ...failed };
   }
+
+  const tokens = await mintTokens(store, outpost, repo, trigger.container);
+  const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
+  const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
+
+  const result = await deployer.run({
+    id: runId,
+    repo,
+    trigger: triggerId,
+    container: trigger.container,
+    runtimes: container.runtimes,
+    files: container.files ?? {},
+    agent: { id: trigger.agent, ...agent },
+    conversation: {
+      id: conversation.id,
+      ...(conversation.message && { message: conversation.message }),
+      ...(conversation.event && { event: conversation.event }),
+      ...(conversation.channel && { channel: conversation.channel }),
+      ...(conversation.context && { context: conversation.context }),
+    },
+    ...(worktree && { worktree }),
+    cloneToken: await codeHost.channel.token(repo, { contents: "read" }),
+    tokens,
+    refresh,
+    reply,
+  });
+  if (result === "building") return trigger.container;
+  console.log(JSON.stringify({ run: runId, repo, trigger: triggerId, container: trigger.container, worktree }));
+  return undefined;
 };
 
 /**
@@ -522,7 +505,7 @@ const builds = async (request: Request, store: RouterStore) => {
   const channel = codeHostChannel(store)?.channel;
   if (!channel) return json(404, { error: "the hub has no code host" });
   const { repo, ref, container, state, url, summary } = report;
-  await logBuild(store, repo, container, { state, ref, ...(url && { url }), at: new Date().toISOString() }).catch((error) =>
+  await logBuild(store, repo, container, { state, ref, ...(url && { url }), ...(summary && { summary }), at: new Date().toISOString() }).catch((error) =>
     console.error(JSON.stringify({ repo, container, state: "build log failed", error: message(error) })),
   );
   try {
@@ -738,7 +721,7 @@ const listRepos = async (store: RouterStore) => {
 };
 
 const listDeliveries = async (store: RouterStore) => {
-  const failed = (await store.inbox?.failed()) ?? [];
+  const failed = await store.inbox.failed();
   failed.sort((a, b) => a.received - b.received);
   const result: DeliveriesResult = { failed };
   return json(200, result);
@@ -749,7 +732,6 @@ const replay = async (request: Request, store: RouterStore, operator: string) =>
   const body = await readJson<ReplayRequest>(request);
   if (body instanceof Response) return body;
   const { inbox } = store;
-  if (!inbox) return json(501, { error: "the router keeps no deliveries" });
   if ((body.connection === undefined) !== (body.id === undefined)) {
     return json(400, { error: "name both connection and id, or neither" });
   }

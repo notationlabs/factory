@@ -7,7 +7,7 @@ import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 export const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 
 /** The latest build of a container's image, as the deployer last reported it. */
-export type ContainerBuild = { state: BuildCheck["state"]; ref: string; url?: string; at: string };
+export type ContainerBuild = { state: BuildCheck["state"]; ref: string; url?: string; summary?: string; at: string };
 
 /** A repo's last deploy, and the builds that it started. */
 export type RepoDeploy = {

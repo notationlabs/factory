@@ -80,13 +80,11 @@ export type Run = {
 };
 
 /**
- * Whether the deployer handed a run to its container. A failure is
- * `retryable` if the container may take the run later, such as when it
- * didn't answer in time, or its first image build hasn't finished, which
- * `building` marks. Errors thrown over RPC lose their status code, so the
- * deployer reports them as a result.
+ * Whether the container's outpost Worker queued the run, or can't take it
+ * yet because the container's first image build hasn't finished. The
+ * deployer throws any other failure.
  */
-export type RunResult = { ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean };
+export type RunResult = "queued" | "building";
 
 /** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */
 export const REPLY_TTL_MS = 24 * 60 * 60 * 1000;

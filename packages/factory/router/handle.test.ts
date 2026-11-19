@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
-import { type DeliveryRecord, failedDelivery, type Inbox, replayRecord, RETRY_FOR_MS } from "./deliveries.ts";
+import { BUILD_POLL_MS, BUILD_WAIT_MS, type DeliveryRecord, failedDelivery, type Inbox, replayRecord } from "./deliveries.ts";
 import { signSession, verifySession } from "./admin.ts";
 import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, type RunResult, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
 
 const ROOT_KEY = "root";
 
@@ -68,6 +68,16 @@ const outpost: OutpostConfig = {
   },
 };
 
+/** The store of the last `call`, which `atOnce` dispatches against. */
+let calling: RouterStore;
+
+/** An inbox that dispatches each delivery once, as soon as the router saves it. */
+const atOnce: Inbox = {
+  receive: async (record) => (await advance(record, calling), true),
+  failed: async () => [],
+  replay: async () => false,
+};
+
 const entry = (channel: string) => ({ provider: "fake", source: "1", credentials: {}, channel });
 
 const store = (
@@ -85,6 +95,7 @@ const store = (
       | undefined,
   outpost: async (repo) => outposts[repo],
   rootKey: async () => ROOT_KEY,
+  inbox: atOnce,
 });
 
 /** The matches without their runs' random ids. */
@@ -93,6 +104,7 @@ const matched = (matches: { run?: string }[]) => matches.map(({ run, ...m }) => 
 const post = (path: string) => new Request(`https://router.test${path}`, { method: "POST" });
 
 const call = async (s: RouterStore, path = "/webhook/fake/main") => {
+  calling = s;
   const response = await handle(post(path), s);
   return { status: response.status, body: await response.json() };
 };
@@ -149,9 +161,10 @@ const sourceStore = (
   channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
   outpost: async () => undefined,
   rootKey: async () => ROOT_KEY,
+  inbox: atOnce,
   deployer: {
     worktree: async () => undefined,
-    run: async () => ({ ok: true }),
+    run: async () => "queued",
     deploy: async (repo, source) => {
       calls.push(`deploy ${repo} ${source.ref}`);
       return { state: "deployed", ref: source.ref, at: "now" };
@@ -313,7 +326,7 @@ const runStore = (channel: RemoteChannel<FakeEvent>, deployer: Partial<RemoteDep
     deploy: async () => ({ state: "deployed", at: "now" }),
     remove: async () => {},
     worktree: async () => undefined,
-    run: async () => ({ ok: true }),
+    run: async () => "queued",
     ...deployer,
   },
 });
@@ -326,7 +339,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
       worktrees.push([repo, trigger, payload]);
       return "issue-1";
     },
-    run: async (run) => (runs.push(run), { ok: true }),
+    run: async (run) => (runs.push(run), "queued" as const),
   });
   const { body } = await call(s);
   assert.equal(runs.length, 1);
@@ -354,7 +367,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
 
 test("a worktree function that names no branch runs in a scratch worktree", async () => {
   const runs: Run[] = [];
-  await call(runStore(accepted(), { run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs[0]!.worktree, undefined);
 });
 
@@ -362,7 +375,7 @@ test("a run that can't start replies with the error", async () => {
   const replies: unknown[] = [];
   const runs: Run[] = [];
   const channel = { ...accepted(), reply: async (thread: unknown, text: string) => void replies.push([thread, text]) };
-  await call(runStore(channel, { worktree: async () => "../etc", run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(channel, { worktree: async () => "../etc", run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs.length, 0);
   assert.equal(replies.length, 1);
   assert.match((replies[0] as string[])[1]!, /returned "\.\.\/etc", which isn't a branch name/);
@@ -372,7 +385,7 @@ test("a denied author starts no run", async () => {
   const runs: Run[] = [];
   const acknowledged: unknown[] = [];
   const channel = { ...accepted({ data: { allow: false } }), acknowledge: async (d: Delivery<FakeEvent>) => void acknowledged.push(d.id) };
-  const { body } = await call(runStore(channel, { run: async (run) => (runs.push(run), { ok: true }) }));
+  const { body } = await call(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.deepEqual(body.matches, [{ trigger: "mention", author: { result: "denied" } }]);
   assert.equal(runs.length, 0);
   assert.deepEqual(acknowledged, []);
@@ -381,7 +394,7 @@ test("a denied author starts no run", async () => {
 test("a delivery that starts a run is acknowledged once, before the run is handed to the deployer", async () => {
   const events: string[] = [];
   const channel = { ...accepted(), acknowledge: async (d: Delivery<FakeEvent>) => void events.push(`acknowledge ${d.id}`) };
-  await call(runStore(channel, { run: async () => (events.push("run"), { ok: true }) }));
+  await call(runStore(channel, { run: async () => (events.push("run"), "queued" as const) }));
   assert.deepEqual(events, ["acknowledge d1", "run"]);
 });
 
@@ -393,7 +406,7 @@ test("a run starts even if the channel can't acknowledge its delivery", async ()
       throw new Error("no reactions");
     },
   };
-  await call(runStore(channel, { run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs.length, 1);
 });
 
@@ -534,12 +547,12 @@ const memoryInbox = () => {
 test("with an inbox, a delivery is saved before the router answers, and a second delivery with its id is a duplicate", async () => {
   const runs: Run[] = [];
   const { inbox, records } = memoryInbox();
-  const s = { ...runStore(accepted(), { run: async (run) => (runs.push(run), { ok: true }) }), inbox };
+  const s = { ...runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }), inbox };
   const first = await call(s);
   assert.equal(first.status, 202);
   assert.deepEqual([...records.keys()], ["fake/main/d1"]);
   const [record] = records.values();
-  assert.deepEqual(record!.dispatches, [{ trigger: "mention", run: first.body.matches[0].run, state: "pending", attempts: 0 }]);
+  assert.deepEqual(record!.dispatches, [{ trigger: "mention", run: first.body.matches[0].run, state: "pending" }]);
   assert.equal(runs.length, 0);
 
   const second = await call(s);
@@ -547,7 +560,7 @@ test("with an inbox, a delivery is saved before the router answers, and a second
   assert.equal(second.body.duplicate, true);
   assert.equal(records.size, 1);
 
-  assert.deepEqual(await advance(record!, s), {});
+  assert.equal(await advance(record!, s), undefined);
   assert.equal(runs.length, 1);
   assert.equal(record!.dispatches[0]!.state, "dispatched");
 });
@@ -560,19 +573,26 @@ test("a delivery with no id isn't taken for a duplicate", async () => {
   assert.equal(records.size, 2);
 });
 
+const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<string, unknown> } => {
+  const saved = new Map<string, any>();
+  return {
+    saved,
+    get: async (repo) => saved.get(repo.toLowerCase()),
+    put: async (deploy) => void saved.set(deploy.repo.toLowerCase(), structuredClone(deploy)),
+    remove: async (repo) => void saved.delete(repo.toLowerCase()),
+    list: async () => [...saved.values()],
+  };
+};
+
 const savedRecord = async (s: RouterStore) => {
   const { inbox, records } = memoryInbox();
   await call({ ...s, inbox });
   return { record: [...records.values()][0]!, store: { ...s, inbox } };
 };
 
-test("a dispatch whose container is building is retried with backoff, and its run replaces the waiting message", async () => {
+test("a dispatch whose container's first image build hasn't finished waits for it, and its run replaces the waiting message", async () => {
   const replies: unknown[][] = [];
-  const results: RunResult[] = [
-    { ok: false, retryable: true, building: true, error: "no image yet" },
-    { ok: false, retryable: true, error: "timed out" },
-    { ok: true },
-  ];
+  const results = ["building", "building", "queued"] as const;
   const runs: Run[] = [];
   const channel = {
     ...accepted(),
@@ -581,21 +601,20 @@ test("a dispatch whose container is building is retried with backoff, and its ru
       return "w1";
     },
   };
-  const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), results.shift()!) }));
+  const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), results[runs.length - 1]!) }));
   const start = 1_000_000;
 
-  assert.deepEqual(await advance(record, store, start), { wake: start + 2_000 });
-  assert.equal(replies.length, 1);
-  assert.match(replies[0]![0] as string, /^> Booting container `dev`\.\.\. Its first image build hasn't finished/);
+  assert.equal(await advance(record, store, start), start + BUILD_POLL_MS);
+  assert.deepEqual(replies, [["> Booting container `dev`...", undefined]]);
 
   // Not due yet.
-  assert.deepEqual(await advance(record, store, start + 1_000), { wake: start + 2_000 });
+  assert.equal(await advance(record, store, start + 1_000), start + BUILD_POLL_MS);
   assert.equal(runs.length, 1);
 
-  assert.deepEqual(await advance(record, store, start + 2_000), { wake: start + 2_000 + 4_000 });
+  assert.equal(await advance(record, store, start + BUILD_POLL_MS), start + 2 * BUILD_POLL_MS);
   assert.equal(replies.length, 1);
 
-  assert.deepEqual(await advance(record, store, start + 6_000), {});
+  assert.equal(await advance(record, store, start + 2 * BUILD_POLL_MS), undefined);
   assert.equal(record.dispatches[0]!.state, "dispatched");
   const run = runs[2]!;
   assert.equal(run.id, runs[0]!.id);
@@ -603,19 +622,7 @@ test("a dispatch whose container is building is retried with backoff, and its ru
   assert.equal(replies.length, 1);
 });
 
-test("an error thrown over RPC by the deployer isn't retried, since the run may have been queued", async () => {
-  const { record, store } = await savedRecord(
-    runStore(accepted(), {
-      run: async () => {
-        throw new Error("Worker threw exception");
-      },
-    }),
-  );
-  await advance(record, store, 0);
-  assert.equal(record.dispatches[0]!.state, "failed");
-});
-
-test("a dispatch that still fails after its retries posts one notice, in place of the waiting message", async () => {
+test("a dispatch whose container's build fails replaces the waiting message with the build's error", async () => {
   const replies: unknown[][] = [];
   const channel = {
     ...accepted(),
@@ -624,40 +631,85 @@ test("a dispatch that still fails after its retries posts one notice, in place o
       return "w1";
     },
   };
-  const { record, store } = await savedRecord(
-    runStore(channel, { run: async () => ({ ok: false, retryable: true, error: "503 from the Worker" }) }),
-  );
-  let now = 0;
-  let wake: number | undefined = 0;
-  const waits: number[] = [];
-  while (wake !== undefined) {
-    now = wake;
-    wake = (await advance(record, store, now)).wake;
-    if (wake !== undefined) waits.push(wake - now);
-  }
-  assert.deepEqual(waits.slice(0, 7), [2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]);
-  assert.ok(now >= RETRY_FOR_MS && now < RETRY_FOR_MS + 60_000);
+  const deploys = memoryDeploys();
+  const { record, store } = await savedRecord({ ...runStore(channel, { run: async () => "building" }), deploys });
+  await deploys.put({
+    repo: "acme/api",
+    status: { state: "deployed", at: "now" },
+    builds: { dev: { state: "in_progress", ref: "abc", url: "https://builds/1", at: "now" } },
+  });
+  assert.equal(await advance(record, store, 0), BUILD_POLL_MS);
+
+  await deploys.put({
+    repo: "acme/api",
+    status: { state: "deployed", at: "now" },
+    builds: { dev: { state: "failure", ref: "abc", url: "https://builds/1", summary: "Workers Builds: fail.", at: "now" } },
+  });
+  assert.equal(await advance(record, store, BUILD_POLL_MS), undefined);
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.equal(replies.length, 2);
   assert.equal(replies[1]![1], "w1");
-  assert.match(replies[1]![0] as string, /Couldn't start the run of trigger `mention`: 503 from the Worker/);
+  assert.match(replies[1]![0] as string, /`mention`: The first image build of container `dev` failed\. Workers Builds: fail\. The build's log: https:\/\/builds\/1/);
   assert.match(replies[1]![0] as string, /`factory infra replay`/);
 
   // A settled delivery posts nothing more.
-  await advance(record, store, now + 1);
+  await advance(record, store, BUILD_POLL_MS + 1);
   assert.equal(replies.length, 2);
 });
 
-test("a dispatch that fails for good isn't retried", async () => {
+test("a dispatch stops waiting for a build that never reports", async () => {
+  const { record, store } = await savedRecord(runStore(accepted(), { run: async () => "building" }));
+  let now = 0;
+  let wake: number | undefined = 0;
+  while (wake !== undefined) {
+    now = wake;
+    wake = await advance(record, store, now);
+  }
+  assert.equal(now, BUILD_WAIT_MS);
+  assert.equal(record.dispatches[0]!.state, "failed");
+  assert.match(record.dispatches[0]!.error!, /didn't finish within 3 hours/);
+});
+
+test("an error from the deployer fails the dispatch without a retry, since the run may have been queued", async () => {
   const replies: unknown[][] = [];
   const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => void replies.push([text]) };
   const { record, store } = await savedRecord(
-    runStore(channel, { run: async () => ({ ok: false, retryable: false, error: "status 401: bad signature" }) }),
+    runStore(channel, {
+      run: async () => {
+        throw new Error("status 502: bad gateway");
+      },
+    }),
   );
-  assert.deepEqual(await advance(record, store, 0), {});
+  assert.equal(await advance(record, store, 0), undefined);
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.equal(replies.length, 1);
-  assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 401: bad signature" }]);
+  assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 502: bad gateway" }]);
+});
+
+test("each failed trigger of a delivery replaces its own waiting message", async () => {
+  const replies: unknown[][] = [];
+  let posted = 0;
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => {
+      replies.push([text, message]);
+      return message ?? `w${++posted}`;
+    },
+  };
+  const twoTriggers: OutpostConfig = {
+    ...runOutpost,
+    triggers: { mention: runOutpost.triggers.mention!, again: runOutpost.triggers.mention! },
+  };
+  const s: RouterStore = { ...runStore(channel, { run: async () => "building" }), outpost: async () => twoTriggers };
+  const { record, store } = await savedRecord(s);
+  await advance(record, store, 0);
+  assert.equal(replies.length, 2);
+  const waiting = Object.fromEntries(record.dispatches.map((d) => [d.trigger, d.waiting]));
+  assert.deepEqual(Object.values(waiting).sort(), ["w1", "w2"]);
+  store.outpost = async () => ({ ...twoTriggers, triggers: {} });
+  await advance(record, store, BUILD_POLL_MS);
+  const notices = Object.fromEntries(replies.slice(2).map(([text, message]) => [(text as string).match(/`(\w+)`/)![1], message]));
+  assert.deepEqual(notices, waiting);
 });
 
 test("a replay dispatches the failed triggers again as new runs, against the outpost config the repo has now", async () => {
@@ -666,7 +718,11 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   const outposts: Record<string, OutpostConfig> = { "acme/api": runOutpost };
   const s: RouterStore = {
     ...runStore(accepted(), {
-      run: async (run): Promise<RunResult> => (runs.push(run), ok ? { ok: true } : { ok: false, retryable: false, error: "refused" }),
+      run: async (run) => {
+        runs.push(run);
+        if (!ok) throw new Error("refused");
+        return "queued";
+      },
     }),
     outpost: async (repo) => outposts[repo],
   };
@@ -692,17 +748,6 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   assert.match(record.dispatches[0]!.error!, /no longer has the trigger `mention`/);
   assert.equal(runs.length, 2);
 });
-
-const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<string, unknown> } => {
-  const saved = new Map<string, any>();
-  return {
-    saved,
-    get: async (repo) => saved.get(repo.toLowerCase()),
-    put: async (deploy) => void saved.set(deploy.repo.toLowerCase(), structuredClone(deploy)),
-    remove: async (repo) => void saved.delete(repo.toLowerCase()),
-    list: async () => [...saved.values()],
-  };
-};
 
 const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({
   ...sourceStore(channel, calls),

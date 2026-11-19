@@ -19,6 +19,8 @@ Plugins add the vendor-specific resources alongside it. Each has one entrypoint,
 | [`@notation/factory-github`](./github.md) | `Connection`, `CodeHost`, `OperatorAuth` | `Connection.get`, `Policy`, selectors, author sets |
 | [`@notation/factory-slack`](./slack.md) | `Connection` | `Connection.get`, selectors, author sets |
 | [`@notation/factory-claude`](./claude.md) | `Account` | `Agent`, `runtime` |
+| [`@notation/factory-cursor`](./cursor.md) | `Account` | `Agent`, `runtime` |
+| [`@notation/factory-droid`](./droid.md) | `Account` | `Agent`, `runtime` |
 | [`@notation/factory-cloudflare`](./cloudflare.md) | `Vault`, `Router`, `Deployer`, `OperatorAuth` | |
 | [`@notation/factory-railway`](./railway.md) | `Vault`, `Router`, `Deployer` | |
 
@@ -36,7 +38,7 @@ import { Container, Trigger } from "@notation/factory";
 
 The deployer runs Notation on `.factory/infra.ts` for one repo at a time. Each channel, container, policy, agent and trigger in the file adds its entry to that repo's outpost config. The first one declared creates the outpost's `Outpost` group. Declaring one outside a Notation evaluation throws. The outpost config doesn't contain the repo's name: the deployer stores the config under the repo, and the hub fills in the repo where a GitHub channel has no `scope` or a GitHub policy has no `repo`. The outpost's graph is separate from the infra's. It finds the infra's connections by name, with `Connection.get(name)`.
 
-The deployer evaluates the config in an isolate with no network access and no bindings. The config can import `@notation/factory`, `@notation/factory-github`, `@notation/factory-slack` and `@notation/factory-claude`, and other `.ts` and `.js` files in `.factory/` by relative path. It gets each package's outpost exports, from the table above. An infra-only export, such as `RandomKey` or `new github.Connection(...)`, isn't there. A plugin whose package has infra-only code that the isolate can't load gives its outpost exports a `factory-outpost` export condition.
+The deployer evaluates the config in an isolate with no network access and no bindings. The config can import `@notation/factory`, `@notation/factory-github`, `@notation/factory-slack`, `@notation/factory-claude`, `@notation/factory-cursor` and `@notation/factory-droid`, and other `.ts` and `.js` files in `.factory/` by relative path. It gets each package's outpost exports, from the table above. An infra-only export, such as `RandomKey` or `new github.Connection(...)`, isn't there. A plugin whose package has infra-only code that the isolate can't load gives its outpost exports a `factory-outpost` export condition.
 
 ### `Container` & `Policy`
 

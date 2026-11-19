@@ -24,6 +24,9 @@
       "@notation/factory-claude": [
         "./packages/claude/implementations/index.ts"
       ],
+      "@notation/factory-cursor": [
+        "./packages/cursor/implementations/index.ts"
+      ],
       "@notation/factory-droid": [
         "./packages/droid/implementations/index.ts"
       ],

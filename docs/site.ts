@@ -69,6 +69,8 @@ export default {
             { label: "@notation/factory-github", slug: "reference/github" },
             { label: "@notation/factory-slack", slug: "reference/slack" },
             { label: "@notation/factory-claude", slug: "reference/claude" },
+            { label: "@notation/factory-cursor", slug: "reference/cursor" },
+            { label: "@notation/factory-droid", slug: "reference/droid" },
             { label: "@notation/factory-cloudflare", slug: "reference/cloudflare" },
             { label: "@notation/factory-railway", slug: "reference/railway" },
           ],

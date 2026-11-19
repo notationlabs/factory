@@ -7,6 +7,7 @@ export const SDK_PACKAGES = {
   "@notation/factory": "factory",
   "@notation/factory-github": "factory-github",
   "@notation/factory-claude": "factory-claude",
+  "@notation/factory-cursor": "factory-cursor",
   "@notation/factory-droid": "factory-droid",
   "@notation/factory-slack": "factory-slack",
 } as const;

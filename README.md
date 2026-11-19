@@ -26,7 +26,7 @@ The router receives events from each connection. The deployer provisions contain
 | Connection, Channel | Where events come from, and which events a trigger can select | `factory-github`, `factory-slack` |
 | CodeHost, Policy | Where code lives, and what a container may do there | `factory-github` |
 | OperatorAuth | Who may operate the agents | `factory-github`, `factory-cloudflare` |
-| Account, Agent, runtime | Which coding agent runs | `factory-claude`, `factory-droid` |
+| Account, Agent, runtime | Which coding agent runs | `factory-claude`, `factory-cursor`, `factory-droid` |
 
 An outpost's `.factory/infra.ts` does not name the hosting provider, so the hub can move from one provider to another without changes to each repo. To add a service, write a plugin that implements its contract (see `docs/manual/plugins.md`).
 

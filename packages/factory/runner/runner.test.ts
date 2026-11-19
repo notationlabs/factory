@@ -42,6 +42,15 @@ esac
 echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
+/** A fake Cursor Agent: like the fake Claude Code, but for Cursor's CLI. */
+const FAKE_CURSOR = `#!/bin/sh
+printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
+session="s-$(basename "$(pwd)")"
+mkdir -p "$HOME/.cursor/chats/-p-$(basename "$(pwd)")"
+echo "$*" >> "$HOME/.cursor/chats/-p-$(basename "$(pwd)")/$session"
+echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
+`;
+
 /** A fake Droid: like the fake Claude Code, but for droid's CLI. */
 const FAKE_DROID = `#!/bin/sh
 prompt="$2"
@@ -55,6 +64,7 @@ echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 /** The hub's runner modules, by the path the runner fetches them at. */
 const MODULES: Record<string, string> = {
   "runtimes/claude.ts": join(import.meta.dirname, "../../claude/runtime/runner.ts"),
+  "runtimes/cursor.ts": join(import.meta.dirname, "../../cursor/runtime/runner.ts"),
   "runtimes/droid.ts": join(import.meta.dirname, "../../droid/runtime/runner.ts"),
   "code-host.ts": join(import.meta.dirname, "../../github/runner/index.ts"),
 };
@@ -90,6 +100,7 @@ before(async () => {
   mkdirSync(bin);
   mkdirSync(home);
   writeFileSync(join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
+  writeFileSync(join(bin, "agent"), FAKE_CURSOR, { mode: 0o755 });
   writeFileSync(join(bin, "droid"), FAKE_DROID, { mode: 0o755 });
   writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
 
@@ -238,6 +249,43 @@ test("a later run in the same conversation and worktree resumes its session", as
   await post(run());
   await nextReply();
   assert.match(lastCall()[2]!, /--resume s-issue-1/);
+});
+
+test("a cursor run invokes agent in print mode, and resumes its session", async () => {
+  const agent = {
+    id: "coder",
+    runtime: "cursor",
+    model: "composer-2.5",
+    systemPrompt: "prompt.md",
+    settings: { approvalMode: "unrestricted" },
+  };
+  const conversation = { id: "github:acme/api#30", prompt: "cursor it" };
+  await post(run({ runtimes: ["cursor"], agent, conversation }));
+  assert.equal((await nextReply()).text, "done");
+  const [cwd, token, args] = lastCall();
+  assert.equal(cwd, join(data, "worktrees", "acme-api", "issue-1"));
+  assert.equal(token, "push-token");
+  assert.match(
+    args!,
+    /^-p --output-format json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+cursor it --model composer-2\.5$/,
+  );
+  assert.equal(JSON.parse(readFileSync(join(home, ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
+
+  await post(run({ runtimes: ["cursor"], agent, conversation: { ...conversation, prompt: "carry on" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--resume s-issue-1$/);
+});
+
+test("a cursor agent in plan mode passes --mode plan", async () => {
+  await post(
+    run({
+      runtimes: ["cursor"],
+      agent: { id: "planner", runtime: "cursor", model: "composer-2.5", mode: "plan" },
+      conversation: { id: "github:acme/api#31", prompt: "plan it" },
+    }),
+  );
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, / --model composer-2\.5 --mode plan$/);
 });
 
 test("a droid run invokes droid exec, skipping permissions without an autonomy level", async () => {

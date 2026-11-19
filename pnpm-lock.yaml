@@ -8,6 +8,21 @@ importers:
 
   .:
     devDependencies:
+      '@notation/factory':
+        specifier: workspace:*
+        version: link:packages/factory
+      '@notation/factory-claude':
+        specifier: workspace:*
+        version: link:packages/claude
+      '@notation/factory-cursor':
+        specifier: workspace:*
+        version: link:packages/cursor
+      '@notation/factory-droid':
+        specifier: workspace:*
+        version: link:packages/droid
+      '@notation/factory-github':
+        specifier: workspace:*
+        version: link:packages/github
       '@notation/resource':
         specifier: 0.28.1
         version: 0.28.1

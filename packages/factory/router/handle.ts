@@ -14,13 +14,16 @@ import {
   type BuildReportRequest,
   isBranchName,
   type Relay,
+  type RelayResult,
   REPLY_TTL_MS,
   type Run,
+  signMessage,
   signTicket,
   signTokenTicket,
   type TokenRequest,
   type Tokens,
   verifyBuildReport,
+  verifyMessage,
   verifyTicket,
   verifyTokenTicket,
 } from "./run.ts";
@@ -84,7 +87,8 @@ const channels = (store: RouterStore) =>
  * 2. Has the channel verify and parse the delivery.
  * 3. Reads the outpost of the delivery's repo, and matches the triggers on
  *    channels of the delivery's connection and scope.
- * 4. Starts a run for each match whose author may start one.
+ * 4. Has the channel show on the delivery's post that a run is starting,
+ *    then starts a run for each match whose author may start one.
  */
 const webhook = async (request: Request, key: string, store: RouterStore) => {
   const found = channels(store).find((c) => c.key === key);
@@ -105,7 +109,7 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   if (!outpost) return json(202, { ...summary, ignored: "no outpost" });
 
   const matches: TriggerMatch[] = [];
-  const runs: Promise<void>[] = [];
+  const runs: (() => Promise<void>)[] = [];
   const origin = new URL(request.url).origin;
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
     const target = outpost.channels?.[trigger.channel];
@@ -126,14 +130,19 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
     }
     const run = crypto.randomUUID();
     matches.push({ trigger: id, author, run });
-    runs.push(
+    runs.push(() =>
       dispatch({ run, trigger: id, key, channel, delivery, outpost, origin }, store).catch((error) =>
         console.error(JSON.stringify({ run, trigger: id, error: message(error) })),
       ),
     );
   }
   if (runs.length) {
-    const task = Promise.all(runs);
+    const task = (async () => {
+      await channel.acknowledge(delivery).catch((error) =>
+        console.error(JSON.stringify({ delivery: delivery.id, state: "acknowledge failed", error: message(error) })),
+      );
+      await Promise.all(runs.map((start) => start()));
+    })();
     if (store.background) store.background(task);
     else await task;
   }
@@ -260,17 +269,26 @@ const relay = async (request: Request, store: RouterStore) => {
   } catch {
     return json(400, { error: "the body isn't JSON" });
   }
-  const { ticket, signature, text } = body ?? {};
+  const { ticket, signature, text, message } = body ?? {};
   if (!ticket || typeof signature !== "string" || typeof text !== "string") {
     return json(400, { error: "the body needs ticket, signature and text" });
   }
-  if (!(await verifyTicket(await store.rootKey(), ticket, signature))) {
+  if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
+    return json(400, { error: "the message needs id and signature" });
+  }
+  const rootKey = await store.rootKey();
+  if (!(await verifyTicket(rootKey, ticket, signature))) {
     return json(401, { error: "bad or expired ticket" });
+  }
+  if (message && !(await verifyMessage(rootKey, signature, message))) {
+    return json(401, { error: "bad message signature" });
   }
   const found = channels(store).find((c) => c.key === ticket.connection);
   if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
-  await found.channel.reply(ticket.thread, text);
-  return json(200, { ok: true });
+  const id = await found.channel.reply(ticket.thread, text, message?.id);
+  const result: RelayResult = { ok: true };
+  if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
+  return json(200, result);
 };
 
 /**

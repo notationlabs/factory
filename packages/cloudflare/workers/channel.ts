@@ -70,10 +70,14 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return conversation(delivery, trigger);
   }
 
-  reply(thread: unknown, text: string) {
+  async acknowledge(delivery: Delivery<unknown>) {
+    await channel(context(this.env)).acknowledge?.(delivery);
+  }
+
+  reply(thread: unknown, text: string, message?: string) {
     const { reply } = channel(context(this.env));
     if (!reply) throw new Error("This connection's channel can't reply.");
-    return reply(thread, text);
+    return reply(thread, text, message);
   }
 
   token(repo: string, permissions: Record<string, "read" | "write">) {

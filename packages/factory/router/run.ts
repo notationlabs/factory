@@ -4,8 +4,18 @@ import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 /** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
 export type ReplyTicket = { connection: string; thread: unknown; expires: number };
 
-/** What the runner posts to a run's `reply.url`. */
-export type Relay = { ticket: ReplyTicket; signature: string; text: string };
+/**
+ * A message that a run's reply posted, which a later reply of the run
+ * replaces. The router signs its id together with the reply ticket's
+ * signature, so a run can only replace its own messages.
+ */
+export type ReplyMessage = { id: string; signature: string };
+
+/** What the runner posts to a run's `reply.url`. With `message`, the reply replaces that message. */
+export type Relay = { ticket: ReplyTicket; signature: string; text: string; message?: ReplyMessage };
+
+/** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
+export type RelayResult = { ok: true; message?: ReplyMessage };
 
 /** Which container's policy tokens the router mints again: a container of the repo's outpost. `expires` is in ms since the epoch. */
 export type TokenTicket = { repo: string; container: string; expires: number };
@@ -68,6 +78,14 @@ export const signTicket = (rootKey: string, ticket: ReplyTicket) => sign(rootKey
 /** Whether the router signed `ticket`, and it hasn't expired. */
 export const verifyTicket = (rootKey: string, ticket: ReplyTicket, signature: string) =>
   verify(rootKey, "router:relay", ticket, signature);
+
+/** Signs the id of a message that the reply with the ticket signature `ticket` posted. */
+export const signMessage = async (rootKey: string, ticket: string, id: string) =>
+  hmacHex(await deriveKey(rootKey, "router:message"), JSON.stringify([ticket, id]));
+
+/** Whether the router signed `message` for replies with the ticket signature `ticket`. */
+export const verifyMessage = async (rootKey: string, ticket: string, message: ReplyMessage) =>
+  timingSafeEqual(message.signature, await signMessage(rootKey, ticket, message.id));
 
 export const signTokenTicket = (rootKey: string, ticket: TokenTicket) => sign(rootKey, "router:tokens", ticket);
 

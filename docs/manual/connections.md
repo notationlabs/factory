@@ -103,4 +103,6 @@ Slack thread / GitHub issue
 
 The relay lets a container read a conversation's thread and messages, reply to it, and acknowledge an event. The router refuses any call for a conversation it didn't dispatch to that container.
 
+A reply can replace a message that an earlier reply of the same run posted. The router answers each reply with the message's id, signed together with the run's reply ticket, and replaces a message only when the container sends that signature back. A run can't edit any other message.
+
 Code is different: containers call the code host directly, with credentials limited to one repo and the policy's permissions, and short-lived. See [Containers & Policies](./containers.md#policies).

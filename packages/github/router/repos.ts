@@ -209,14 +209,35 @@ export const issueComments = async (auth: AppAuth, repo: string, issue: number) 
 /** GitHub's limit on a comment's body. */
 const MAX_COMMENT_CHARS = 65536;
 
-/** Comments `body` on an issue or a pull request, as the App. */
-export const comment = async (auth: AppAuth, repo: string, issue: number, body: string) => {
+/**
+ * Comments `body` on an issue or a pull request, as the App, or replaces the
+ * body of the App's comment `replace` on it. If that comment is gone, it
+ * comments anew. Resolves to the comment's id.
+ */
+export const comment = async (auth: AppAuth, repo: string, issue: number, body: string, replace?: number) => {
   const token = await repoToken(auth, repo, { issues: "write" });
   const text = body.length > MAX_COMMENT_CHARS ? `${body.slice(0, MAX_COMMENT_CHARS - 20)}\n\n…(cut)` : body;
-  await ok(
-    await github("POST", `/repos/${repo}/issues/${issue}/comments`, token, { body: { body: text } }),
-    `POST /repos/${repo}/issues/${issue}/comments`,
-  );
+  if (replace !== undefined) {
+    const path = `/repos/${repo}/issues/comments/${replace}`;
+    const response = await github("PATCH", path, token, { body: { body: text } });
+    if (response.status !== 404) {
+      await ok(response, `PATCH ${path}`);
+      return replace;
+    }
+  }
+  const path = `/repos/${repo}/issues/${issue}/comments`;
+  const response = await ok(await github("POST", path, token, { body: { body: text } }), `POST ${path}`);
+  return ((await response.json()) as { id: number }).id;
+};
+
+/** Reacts with 👀 to a comment, or to an issue's opening post if there's no `comment`. */
+export const reactEyes = async (auth: AppAuth, repo: string, target: { issue: number; comment?: number }) => {
+  const token = await repoToken(auth, repo, { issues: "write" });
+  const path =
+    target.comment === undefined
+      ? `/repos/${repo}/issues/${target.issue}/reactions`
+      : `/repos/${repo}/issues/comments/${target.comment}/reactions`;
+  await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
 };
 
 const fullNames = (repos: { full_name: string }[] | undefined) => (repos ?? []).map((r) => r.full_name);

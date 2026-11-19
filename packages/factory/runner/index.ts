@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CodeHostRunner, RuntimeRunner } from "../contracts/runner.ts";
-import type { Relay, Run, TokenRequest, Tokens } from "../router/run.ts";
+import type { Relay, RelayResult, ReplyMessage, Run, TokenRequest, Tokens } from "../router/run.ts";
 
 const PORT = Number(process.env.FACTORY_RUNNER_PORT ?? 8080);
 const DATA = process.env.FACTORY_DATA ?? "/data";
@@ -22,6 +22,9 @@ const TOKEN_REFRESH_MS = Number(process.env.FACTORY_TOKEN_REFRESH_MS ?? 30 * 60 
 
 /** First on the agent's PATH, for the code host's wrappers, such as a `gh` that reads its token from `FACTORY_TOKEN_FILE`. */
 const BIN = join(DATA, "bin");
+
+/** The shortest time between two posts of an agent's messages during a run. Each post edits the run's message on the conversation. */
+const PROGRESS_INTERVAL_MS = Number(process.env.FACTORY_PROGRESS_INTERVAL_MS ?? 10 * 1000);
 
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -49,7 +52,7 @@ const systemPrompt = async (run: Run, cwd: string) => {
   return parts.join("\n\n");
 };
 
-/** The most bytes of an agent's output kept. */
+/** The most bytes of an agent's output kept. The runner keeps the end, which has the final reply. */
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -58,27 +61,48 @@ const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at:
 
 type Result = { code: number | null; stdout: string; stderr: string };
 
-/** Runs `command`, and resolves with its exit code and output. Rejects only if it can't start. */
+const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX_OUTPUT_BYTES) : text);
+
+/**
+ * Runs `command`, and resolves with its exit code and output. Rejects only
+ * if it can't start. `onLine` gets each line of its stdout as it's written.
+ */
 const exec = (
   command: string,
   args: string[],
-  { cwd, env, timeout }: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number } = {},
+  {
+    cwd,
+    env,
+    timeout,
+    onLine,
+  }: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number; onLine?: (line: string) => void } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
     const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      if (stdout.length < MAX_OUTPUT_BYTES) stdout += chunk;
+    let line = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      // Cut only once the output is twice the limit, so each chunk isn't a copy.
+      if (stdout.length > 2 * MAX_OUTPUT_BYTES) stdout = tail(stdout);
+      if (!onLine) return;
+      const lines = (line + chunk).split("\n");
+      line = tail(lines.pop() ?? "");
+      for (const complete of lines) onLine(complete);
     });
-    child.stderr.on("data", (chunk) => {
-      if (stderr.length < MAX_OUTPUT_BYTES) stderr += chunk;
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+      if (stderr.length > 2 * MAX_OUTPUT_BYTES) stderr = tail(stderr);
     });
     const timer = timeout ? setTimeout(() => child.kill("SIGTERM"), timeout) : undefined;
     child.on("error", reject);
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      if (line && onLine) onLine(line);
+      resolve({ code, stdout: tail(stdout), stderr: tail(stderr) });
     });
   });
 
@@ -414,9 +438,10 @@ const restoreSession = async (run: Run, adapter: RuntimeRunner) => {
 /**
  * Runs the run's agent in `cwd` with the run's prompt, and returns its
  * final message. It resumes the conversation's session if the session ran
- * in the same worktree.
+ * in the same worktree. `onMessage` gets each message the agent writes
+ * while it runs, if the runtime reads them.
  */
-const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string) => {
+const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string, onMessage: (text: string) => void) => {
   const args = await adapter.args(run, { cwd, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA });
   const session = await readSession(run);
   if (session?.cwd === cwd) args.push(...adapter.resume(session.id));
@@ -425,6 +450,12 @@ const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string) => {
     cwd,
     env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run), ...adapter.env },
     timeout: RUN_TIMEOUT_MS,
+    onLine:
+      adapter.message &&
+      ((line) => {
+        const text = adapter.message?.(line);
+        if (text?.trim()) onMessage(text);
+      }),
   });
   const output = adapter.parse(result.stdout);
   if (output?.sessionId) {
@@ -446,14 +477,63 @@ const assertCommand = async (command: string, name: string) => {
   }
 };
 
-const relay = async (run: Run, text: string) => {
-  const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text };
+/** Posts `text` to the run's conversation, in place of `message` if it's set. Resolves to the message the router names. */
+const relay = async (run: Run, text: string, message?: ReplyMessage) => {
+  const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text, ...(message && { message }) };
   const response = await fetch(run.reply.url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`The router refused the reply with status ${response.status}: ${await response.text()}`);
+  return ((await response.json().catch(() => ({}))) as Partial<RelayResult>).message;
+};
+
+/** What the conversation shows under an agent's latest message while the run goes on. */
+const PROGRESS_NOTE = "> The agent is still running. Its final reply will replace this message.";
+
+/**
+ * A run's replies, which share one message on the conversation. `progress`
+ * posts the agent's latest message, at most once every
+ * `PROGRESS_INTERVAL_MS`, and each post replaces the last. `finish` posts
+ * the final reply in their place.
+ */
+const replies = (run: Run) => {
+  let posted: ReplyMessage | undefined;
+  let pending: string | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let sentAt = 0;
+  // Posts go one at a time, so each one knows the message that the last one posted.
+  let posting: Promise<void> = Promise.resolve();
+  const post = (text: string) => {
+    const next = posting.then(async () => {
+      posted = (await relay(run, text, posted)) ?? posted;
+      sentAt = Date.now();
+    });
+    posting = next.catch(() => {});
+    return next;
+  };
+  const flush = () => {
+    timer = undefined;
+    if (pending === undefined) return;
+    const text = pending;
+    pending = undefined;
+    post(`${text}\n\n${PROGRESS_NOTE}`).catch((error: unknown) =>
+      log({ run: run.id, state: "progress failed", error: message(error) }),
+    );
+  };
+  return {
+    progress(text: string) {
+      pending = text;
+      timer ??= setTimeout(flush, Math.max(0, sentAt + PROGRESS_INTERVAL_MS - Date.now()));
+    },
+    finish(text: string) {
+      clearTimeout(timer);
+      timer = undefined;
+      pending = undefined;
+      return post(text);
+    },
+  };
 };
 
 let active = 0;
@@ -465,13 +545,16 @@ let active = 0;
  * 2. Restores the conversation's session if this container doesn't have it.
  * 3. Writes the container's files and the policies' tokens.
  * 4. Runs the agent in the worktree, and has the router mint new tokens
- *    while it runs.
+ *    while it runs. Posts the agent's messages as it writes them, each in
+ *    place of the last.
  * 5. Saves the worktree and the session to the state store.
  * 6. Posts the agent's final message, or the error, to the conversation,
- *    with notes on what couldn't be restored or saved.
+ *    with notes on what couldn't be restored or saved. It replaces the
+ *    agent's last message from step 4.
  */
 const execute = async (run: Run) => {
   const started = Date.now();
+  const reply = replies(run);
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const worktree = worktreeOf(run);
   const notes: string[] = [];
@@ -500,7 +583,7 @@ const execute = async (run: Run) => {
       TOKEN_REFRESH_MS,
     );
     try {
-      text = await runAgent(adapter, run, worktree.path);
+      text = await runAgent(adapter, run, worktree.path, reply.progress);
     } finally {
       clearInterval(refreshing);
     }
@@ -519,8 +602,8 @@ const execute = async (run: Run) => {
     }
   }
   try {
-    const reply = [text || "(The agent finished with no message.)", ...notes.map((note) => `> ${note}`)];
-    await relay(run, reply.join("\n\n"));
+    const parts = [text || "(The agent finished with no message.)", ...notes.map((note) => `> ${note}`)];
+    await reply.finish(parts.join("\n\n"));
   } catch (error) {
     log({ run: run.id, state: "relay failed", error: message(error) });
   }

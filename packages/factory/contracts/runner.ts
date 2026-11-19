@@ -34,6 +34,13 @@ export type RuntimeRunner = {
   resume(sessionId: string): string[];
   /** Reads the CLI's output. Returns undefined if it isn't the CLI's output. */
   parse(stdout: string): RuntimeOutput | undefined;
+  /**
+   * Reads one line of the CLI's output while it runs, and returns the text
+   * of the agent's message on that line, if it has one. The runner posts
+   * each message in place of the last, until the final reply replaces
+   * them. Without it, the runner posts only the final reply.
+   */
+  message?(line: string): string | undefined;
   /** Extra environment for the CLI. */
   env?: Record<string, string>;
 };

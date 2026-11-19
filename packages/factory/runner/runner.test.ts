@@ -18,8 +18,9 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 
 // A fake Claude Code: it records how it was called and the token that gh
 // gets, and writes a transcript for a session named after its working
-// directory. It fails, edits the worktree, or waits for the runner to
-// refresh its tokens, when the prompt says so.
+// directory, and writes stream-json. It fails, edits the worktree, waits for
+// the runner to refresh its tokens, or writes messages before its result,
+// when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$2"
 case "$prompt" in
@@ -30,7 +31,7 @@ session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.claude/projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$HOME/.claude/projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
-  fail*) echo "{\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
+  fail*) echo "{\\"type\\":\\"result\\",\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   edit*)
     echo committed > committed.txt
     git add committed.txt
@@ -38,8 +39,16 @@ case "$prompt" in
     echo draft > notes.txt
     rm README.md ;;
   wait*) printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill | grep password= >> "${calls}" ;;
+  talk*)
+    echo '{"type":"system","subtype":"init"}'
+    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Looking."}]}}'
+    sleep 0.3
+    echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"A subagent."}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
+    sleep 0.3 ;;
 esac
-echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
+echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
 /** A fake Cursor Agent: like the fake Claude Code, but for Cursor's CLI. */
@@ -75,6 +84,7 @@ echo "$GH_TOKEN"
 `;
 
 const replies: Relay[] = [];
+let relays = 0;
 /** The token that the fake router mints when the runner asks for new tokens. */
 let freshToken = "push-token";
 const tokenRequests: TokenRequest[] = [];
@@ -140,9 +150,12 @@ before(async () => {
         tokenRequests.push(body);
         return response.end(JSON.stringify([{ policy: "code", repo: body.ticket.repo, token: freshToken }]));
       }
-      replies.push(JSON.parse(Buffer.concat(chunks).toString()));
+      // Like the router, it names the message that each reply posted or replaced.
+      const relay = JSON.parse(Buffer.concat(chunks).toString()) as Relay;
+      replies.push(relay);
+      relays++;
       waiting?.();
-      response.end("{}");
+      response.end(JSON.stringify({ ok: true, message: relay.message ?? { id: `m${relays}`, signature: "msig" } }));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -168,6 +181,7 @@ const startRunner = async () => {
       FACTORY_STATE_URL: `${serverUrl()}/state`,
       FACTORY_MODULES_URL: `${serverUrl()}/modules`,
       FACTORY_TOKEN_REFRESH_MS: "300",
+      FACTORY_PROGRESS_INTERVAL_MS: "100",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
@@ -352,6 +366,20 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
   const scratch = join(data, "scratch", "github-acme-api-2");
   assert.equal(lastCall()[0], scratch);
   assert.ok(existsSync(join(scratch, ".factory", "prompt.md")));
+});
+
+test("the agent's messages during a run share one comment, which its final reply replaces", async () => {
+  const id = `m${relays + 1}`;
+  await post(run({ worktree: { branch: "issue-5" }, conversation: { id: "github:acme/api#5", prompt: "talk to me" } }));
+  const first = await nextReply();
+  assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.equal(first.message, undefined);
+  const second = await nextReply();
+  assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(second.message, { id, signature: "msig" });
+  const final = await nextReply();
+  assert.equal(final.text, "done");
+  assert.deepEqual(final.message, { id, signature: "msig" });
 });
 
 test("a run of a runtime that the hub has no runner module for replies with the error", async () => {

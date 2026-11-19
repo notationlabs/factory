@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
 import { handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, signBuildReport, signTicket, signTokenTicket } from "./run.ts";
+import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
 
 const ROOT_KEY = "root";
 
@@ -23,7 +23,8 @@ const fake = (
   writeStatus: async () => {},
   writeCheck: async () => {},
   conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, prompt: "do it", thread: { repo: delivery.repo } }),
-  reply: async () => {},
+  acknowledge: async () => {},
+  reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
 });
 
@@ -363,9 +364,31 @@ test("a run that can't start replies with the error", async () => {
 
 test("a denied author starts no run", async () => {
   const runs: Run[] = [];
-  const { body } = await call(runStore(accepted({ data: { allow: false } }), { run: async (run) => void runs.push(run) }));
+  const acknowledged: unknown[] = [];
+  const channel = { ...accepted({ data: { allow: false } }), acknowledge: async (d: Delivery<FakeEvent>) => void acknowledged.push(d.id) };
+  const { body } = await call(runStore(channel, { run: async (run) => void runs.push(run) }));
   assert.deepEqual(body.matches, [{ trigger: "mention", author: { result: "denied" } }]);
   assert.equal(runs.length, 0);
+  assert.deepEqual(acknowledged, []);
+});
+
+test("a delivery that starts a run is acknowledged once, before the run is handed to the deployer", async () => {
+  const events: string[] = [];
+  const channel = { ...accepted(), acknowledge: async (d: Delivery<FakeEvent>) => void events.push(`acknowledge ${d.id}`) };
+  await call(runStore(channel, { run: async () => void events.push("run") }));
+  assert.deepEqual(events, ["acknowledge d1", "run"]);
+});
+
+test("a run starts even if the channel can't acknowledge its delivery", async () => {
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    acknowledge: async () => {
+      throw new Error("no reactions");
+    },
+  };
+  await call(runStore(channel, { run: async (run) => void runs.push(run) }));
+  assert.equal(runs.length, 1);
 });
 
 const relay = (s: RouterStore, body: unknown) =>
@@ -385,6 +408,34 @@ test("relay posts a reply with a ticket the router signed through the ticket's c
   const expired = { ...ticket, expires: Date.now() - 1 };
   assert.equal((await relay(s, { ticket: expired, signature: await signTicket(ROOT_KEY, expired), text: "x" })).status, 401);
   assert.equal(replies.length, 1);
+});
+
+test("relay answers with the message it posted, signed, and a reply with that message replaces it", async () => {
+  const replies: unknown[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (thread: unknown, text: string, message?: string) => {
+      replies.push([text, message]);
+      return message ?? "m1";
+    },
+  };
+  const s = runStore(channel, {});
+  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
+  const signature = await signTicket(ROOT_KEY, ticket);
+
+  const first = await (await relay(s, { ticket, signature, text: "working" })).json();
+  assert.deepEqual(first, { ok: true, message: { id: "m1", signature: await signMessage(ROOT_KEY, signature, "m1") } });
+  assert.equal((await relay(s, { ticket, signature, text: "done", message: first.message })).status, 200);
+  assert.deepEqual(replies, [["working", undefined], ["done", "m1"]]);
+
+  // A run can't replace a message that it didn't post.
+  const other = { id: "m2", signature: first.message.signature };
+  assert.equal((await relay(s, { ticket, signature, text: "x", message: other })).status, 401);
+  const otherTicket = { ...ticket, expires: ticket.expires + 1 };
+  const otherSignature = await signTicket(ROOT_KEY, otherTicket);
+  assert.equal((await relay(s, { ticket: otherTicket, signature: otherSignature, text: "x", message: first.message })).status, 401);
+  assert.equal((await relay(s, { ticket, signature, text: "x", message: { id: 1 } })).status, 400);
+  assert.equal(replies.length, 2);
 });
 
 const refresh = (s: RouterStore, body: unknown) =>

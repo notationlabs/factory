@@ -14,6 +14,25 @@ function envFile(): Record<string, string> {
   return { CLAUDE_ENV_FILE: file };
 }
 
+/** One line of Claude Code's stream-json output. */
+type StreamEvent = {
+  type?: string;
+  result?: string;
+  is_error?: boolean;
+  session_id?: string;
+  parent_tool_use_id?: string | null;
+  message?: { content?: { type: string; text?: string }[] };
+};
+
+const parseLine = (line: string): StreamEvent | undefined => {
+  if (!line.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(line) as StreamEvent;
+  } catch {
+    return undefined;
+  }
+};
+
 /** How the runner runs Claude Code. Containers import it with no packages, so it imports only Node's. */
 const claude: RuntimeRunner = {
   command: "claude",
@@ -21,7 +40,16 @@ const claude: RuntimeRunner = {
   transcripts: join(homedir(), ".claude", "projects"),
   args: async (run, { systemPrompt }) => {
     const { agent } = run;
-    const args = ["-p", run.conversation.prompt, "--output-format", "json", "--dangerously-skip-permissions"];
+    // stream-json writes a line for each event, so the runner can post the
+    // agent's messages as it writes them. It needs --verbose in print mode.
+    const args = [
+      "-p",
+      run.conversation.prompt,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--dangerously-skip-permissions",
+    ];
     if (typeof agent.model === "string") args.push("--model", agent.model);
     if (typeof agent.effort === "string") args.push("--effort", agent.effort);
     args.push("--append-system-prompt", systemPrompt);
@@ -30,12 +58,19 @@ const claude: RuntimeRunner = {
   },
   resume: (sessionId) => ["--resume", sessionId],
   parse: (stdout) => {
-    try {
-      const output = JSON.parse(stdout) as { result?: string; is_error?: boolean; session_id?: string };
-      return { result: output.result, isError: output.is_error, sessionId: output.session_id };
-    } catch {
-      return undefined;
+    const lines = stdout.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const event = parseLine(lines[i]!);
+      if (event?.type === "result") return { result: event.result, isError: event.is_error, sessionId: event.session_id };
     }
+    return undefined;
+  },
+  message: (line) => {
+    const event = parseLine(line);
+    // A message with a parent tool use is a subagent's, which the conversation doesn't see.
+    if (event?.type !== "assistant" || event.parent_tool_use_id) return undefined;
+    const text = (event.message?.content ?? []).flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
+    return text.length ? text.join("\n\n") : undefined;
   },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };

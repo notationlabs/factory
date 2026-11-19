@@ -92,8 +92,14 @@ export interface Channel<E = unknown> {
   writeCheck?(repo: string, ref: string, check: BuildCheck): Promise<void>;
   /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
   conversation?(delivery: Delivery<E>, trigger: ConversationTrigger): Conversation | Promise<Conversation>;
-  /** Posts `text` to a conversation's thread. */
-  reply?(thread: unknown, text: string): Promise<void>;
+  /** Shows on the delivery's post that a run is starting for it, such as with GitHub's 👀 reaction. */
+  acknowledge?(delivery: Delivery<E>): Promise<void>;
+  /**
+   * Posts `text` to a conversation's thread, or replaces the text of
+   * `message`, a message that an earlier reply to the thread posted.
+   * Resolves to the id of the message it posted or replaced.
+   */
+  reply?(thread: unknown, text: string, message?: string): Promise<string | undefined>;
   /** For a code host's channel: a short-lived token for `repo`, with only `permissions`. */
   token?(repo: string, permissions: Record<string, "read" | "write">): Promise<string>;
 }

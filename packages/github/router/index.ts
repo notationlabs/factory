@@ -14,6 +14,7 @@ import {
   type IssueComment,
   issueComments,
   PUSH_ROLES,
+  reactEyes,
   readDir,
   repoToken,
   roles,
@@ -339,9 +340,16 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       };
     },
 
-    async reply(thread, text) {
+    async acknowledge(delivery) {
+      const payload = delivery.payload as Payload;
+      await reactEyes(await auth(), delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
+    },
+
+    async reply(thread, text, message) {
       const { repo, issue, agent } = thread as Thread;
-      await comment(await auth(), repo, issue, agent ? `${agentMarker(agent)}\n${text}` : text);
+      const body = agent ? `${agentMarker(agent)}\n${text}` : text;
+      const replace = message === undefined ? undefined : Number(message);
+      return String(await comment(await auth(), repo, issue, body, Number.isInteger(replace) ? replace : undefined));
     },
 
     async token(repo, permissions) {

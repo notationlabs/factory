@@ -178,12 +178,18 @@ const keyed = github({
   value: (name) => (name === "APP_ID" ? "123" : ""),
 });
 
-/** Runs `body` with GitHub's API faked: each login's role, the issue's comments, and the comments the App posts. */
+/**
+ * Runs `body` with GitHub's API faked: each login's role, the issue's
+ * comments, and the comments the App posts. `writes` records each POST and
+ * PATCH as its method, path and body. A PATCH of a comment in `deleted` is
+ * a 404.
+ */
 const withGithub = async (
-  { roles = {}, comments = [] }: { roles?: Record<string, string>; comments?: object[] },
-  body: (posted: string[]) => Promise<void>,
+  { roles = {}, comments = [], deleted = [] }: { roles?: Record<string, string>; comments?: object[]; deleted?: number[] },
+  body: (posted: string[], writes: [string, string, unknown][]) => Promise<void>,
 ) => {
   const posted: string[] = [];
+  const writes: [string, string, unknown][] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -194,15 +200,21 @@ const withGithub = async (
       const name = roles[decodeURIComponent(role[1]!)];
       return name ? Response.json({ permission: name, role_name: name }) : new Response("Not Found", { status: 404 });
     }
+    if (init?.method === "PATCH" || url.pathname.endsWith("/reactions")) {
+      writes.push([init!.method!, url.pathname, JSON.parse(String(init!.body))]);
+      if (deleted.some((id) => url.pathname.endsWith(`/comments/${id}`))) return new Response("Not Found", { status: 404 });
+      return Response.json({});
+    }
     if (url.pathname.endsWith("/comments") && init?.method === "POST") {
       posted.push(JSON.parse(String(init.body)).body);
-      return Response.json({});
+      writes.push(["POST", url.pathname, JSON.parse(String(init.body))]);
+      return Response.json({ id: 500 + posted.length });
     }
     if (url.pathname.endsWith("/comments")) return Response.json(comments);
     return new Response("Not Found", { status: 404 });
   }) as typeof fetch;
   try {
-    await body(posted);
+    await body(posted, writes);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -327,5 +339,39 @@ test("a reply starts with a hidden marker that names the agent", async () => {
   await withGithub({}, async (posted) => {
     await keyed.reply!({ repo: "acme/api", issue: 7, agent: "claude-coder" }, "Done.");
     assert.deepEqual(posted, ["<!-- factory:agent=claude-coder -->\nDone."]);
+  });
+});
+
+test("a reply resolves to its comment's id, and a reply with that id edits the comment", async () => {
+  await withGithub({}, async (_, writes) => {
+    const thread = { repo: "acme/api", issue: 7, agent: "claude-coder" };
+    assert.equal(await keyed.reply!(thread, "Working."), "501");
+    assert.equal(await keyed.reply!(thread, "Done.", "501"), "501");
+    assert.deepEqual(writes, [
+      ["POST", "/repos/acme/api/issues/7/comments", { body: "<!-- factory:agent=claude-coder -->\nWorking." }],
+      ["PATCH", "/repos/acme/api/issues/comments/501", { body: "<!-- factory:agent=claude-coder -->\nDone." }],
+    ]);
+  });
+});
+
+test("a reply to a comment that's gone posts a new comment", async () => {
+  await withGithub({ deleted: [501] }, async (_, writes) => {
+    assert.equal(await keyed.reply!({ repo: "acme/api", issue: 7 }, "Done.", "501"), "501");
+    assert.deepEqual(writes.map(([method, path]) => `${method} ${path}`), [
+      "PATCH /repos/acme/api/issues/comments/501",
+      "POST /repos/acme/api/issues/7/comments",
+    ]);
+  });
+});
+
+test("acknowledge reacts with 👀 to the comment that matched, or to the issue for an issue event", async () => {
+  await withGithub({}, async (_, writes) => {
+    await keyed.acknowledge!(await accepted("issue_comment", commentPayload));
+    const opened = { action: "opened", repository: commentPayload.repository, issue: commentPayload.issue };
+    await keyed.acknowledge!(await accepted("issues", opened));
+    assert.deepEqual(writes, [
+      ["POST", "/repos/acme/api/issues/comments/99/reactions", { content: "eyes" }],
+      ["POST", "/repos/acme/api/issues/7/reactions", { content: "eyes" }],
+    ]);
   });
 });

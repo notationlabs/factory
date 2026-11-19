@@ -118,7 +118,7 @@ new Trigger("mention", {
 | `github.team("acme/core")` | Members of a team |
 | `github.user("alice")` | One user |
 
-A conversation is an issue. Replies are posted as issue comments by the App, through the router's relay.
+A conversation is an issue. Replies are posted as issue comments by the App, through the router's relay. The App reacts with 👀 to the comment or issue that starts a run. A run's messages share one comment, which the App edits with each message and then with the final reply. If someone deletes that comment during the run, the next message is posted as a new comment.
 
 ## Policy
 

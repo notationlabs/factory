@@ -20,6 +20,7 @@ export default defineConfig({
         published("github"),
         published("slack"),
         published("claude"),
+        published("cursor"),
         published("droid"),
         published("railway"),
         published("cli"),

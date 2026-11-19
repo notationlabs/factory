@@ -1,4 +1,4 @@
-import { ResourceGroup } from "@notation/resource";
+import { type CredentialRef, type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   type Vault as VaultContract,
   type VaultSecret,
@@ -6,13 +6,16 @@ import {
 } from "@notation/factory";
 import { secretsStore } from "@notation/cloudflare/resources";
 
-/** One vault secret, as a Secrets Store secret that holds a credential. */
+/**
+ * One vault secret, as a Secrets Store secret. It holds a credential, or
+ * for the router's own use, an output such as the sync key.
+ */
 export class CloudflareSecret extends ResourceGroup {
   platform = "cloudflare";
   readonly secret: secretsStore.SecretsStoreSecretInstance;
 
   constructor(
-    { id, value }: VaultSecretOptions,
+    { id, value }: Omit<VaultSecretOptions, "value"> & { value: CredentialRef<string> | OutputRef<string> },
     store: secretsStore.SecretsStoreInstance,
   ) {
     super("cloudflare/Secret", id, { id });

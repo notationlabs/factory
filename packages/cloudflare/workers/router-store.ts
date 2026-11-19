@@ -18,6 +18,7 @@ import type { DurableObjectNamespace, KVNamespace, SecretsStoreSecret } from "./
 export type RouterEnv = {
   FACTORY_KV: KVNamespace;
   FACTORY_ROOT_KEY: SecretsStoreSecret;
+  FACTORY_SYNC_KEY?: SecretsStoreSecret;
   FACTORY_DEPLOYER?: RemoteDeployer;
   INBOX: DurableObjectNamespace<DeliveryInbox>;
 } & Record<string, unknown>;
@@ -103,6 +104,7 @@ export const routerStore = async (env: RouterEnv, background?: (task: Promise<un
     ((await env.FACTORY_KV.get(outpostKey(repo), "json")) ?? undefined) as OutpostConfig | undefined,
   deployer: env.FACTORY_DEPLOYER,
   rootKey: () => env.FACTORY_ROOT_KEY.get(),
+  syncKey: async () => env.FACTORY_SYNC_KEY?.get(),
   inbox: inbox(env),
   deploys: deploys(env),
   ...(background && { background }),

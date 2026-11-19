@@ -15,7 +15,6 @@ import {
   type SignInRequest,
   type SignInResult,
   signSession,
-  type SyncResult,
   verifySession,
 } from "./admin.ts";
 import type {
@@ -57,6 +56,7 @@ import {
   verifyTicket,
   verifyTokenTicket,
 } from "./run.ts";
+import { SYNC_HEADER, verifySync } from "./sync.ts";
 
 /** The KV key that the deployer stores a repo's outpost config under. `repo` is `owner/name`. */
 export const outpostKey = (repo: string) => `outposts/${repo.toLowerCase()}`;
@@ -70,6 +70,8 @@ export type RouterStore = {
   deployer?: RemoteDeployer;
   /** The root key, which the router derives its own keys from. */
   rootKey(): Promise<string>;
+  /** The key that deploy signs `POST /sync` with. Without it, the router refuses every sync. */
+  syncKey?(): Promise<string | undefined>;
   /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
   background?(task: Promise<unknown>): void;
   /** Where the router saves deliveries, which dispatches them and keeps the failed ones. */
@@ -599,11 +601,17 @@ const source = async (
   }
   const { deployer } = store;
   if (!deployer) return json(200, { ignored: "no deployer" });
-  await redeployEach(changes, codeHost.allow ?? [], channel, deployer, store);
+  await later(store, redeployEach(changes, codeHost.allow ?? [], channel, deployer, store));
   return json(202, { connection: key, deploying: changes.map((c) => c.repo) });
 };
 
-/** Deploys each change one at a time, after the response where the platform allows it. */
+/** Runs `task` after the response where the platform allows it, or else waits for it. */
+const later = async (store: RouterStore, task: Promise<void>) => {
+  if (store.background) store.background(task);
+  else await task;
+};
+
+/** Deploys each change one at a time. */
 const redeployEach = async (
   changes: SourceChange[],
   allow: RepoPattern[],
@@ -611,21 +619,50 @@ const redeployEach = async (
   deployer: RemoteDeployer,
   store: RouterStore,
 ) => {
-  const task = (async () => {
-    for (const change of changes) {
-      try {
-        await redeploy(change, allow, channel, deployer, store.deploys);
-      } catch (error) {
-        console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
-      }
+  for (const change of changes) {
+    try {
+      await redeploy(change, allow, channel, deployer, store.deploys);
+    } catch (error) {
+      console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
     }
-  })();
-  if (store.background) store.background(task);
-  else await task;
+  }
 };
 
-/** Has each connection's channel set up its platform side, pointing it at this router. */
+/**
+ * Deploys every repo again:
+ * 1. Has the code host's channel list the repos that the hub can read, and
+ *    keeps those that the code host's allow list includes.
+ * 2. Deploys each of them again from its default branch, one at a time.
+ * 3. Removes the outposts of the other deployed repos.
+ */
+const syncRepos = async (store: RouterStore) => {
+  const codeHost = store.config.codeHost;
+  const channel = codeHostChannel(store)?.channel;
+  const { deployer } = store;
+  if (!codeHost || !channel || !deployer) return;
+  const allow = codeHost.allow ?? [];
+  const deploying = (await channel.repos()).filter((repo) => allowsRepo(allow, repo));
+  const kept = new Set(deploying.map((repo) => repo.toLowerCase()));
+  const deployed = (await store.deploys?.list()) ?? [];
+  const removing = deployed.map((d) => d.repo).filter((repo) => !kept.has(repo.toLowerCase()));
+  console.log(JSON.stringify({ sync: { deploying, removing } }));
+  const changes: SourceChange[] = [...deploying.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
+  await redeployEach(changes, allow, channel, deployer, store);
+};
+
+/**
+ * Handles the sync that deploy sends after it deploys the hub:
+ * 1. Checks that the request was signed with the sync key.
+ * 2. Has each connection's channel set up its platform side, pointing it
+ *    at this router, and answers with each one's outcome.
+ * 3. Deploys every repo again with `syncRepos`, after the response.
+ */
 const sync = async (request: Request, store: RouterStore) => {
+  const syncKey = await store.syncKey?.();
+  if (!syncKey) return json(501, { error: "the router has no sync key" });
+  if (!(await verifySync(syncKey, request.headers.get(SYNC_HEADER) ?? ""))) {
+    return json(401, { error: "the sync request isn't signed with the sync key" });
+  }
   const { origin } = new URL(request.url);
   const results: Record<string, string> = {};
   for (const { key, channel } of channels(store)) {
@@ -636,6 +673,10 @@ const sync = async (request: Request, store: RouterStore) => {
       results[key] = error instanceof Error ? error.message : String(error);
     }
   }
+  await later(
+    store,
+    syncRepos(store).catch((error) => console.error(JSON.stringify({ sync: "failed", error: message(error) }))),
+  );
   const failed = Object.values(results).some((r) => r !== "ok");
   return json(failed ? 502 : 200, { connections: results });
 };
@@ -748,37 +789,6 @@ const replay = async (request: Request, store: RouterStore, operator: string) =>
   return json(200, result);
 };
 
-/**
- * Deploys every repo again, and answers before the deploys finish:
- * 1. Has the code host's channel list the repos that the hub can read, and
- *    keeps those that the code host's allow list includes.
- * 2. Deploys each of them again from its default branch.
- * 3. Removes the outposts of the other deployed repos.
- */
-const syncRepos = async (store: RouterStore, operator: string) => {
-  const codeHost = store.config.codeHost;
-  const channel = codeHostChannel(store)?.channel;
-  if (!codeHost || !channel) return json(404, { error: "the hub has no code host" });
-  const { deployer } = store;
-  if (!deployer) return json(404, { error: "the hub has no deployer" });
-  let readable: string[];
-  try {
-    readable = await channel.repos();
-  } catch (error) {
-    return json(502, { error: message(error) });
-  }
-  const allow = codeHost.allow ?? [];
-  const deploying = readable.filter((repo) => allowsRepo(allow, repo));
-  const kept = new Set(deploying.map((repo) => repo.toLowerCase()));
-  const deployed = (await store.deploys?.list()) ?? [];
-  const removing = deployed.map((d) => d.repo).filter((repo) => !kept.has(repo.toLowerCase()));
-  const changes: SourceChange[] = [...deploying.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
-  await redeployEach(changes, allow, channel, deployer, store);
-  const result: SyncResult = { deploying, removing };
-  console.log(JSON.stringify({ operator, sync: result }));
-  return json(202, result);
-};
-
 /** The routes under `/admin/`. Signing in needs no session. The others need an operator's admin session. */
 const admin = async (request: Request, route: string, store: RouterStore) => {
   const { method } = request;
@@ -789,13 +799,12 @@ const admin = async (request: Request, route: string, store: RouterStore) => {
   if (method === "GET" && route === "repos") return listRepos(store);
   if (method === "GET" && route === "deliveries") return listDeliveries(store);
   if (method === "POST" && route === "replay") return replay(request, store, operator);
-  if (method === "POST" && route === "sync") return syncRepos(store, operator);
   return json(404, { error: "not found" });
 };
 
 /**
- * The router's routes. `POST /sync` needs no auth, because a channel's sync
- * only sets the values the router derives. `POST /relay`, `POST /messages`
+ * The router's routes. `POST /sync` takes requests that deploy signed with
+ * the sync key. `POST /relay`, `POST /messages`
  * and `POST /tokens` take tickets that the router signed when it started a
  * run. `POST /builds` takes reports that the deployer signed. The routes
  * under `/admin/` are for operators.

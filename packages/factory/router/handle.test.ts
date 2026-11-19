@@ -6,8 +6,10 @@ import { BUILD_POLL_MS, BUILD_WAIT_MS, type DeliveryRecord, failedDelivery, type
 import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
 import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
 import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
+const SYNC_KEY = "sync";
 
 type FakeEvent = { allow: boolean };
 
@@ -135,18 +137,40 @@ test("a delivery to a connection with no channel is a 404", async () => {
   assert.equal((await call(store({ main: accepted() }), "/webhook/fake/unknown")).status, 404);
 });
 
+const syncCall = async (s: RouterStore, header?: string) => {
+  const response = await handle(
+    new Request("https://router.test/sync", { method: "POST", ...(header && { headers: { [SYNC_HEADER]: header } }) }),
+    s,
+  );
+  return { status: response.status, body: await response.json() };
+};
+
 test("sync gives each channel its connection's webhook URL, and reports failures", async () => {
   const urls: string[] = [];
-  const s = store({
-    main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)),
-    second: fake({ status: "ignored", reason: "" }, async () => {
-      throw new Error("no access");
+  const s: RouterStore = {
+    ...store({
+      main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)),
+      second: fake({ status: "ignored", reason: "" }, async () => {
+        throw new Error("no access");
+      }),
     }),
-  });
-  const { status, body } = await call(s, "/sync");
+    syncKey: async () => SYNC_KEY,
+  };
+  const { status, body } = await syncCall(s, await signSync(SYNC_KEY));
   assert.equal(status, 502);
   assert.deepEqual(urls, ["https://router.test/webhook/fake/main"]);
   assert.deepEqual(body.connections, { "fake/main": "ok", "fake/second": "no access" });
+});
+
+test("sync takes only a recent request signed with the sync key", async () => {
+  const urls: string[] = [];
+  const s: RouterStore = { ...store({ main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)) }), syncKey: async () => SYNC_KEY };
+  assert.equal((await syncCall(s)).status, 401);
+  assert.equal((await syncCall(s, await signSync("other"))).status, 401);
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, Date.now() - 10 * 60 * 1000))).status, 401);
+  assert.equal((await syncCall(s, (await signSync(SYNC_KEY)).replace(/^\d+/, (at) => String(Number(at) + 1)))).status, 401);
+  assert.equal((await syncCall({ ...s, syncKey: undefined }, await signSync(SYNC_KEY))).status, 501);
+  assert.deepEqual(urls, []);
 });
 
 const sourceStore = (
@@ -870,13 +894,23 @@ test("sync deploys every repo that the code host can read and allows, one at a t
   await deploys.put("acme/gone", { state: "deployed", at: "then" });
   const channel = sourceChannel([], calls);
   channel.repos = async () => ["acme/api", "other/api"];
-  const s: RouterStore = { ...adminStore(channel, calls), deploys };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
-  const { status, body } = await adminCall(s, "POST", "/admin/sync", { session });
-  assert.equal(status, 202);
-  assert.deepEqual(body, { deploying: ["acme/api"], removing: ["acme/gone"] });
+  const s: RouterStore = { ...sourceStore(channel, calls), deploys, syncKey: async () => SYNC_KEY };
+  const { status } = await syncCall(s, await signSync(SYNC_KEY));
+  assert.equal(status, 200);
   assert.deepEqual(calls.sort(), ["deploy acme/api head", "read acme/api .factory undefined", "remove acme/gone", "status acme/api deployed"]);
   assert.deepEqual([...deploys.saved.keys()], ["acme/api"]);
+});
+
+test("sync answers before the repos' deploys finish, where the platform allows it", async () => {
+  const calls: string[] = [];
+  const tasks: Promise<unknown>[] = [];
+  const channel = sourceChannel([], calls);
+  channel.repos = async () => ["acme/api"];
+  const s: RouterStore = { ...sourceStore(channel, calls), syncKey: async () => SYNC_KEY, background: (task) => void tasks.push(task) };
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY))).status, 200);
+  assert.equal(tasks.length, 1);
+  await tasks[0];
+  assert.ok(calls.includes("deploy acme/api head"));
 });
 
 test("replay replays one failed delivery, or all of them, against the router's origin", async () => {

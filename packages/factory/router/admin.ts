@@ -54,9 +54,6 @@ export type ReplayResult = {
   skipped: { connection: string; id: string }[];
 };
 
-/** `POST /admin/sync`: the repos that the router started to deploy again, and those whose outposts it removes. */
-export type SyncResult = { deploying: string[]; removing: string[] };
-
 const sessionKey = (rootKey: string) => deriveKey(rootKey, "operator:session");
 
 type Session = { operator: string; expires: number };

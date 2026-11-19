@@ -22,7 +22,6 @@ export type {
   ReposResult,
   SessionResult,
   SignInResult,
-  SyncResult,
 } from "./admin.ts";
 export {
   type DeliveryRecord,
@@ -37,3 +36,4 @@ export { advance, handle, outpostKey, type RemoteDeployer, type RouterStore, web
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 export { allowsRepo } from "../lib/repos.ts";
 export { type BuildReport, type Relay, type Run, type RunResult, signBuildReport } from "./run.ts";
+export { SYNC_HEADER, signSync } from "./sync.ts";

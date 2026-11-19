@@ -59,6 +59,14 @@ The deployer gives each container its own `FACTORY_CONTAINER_KEY` when it deploy
 
 Platforms that issue their own signing secret, such as Slack, keep it in the vault as part of the connection's credentials instead of deriving one.
 
+## The sync key
+
+At the end of every `factory infra up`, deploy asks the router to sync: the router points each connection's platform at itself, such as the GitHub App's webhook, and then deploys every repo again. Deploy signs this request with the sync key, so that `factory infra up` doesn't need an operator to sign in.
+
+The sync key is a random key, apart from the root key. The router declares it as a `RecordedKey` resource from `@notation/factory`. Unlike the root key, its value is recorded in Notation state, so every deploy can sign with it. Deploy never records the root key's value, and would have to rotate the root key to get it again. The router keeps the sync key in the vault's store, and binds it as `FACTORY_SYNC_KEY`.
+
+The request carries the time it was made and an HMAC of that time with the sync key. The router refuses a request whose signature doesn't match, or whose time is more than 5 minutes from its own clock. Anyone who can read the hub's Notation state can sign a sync. A sync only does what `factory infra up` does anyway, and reveals no secrets.
+
 ## The hub vault
 
 The vault is a `Vault` from the hub's provider plugin. `vault.secret(...)` declares a secret in it, and gives the secret its value. Declaring a secret doesn't give anything access to it. The router or the deployer binds the secret to its own Worker or service, under a name it chooses.
@@ -142,6 +150,7 @@ For the example at the top of this page, the vault holds these secrets:
 | Secret `id` | Binding name | Declared by | Bound by | Value from |
 | --- | --- | --- | --- | --- |
 | `router-root-key` | `FACTORY_ROOT_KEY` | `Router`, as `router.rootKey` | Router and deployer | The router's `RandomKey` |
+| `router-sync-key` | `FACTORY_SYNC_KEY` | `cloudflare.Router`, as `router.syncKey` | Router | The router's `RecordedKey` |
 | `gh-private-key` | `PRIVATE_KEY` | `github.Connection` | The connection's channel | The App, `app.credentials.privateKey` |
 | `gh-client-secret` | `CLIENT_SECRET` | `github.Connection` | The connection's channel | The App, `app.credentials.clientSecret` |
 | `slack-bot-token`, `slack-signing-secret` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` | `slack.Connection`, if the hub has one | Router | The Slack app, `botToken` and `signingSecret` |
@@ -159,6 +168,7 @@ Each Worker or service binds only the secrets it uses:
 | Secret | Router | Deployer |
 | --- | --- | --- |
 | `FACTORY_ROOT_KEY` | Bound by the router | Bound by the deployer |
+| `FACTORY_SYNC_KEY` | Bound by the router | Not bound |
 | Connection credentials | Bound by each connection, with `router.bind(...)` | Not bound |
 | The deployer's provider token | Not bound | Bound by the deployer |
 | Account secrets | Not bound | Bound by the deployer, for each of its `accounts` |
@@ -213,7 +223,7 @@ export default {
 
 ## Operator auth
 
-Commands that talk to a running hub sign you in as an operator instead of using the root key: `factory infra status`, `factory infra replay`, and the repo sync at the end of `factory infra up`. The router checks who you are and returns an admin session, signed with a key derived from the root key, that lasts 4 hours. The router also checks that the session's operator is still in the operator auth on each request, so removing an operator ends their session. `factory infra status` and `factory infra replay` need no provider credentials at all. See [Operator sign-in](./cli.md#operator-sign-in).
+Commands that talk to a running hub sign you in as an operator instead of using the root key: `factory infra status` and `factory infra replay`. `factory infra up` doesn't sign you in. It uses the [sync key](#the-sync-key). The router checks who you are and returns an admin session, signed with a key derived from the root key, that lasts 4 hours. The router also checks that the session's operator is still in the operator auth on each request, so removing an operator ends their session. `factory infra status` and `factory infra replay` need no provider credentials at all. See [Operator sign-in](./cli.md#operator-sign-in).
 
 The router keeps no list of sessions, so it can't revoke one session. If an admin session leaks, whoever holds it can use it until it expires, for up to 4 hours. To end it sooner, remove its operator from the operator auth and deploy, which ends all of that operator's sessions, or rotate the root key, which ends every session.
 
@@ -259,7 +269,7 @@ To use Cloudflare Access instead of GitHub:
 new cloudflare.OperatorAuth("operators", { router, emails: ["dj@acme.dev", "alice@acme.dev"] });
 ```
 
-Platform operations that need a connection's credentials run in the router, which has them: for GitHub, reading the App's settings, and reading and setting its webhook. `factory infra up` asks the router to do them.
+Platform operations that need a connection's credentials run in the router, which has them: for GitHub, reading the App's settings, and reading and setting its webhook. `factory infra up` asks the router to do them, with the sync key.
 
 ## Short-lived tokens
 

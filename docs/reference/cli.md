@@ -42,7 +42,7 @@ Read from the infrastructure repository root before any `factory` command runs:
 | Field | Behavior |
 | --- | --- |
 | `loadEnv` | Command prefix run once at startup; `factory` adopts the environment it sets before pre-flight checks |
-| `router` | The URL of the hub's router, which `factory infra status`, `factory infra replay` and the repo sync of `factory infra up` call. `factory infra up` prints it when it creates the router |
+| `router` | The URL of the hub's router, which `factory infra status` and `factory infra replay` call. `factory infra up` prints it when it creates the router |
 
 ## `.factory/config.ts`
 

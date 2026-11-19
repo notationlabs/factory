@@ -344,9 +344,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
   assert.equal(run!.refresh.signature, await signTokenTicket(ROOT_KEY, run!.refresh.ticket));
   assert.equal(run!.reply.url, "https://router.test/relay");
   assert.deepEqual(run!.reply.ticket.thread, { repo: "acme/api" });
-  assert.deepEqual(run!.reply.ticket.selector, { pick: true });
   assert.equal(run!.reply.signature, await signTicket(ROOT_KEY, run!.reply.ticket));
-  assert.equal(run!.messages.url, "https://router.test/messages");
 });
 
 test("a worktree function that names no branch runs in a scratch worktree", async () => {
@@ -449,23 +447,22 @@ test("messages answers a thread's messages for a reply ticket the router signed,
   const message = { id: "1", author: "@alice", body: "fix it", role: "write", canTrigger: true };
   const channel = {
     ...accepted(),
-    messages: async (thread: unknown, selector: unknown) => {
-      reads.push([thread, selector]);
+    messages: async (thread: unknown) => {
+      reads.push(thread);
       return [message];
     },
   };
   const s = runStore(channel, {});
-  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, selector: { pick: true }, expires: Date.now() + 60_000 };
+  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
   const signature = await signTicket(ROOT_KEY, ticket);
 
   const response = await readMessages(s, { ticket, signature });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { messages: [message] });
-  assert.deepEqual(reads, [[{ repo: "acme/api" }, { pick: true }]]);
+  assert.deepEqual(reads, [{ repo: "acme/api" }]);
 
-  // A run can't read another thread, or change who can trigger the agent.
+  // A run can't read another thread.
   assert.equal((await readMessages(s, { ticket: { ...ticket, thread: { repo: "acme/other" } }, signature })).status, 401);
-  assert.equal((await readMessages(s, { ticket: { ...ticket, selector: { pick: false } }, signature })).status, 401);
   assert.equal(reads.length, 1);
 });
 

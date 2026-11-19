@@ -26,7 +26,8 @@ export type Delivery<E> = {
 /**
  * Where a delivery's run reads and replies. `id` names the conversation,
  * such as an issue. `thread` is the channel's own reference to it, which
- * only its `messages` and `reply` read.
+ * only its `messages` and `reply` read. It holds what `messages` needs,
+ * such as the trigger's `from`.
  */
 export type Conversation = {
   id: string;
@@ -92,11 +93,7 @@ export type AuthorCheck =
   | { result: "denied" }
   | { result: "check"; sets: unknown[] };
 
-/**
- * One connection's deliveries, as the router handles them. A provider's
- * package implements it, and each platform decides where it runs.
- */
-export interface Channel<E = unknown> {
+interface ChannelBase<E> {
   /** Checks the delivery's signature and parses it. */
   receive(request: Request): Promise<Received<E>>;
   /** Whether `selector` selects the delivery, and if so, whether its author may start a run. */
@@ -109,13 +106,6 @@ export interface Channel<E = unknown> {
   writeStatus?(repo: string, status: FactoryStatus): Promise<void>;
   /** For a code host's channel: creates or updates the check named `check.name` on commit `ref`. */
   writeCheck?(repo: string, ref: string, check: BuildCheck): Promise<void>;
-  /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
-  conversation?(delivery: Delivery<E>, trigger: ConversationTrigger): Conversation | Promise<Conversation>;
-  /**
-   * The messages in a conversation's thread, oldest first. `selector` is
-   * the run's trigger's, whose `from` decides each author's `canTrigger`.
-   */
-  messages?(thread: unknown, selector: unknown): Promise<ThreadMessage[]>;
   /** Shows on the delivery's post that a run is starting for it, such as with GitHub's 👀 reaction. */
   acknowledge?(delivery: Delivery<E>): Promise<void>;
   /**
@@ -127,6 +117,22 @@ export interface Channel<E = unknown> {
   /** For a code host's channel: a short-lived token for `repo`, with only `permissions`. */
   token?(repo: string, permissions: Record<string, "read" | "write">): Promise<string>;
 }
+
+/** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */
+type Conversations<E> =
+  | {
+      /** The conversation that a run for the delivery belongs to. */
+      conversation(delivery: Delivery<E>, trigger: ConversationTrigger): Conversation | Promise<Conversation>;
+      /** The messages in a conversation's thread, oldest first. */
+      messages(thread: unknown): Promise<ThreadMessage[]>;
+    }
+  | { conversation?: never; messages?: never };
+
+/**
+ * One connection's deliveries, as the router handles them. A provider's
+ * package implements it, and each platform decides where it runs.
+ */
+export type Channel<E = unknown> = ChannelBase<E> & Conversations<E>;
 
 /** The outcome of a repo's last deploy, as the repo shows it. */
 export type FactoryStatus = {

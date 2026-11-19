@@ -208,7 +208,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
   const repo = delivery.repo;
   const trigger = outpost.triggers[d.trigger]!;
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
-  const ticket = { connection: d.key, thread: conversation.thread, selector: trigger.match, expires: Date.now() + REPLY_TTL_MS };
+  const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
   const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
   try {
@@ -255,7 +255,6 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       tokens,
       refresh,
       reply,
-      messages: { url: `${d.origin}/messages` },
     });
     console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
   } catch (error) {
@@ -264,31 +263,43 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
   }
 };
 
-/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
-const relay = async (request: Request, store: RouterStore) => {
-  let body: Relay;
+/**
+ * Reads a body that carries a reply ticket, checks the ticket's signature,
+ * and finds the channel of the ticket's connection. Returns a response
+ * instead if any step fails.
+ */
+const ticketed = async <T extends MessagesRequest>(request: Request, store: RouterStore) => {
+  let body: T;
   try {
-    body = (await request.json()) as Relay;
+    body = (await request.json()) as T;
   } catch {
     return json(400, { error: "the body isn't JSON" });
   }
-  const { ticket, signature, text, message } = body ?? {};
-  if (!ticket || typeof signature !== "string" || typeof text !== "string") {
-    return json(400, { error: "the body needs ticket, signature and text" });
-  }
-  if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
-    return json(400, { error: "the message needs id and signature" });
-  }
+  const { ticket, signature } = body ?? {};
+  if (!ticket || typeof signature !== "string") return json(400, { error: "the body needs ticket and signature" });
   const rootKey = await store.rootKey();
   if (!(await verifyTicket(rootKey, ticket, signature))) {
     return json(401, { error: "bad or expired ticket" });
   }
+  const found = channels(store).find((c) => c.key === ticket.connection);
+  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
+  return { body, rootKey, channel: found.channel };
+};
+
+/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
+const relay = async (request: Request, store: RouterStore) => {
+  const found = await ticketed<Relay>(request, store);
+  if (found instanceof Response) return found;
+  const { body, rootKey, channel } = found;
+  const { ticket, signature, text, message } = body;
+  if (typeof text !== "string") return json(400, { error: "the body needs text" });
+  if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
+    return json(400, { error: "the message needs id and signature" });
+  }
   if (message && !(await verifyMessage(rootKey, signature, message))) {
     return json(401, { error: "bad message signature" });
   }
-  const found = channels(store).find((c) => c.key === ticket.connection);
-  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
-  const id = await found.channel.reply(ticket.thread, text, message?.id);
+  const id = await channel.reply(ticket.thread, text, message?.id);
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
   return json(200, result);
@@ -299,21 +310,10 @@ const relay = async (request: Request, store: RouterStore) => {
  * The runner builds the agent's prompt from them when the run starts.
  */
 const messages = async (request: Request, store: RouterStore) => {
-  let body: MessagesRequest;
+  const found = await ticketed<MessagesRequest>(request, store);
+  if (found instanceof Response) return found;
   try {
-    body = (await request.json()) as MessagesRequest;
-  } catch {
-    return json(400, { error: "the body isn't JSON" });
-  }
-  const { ticket, signature } = body ?? {};
-  if (!ticket || typeof signature !== "string") return json(400, { error: "the body needs ticket and signature" });
-  if (!(await verifyTicket(await store.rootKey(), ticket, signature))) {
-    return json(401, { error: "bad or expired ticket" });
-  }
-  const found = channels(store).find((c) => c.key === ticket.connection);
-  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
-  try {
-    const result: MessagesResult = { messages: await found.channel.messages(ticket.thread, ticket.selector) };
+    const result: MessagesResult = { messages: await found.channel.messages(found.body.ticket.thread) };
     return json(200, result);
   } catch (error) {
     return json(502, { error: message(error) });

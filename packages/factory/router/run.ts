@@ -2,12 +2,8 @@ import type { AgentEntry, ContainerEntry } from "../contracts/outpost.ts";
 import type { ThreadMessage } from "./channel.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
-/**
- * Where a run's reply goes: the connection whose channel posts it, and the
- * channel's thread. `selector` is the run's trigger's, which decides who in
- * the thread can trigger the agent. `expires` is in ms since the epoch.
- */
-export type ReplyTicket = { connection: string; thread: unknown; selector?: unknown; expires: number };
+/** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
+export type ReplyTicket = { connection: string; thread: unknown; expires: number };
 
 /**
  * A message that a run's reply posted, which a later reply of the run
@@ -22,7 +18,7 @@ export type Relay = { ticket: ReplyTicket; signature: string; text: string; mess
 /** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
 export type RelayResult = { ok: true; message?: ReplyMessage };
 
-/** What the runner posts to a run's `messages.url`. The router answers with `MessagesResult`. */
+/** What the runner posts to the router's `/messages` route, next to `reply.url`. The router answers with `MessagesResult`. */
 export type MessagesRequest = { ticket: ReplyTicket; signature: string };
 
 /** The messages in a run's thread, oldest first. */
@@ -74,8 +70,6 @@ export type Run = {
   refresh: { url: string; ticket: TokenTicket; signature: string };
   /** The runner posts a `Relay` with this ticket and signature to `url`. */
   reply: { url: string; ticket: ReplyTicket; signature: string };
-  /** The runner posts a `MessagesRequest` with the reply's ticket and signature to `url`, for the thread's messages. */
-  messages: { url: string };
 };
 
 /** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */

@@ -12,6 +12,7 @@ import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
 import {
   comment,
+  type IssueComment,
   issueComments,
   issuePost,
   PUSH_ROLES,
@@ -109,22 +110,19 @@ const eventPayload = (payload: any) => ({
 
 type Payload = ReturnType<typeof eventPayload>;
 
-/** Where a run's replies go: an issue or a pull request, and the agent whose replies they are. */
-export type Thread = { repo: string; issue: number; agent?: string };
-
-/** One post in an issue's thread: its opening post or a comment, as GitHub's API returns it. */
-type ThreadPost = {
-  body?: string | null;
-  user?: { login: string; type?: string };
-  performed_via_github_app?: { id: number } | null;
-};
+/**
+ * Where a run's replies go: an issue or a pull request, and the agent whose
+ * replies they are. `from` is the run's trigger's, which decides who in the
+ * thread can trigger the agent.
+ */
+export type Thread = { repo: string; issue: number; agent?: string; from?: AuthorSet | AuthorSet[] };
 
 /** The hidden marker at the start of an agent's reply, which names the agent. */
 const agentMarker = (agent: string) => `<!-- factory:agent=${agent} -->`;
 const AGENT_MARKER = /^<!-- factory:agent=([\w.-]+) -->\n?/;
 
 /** The post's author and body, and the agent that posted it. Only this App's posts can name an agent. */
-const readPost = (post: ThreadPost, appId: string) => {
+const readPost = (post: Omit<IssueComment, "id">, appId: string) => {
   const body = post.body ?? "";
   const marker = String(post.performed_via_github_app?.id ?? "") === appId ? body.match(AGENT_MARKER) : null;
   return {
@@ -144,8 +142,7 @@ const OPENING_POST = "issue";
  */
 const threadMessages = async (
   auth: { appId: string; privateKey: string },
-  { repo, issue }: Thread,
-  from: Selector["from"],
+  { repo, issue, from = [] }: Thread,
 ): Promise<ThreadMessage[]> => {
   const [opening, comments] = await Promise.all([issuePost(auth, repo, issue), issueComments(auth, repo, issue)]);
   const posts = [
@@ -153,16 +150,16 @@ const threadMessages = async (
     ...comments.map((c) => ({ id: String(c.id), ...readPost(c, auth.appId) })),
   ];
   await resolveRoles(auth, repo, posts.map((p) => p.author));
-  return posts.map(({ id, author, body, agent }) => ({
-    id,
-    author: `@${author.login}`,
-    body,
-    ...(agent
-      ? { agent }
-      : author.bot
-        ? { bot: true }
-        : { ...(author.role && { role: author.role }), canTrigger: checkAuthor(from, author).result === "allowed" }),
-  }));
+  return posts.map(({ id, author, body, agent }) => {
+    const message: ThreadMessage = { id, author: `@${author.login}`, body };
+    if (agent) message.agent = agent;
+    else if (author.bot) message.bot = true;
+    else {
+      if (author.role) message.role = author.role;
+      message.canTrigger = checkAuthor(from, author).result === "allowed";
+    }
+    return message;
+  });
 };
 
 const context = (repo: string, kind: string, issue: Payload["issue"]) =>
@@ -307,11 +304,12 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       await writeRepoCheck(await auth(), repo, ref, check);
     },
 
-    conversation(delivery, { agent }) {
+    conversation(delivery, { selector, agent }) {
       const payload = delivery.payload as Payload;
       const { issue } = payload;
       const kind = issue.pull_request ? "pull request" : "issue";
-      const thread: Thread = { repo: delivery.repo, issue: issue.number, agent };
+      const { from } = selector as Selector;
+      const thread: Thread = { repo: delivery.repo, issue: issue.number, agent, from };
       return {
         id: `github:${thread.repo}#${thread.issue}`.toLowerCase(),
         message: payload.comment ? String(payload.comment.id) : OPENING_POST,
@@ -321,8 +319,8 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       };
     },
 
-    async messages(thread, selector) {
-      return threadMessages(await auth(), thread as Thread, (selector as Selector | undefined)?.from ?? []);
+    async messages(thread) {
+      return threadMessages(await auth(), thread as Thread);
     },
 
     async acknowledge(delivery) {

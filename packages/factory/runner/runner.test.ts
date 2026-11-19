@@ -279,24 +279,16 @@ const sleepContainer = async () => {
   mkdirSync(home);
 };
 
-/**
- * A run. Unless its conversation names the message that started it, the
- * run starts with a new message in the thread, whose body is `prompt`.
- */
-const run = ({ conversation: given, ...over }: Omit<Partial<Run>, "conversation"> & { conversation?: Run["conversation"] & { prompt?: string } } = {}): Run => {
-  const { prompt = "fix it", ...conversation } = given ?? { id: "github:acme/api#1" };
-  return {
-    ...base(),
-    conversation: { ...conversation, message: conversation.message ?? say(conversation.id, prompt) },
-    reply: {
-      url: `${serverUrl()}/relay`,
-      ticket: { connection: "github/x", thread: { conversation: conversation.id }, expires: Date.now() + 60_000 },
-      signature: "sig",
-    },
-    messages: { url: `${serverUrl()}/messages` },
-    ...over,
-  };
-};
+const run = (conversation: Run["conversation"], over: Partial<Run> = {}): Run => ({
+  ...base(),
+  conversation,
+  reply: {
+    url: `${serverUrl()}/relay`,
+    ticket: { connection: "github/x", thread: { conversation: conversation.id }, expires: Date.now() + 60_000 },
+    signature: "sig",
+  },
+  ...over,
+});
 
 const base = () => ({
   id: crypto.randomUUID(),
@@ -322,15 +314,17 @@ const post = (body: Run) =>
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 
 test("the system prompt names the conversation's channel, then its context, then the agent's own prompt", async () => {
-  const conversation = { id: "github:acme/api#2", prompt: "fix it", channel: "GitHub issue", context: "The issue is acme/api#2." };
-  await post(run({ conversation, worktree: { branch: "issue-2" } }));
+  const id = "github:acme/api#2";
+  const conversation = { id, message: say(id, "fix it"), channel: "GitHub issue", context: "The issue is acme/api#2." };
+  await post(run(conversation, { worktree: { branch: "issue-2" } }));
   await nextReply();
   const [, , args] = lastCall();
   assert.match(args!, /--append-system-prompt You're running headless, in a container that Notation Factory started in response to a trigger in a GitHub issue\. .*The issue is acme\/api#2\.\s+Be brief\./s);
 });
 
 test("runs the agent on its branch's worktree, and replies with its final message", async () => {
-  const response = await post(run());
+  const id = "github:acme/api#1";
+  const response = await post(run({ id, message: say(id, "fix it") }));
   assert.equal(response.status, 202);
   const reply = await nextReply();
   assert.equal(reply.text, "done");
@@ -352,7 +346,8 @@ test("runs the agent on its branch's worktree, and replies with its final messag
 });
 
 test("a later run in the same conversation and worktree resumes its session", async () => {
-  await post(run());
+  const id = "github:acme/api#1";
+  await post(run({ id, message: say(id, "fix it") }));
   await nextReply();
   assert.match(lastCall()[2]!, /--resume s-issue-1/);
 });
@@ -365,19 +360,19 @@ test("a cursor run invokes agent in print mode, and resumes its session", async 
     systemPrompt: "prompt.md",
     settings: { approvalMode: "unrestricted" },
   };
-  const conversation = { id: "github:acme/api#30", prompt: "cursor it" };
-  await post(run({ runtimes: ["cursor"], agent, conversation }));
+  const id = "github:acme/api#30";
+  await post(run({ id, message: say(id, "cursor it") }, { runtimes: ["cursor"], agent }));
   assert.equal((await nextReply()).text, "done");
   const [cwd, token, args] = lastCall();
   assert.equal(cwd, join(data, "worktrees", "acme-api", "issue-1"));
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+### User message\s+<message [^>]+>\s+cursor it\s+<\/message> --model composer-2\.5$/,
+    /^-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+### Messages in thread\s+<message [^>]+>\s+cursor it\s+<\/message> --model composer-2\.5$/,
   );
   assert.equal(JSON.parse(readFileSync(join(data, "agents", "coder", ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
 
-  await post(run({ runtimes: ["cursor"], agent, conversation: { ...conversation, prompt: "carry on" } }));
+  await post(run({ id, message: say(id, "carry on") }, { runtimes: ["cursor"], agent }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--resume s-issue-1$/);
 });
@@ -385,7 +380,8 @@ test("a cursor run invokes agent in print mode, and resumes its session", async 
 test("a cursor agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
-  await post(run({ runtimes: ["cursor"], agent, conversation: { id: "github:acme/api#32", prompt: "talk to me" } }));
+  const conversation = "github:acme/api#32";
+  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent }));
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.equal(first.message, undefined);
@@ -402,29 +398,33 @@ test("a cursor agent's messages during a run share one comment, which its final 
 
 test("a failed cursor run replies with the error", async () => {
   const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
-  await post(run({ runtimes: ["cursor"], agent, conversation: { id: "github:acme/api#33", prompt: "fail now" } }));
+  const id = "github:acme/api#33";
+  await post(run({ id, message: say(id, "fail now") }, { runtimes: ["cursor"], agent }));
   assert.match((await nextReply()).text, /The run failed: Cursor Agent exited with code 1: it broke/);
 });
 
 test("a cursor agent in plan mode passes --mode plan", async () => {
+  const id = "github:acme/api#31";
   await post(
-    run({
-      runtimes: ["cursor"],
-      agent: { id: "planner", runtime: "cursor", model: "composer-2.5", mode: "plan" },
-      conversation: { id: "github:acme/api#31", prompt: "plan it" },
-    }),
+    run(
+      { id, message: say(id, "plan it") },
+      { runtimes: ["cursor"], agent: { id: "planner", runtime: "cursor", model: "composer-2.5", mode: "plan" } },
+    ),
   );
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, / --model composer-2\.5 --mode plan$/);
 });
 
 test("a droid run invokes droid exec, skipping permissions without an autonomy level", async () => {
+  const id = "github:acme/api#20";
   await post(
-    run({
-      runtimes: ["droid"],
-      agent: { id: "coder", runtime: "droid", model: "claude-opus-5-5", effort: "medium", systemPrompt: "prompt.md" },
-      conversation: { id: "github:acme/api#20", prompt: "droid it" },
-    }),
+    run(
+      { id, message: say(id, "droid it") },
+      {
+        runtimes: ["droid"],
+        agent: { id: "coder", runtime: "droid", model: "claude-opus-5-5", effort: "medium", systemPrompt: "prompt.md" },
+      },
+    ),
   );
   assert.equal((await nextReply()).text, "done");
   const [cwd, token, args] = lastCall();
@@ -432,21 +432,21 @@ test("a droid run invokes droid exec, skipping permissions without an autonomy l
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^exec ### User message\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
+    /^exec ### Messages in thread\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
   );
 });
 
 test("a droid agent with autonomy runs with --auto, and resumes its session", async () => {
   const agent = { id: "coder", runtime: "droid", autonomy: "high", settings: { hooks: { hooksDisabled: true } } };
-  const conversation = { id: "github:acme/api#21", prompt: "droid it" };
-  await post(run({ runtimes: ["droid"], agent, conversation }));
+  const id = "github:acme/api#21";
+  await post(run({ id, message: say(id, "droid it") }, { runtimes: ["droid"], agent }));
   assert.equal((await nextReply()).text, "done");
   assert.match(
     lastCall()[2]!,
-    /^exec ### User message\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
+    /^exec ### Messages in thread\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
   );
 
-  await post(run({ runtimes: ["droid"], agent, conversation: { ...conversation, prompt: "carry on" } }));
+  await post(run({ id, message: say(id, "carry on") }, { runtimes: ["droid"], agent }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
 });
@@ -454,7 +454,8 @@ test("a droid agent with autonomy runs with --auto, and resumes its session", as
 test("a droid agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "droid" };
-  await post(run({ runtimes: ["droid"], agent, conversation: { id: "github:acme/api#23", prompt: "talk to me" } }));
+  const conversation = "github:acme/api#23";
+  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent }));
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
   const thinking = await nextReply();
@@ -472,30 +473,34 @@ test("a droid run sets Droid's user settings to send thinking as reasoning, and 
   const path = join(data, "agents", "coder", ".factory", "settings.json");
   mkdirSync(join(data, "agents", "coder", ".factory"), { recursive: true });
   writeFileSync(path, JSON.stringify({ logoAnimation: "off", showThinkingInMainView: false }));
-  await post(run({ runtimes: ["droid"], agent: { id: "coder", runtime: "droid" }, conversation: { id: "github:acme/api#25", prompt: "go" } }));
+  const id = "github:acme/api#25";
+  await post(run({ id, message: say(id, "go") }, { runtimes: ["droid"], agent: { id: "coder", runtime: "droid" } }));
   assert.equal((await nextReply()).text, "done");
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { logoAnimation: "off", showThinkingInMainView: true });
 });
 
 test("a failed droid run replies with the error", async () => {
   const agent = { id: "coder", runtime: "droid" };
-  await post(run({ runtimes: ["droid"], agent, conversation: { id: "github:acme/api#24", prompt: "fail now" } }));
+  const id = "github:acme/api#24";
+  await post(run({ id, message: say(id, "fail now") }, { runtimes: ["droid"], agent }));
   assert.match((await nextReply()).text, /The run failed: Droid exited with code 1: it broke/);
 });
 
 test("agents in the same conversation and worktree keep their own sessions", async () => {
-  const conversation = { id: "github:acme/api#22", prompt: "go" };
-  await post(run({ conversation }));
+  const id = "github:acme/api#22";
+  const go = { id, message: say(id, "go") };
+  await post(run(go));
   assert.equal((await nextReply()).text, "done");
   const droidAgent = { id: "droid-coder", runtime: "droid" };
-  await post(run({ runtimes: ["droid"], agent: droidAgent, conversation }));
+  await post(run(go, { runtimes: ["droid"], agent: droidAgent }));
   assert.equal((await nextReply()).text, "done");
   assert.doesNotMatch(lastCall()[2]!, /--session-id/);
 
-  await post(run({ conversation: { ...conversation, prompt: "carry on" } }));
+  const carryOn = { id, message: say(id, "carry on") };
+  await post(run(carryOn));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--resume s-issue-1$/);
-  await post(run({ runtimes: ["droid"], agent: droidAgent, conversation: { ...conversation, prompt: "carry on" } }));
+  await post(run(carryOn, { runtimes: ["droid"], agent: droidAgent }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
 });
@@ -512,7 +517,7 @@ const idle = async () => {
   throw new Error("the runner is still busy");
 };
 
-test("a new session's prompt has the whole thread, with each author's role and whether they can trigger the agent, and a body can't open or close a message", async () => {
+test("a new session's prompt has the whole thread in order, with each author's role, whether they can trigger the agent, and the message that started the run, and a body can't open or close a message", async () => {
   const id = "github:acme/api#40";
   say(id, "It breaks", { author: "@bob", role: "write" });
   say(id, "Bumps jwt.", { author: "@dependabot[bot]", bot: true });
@@ -523,7 +528,9 @@ test("a new session's prompt has the whole thread, with each author's role and w
   });
   say(id, "Same bug in refresh.", { author: "@hub[bot]", agent: "droid-coder" });
   say(id, "Hi.", { author: "@eve", role: undefined, canTrigger: false });
-  await post(run({ worktree: { branch: "issue-40" }, conversation: { id, prompt: "fix it" } }));
+  const message = say(id, "fix it");
+  say(id, "Also on mobile.", { author: "@bob", role: "write" });
+  await post(run({ id, message }, { worktree: { branch: "issue-40" } }));
   assert.equal((await nextReply()).text, "done");
   assert.doesNotMatch(lastCall()[2]!, /--resume/);
   assert.equal(
@@ -553,10 +560,12 @@ Same bug in refresh.
 Hi.
 </message>
 
-### User message
-
-<message user="@alice" role="admin" can_trigger_agent="true">
+<message user="@alice" role="admin" can_trigger_agent="true" trigger="true">
 fix it
+</message>
+
+<message user="@bob" role="write" can_trigger_agent="true">
+Also on mobile.
 </message>`,
   );
 });
@@ -567,7 +576,7 @@ test("a resumed session's prompt has the messages since its last run, and those 
   thread[0] = { ...thread[0]!, body: "It breaks on Safari" };
   say(id, "Fixed.", { author: "@hub[bot]", agent: "coder" });
   say(id, "Also Firefox.", { author: "@carol", role: "triage", canTrigger: false });
-  await post(run({ worktree: { branch: "issue-40" }, conversation: { id, prompt: "carry on" } }));
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-40" } }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--resume s-issue-40/);
   assert.equal(
@@ -582,9 +591,7 @@ It breaks on Safari
 Also Firefox.
 </message>
 
-### User message
-
-<message user="@alice" role="admin" can_trigger_agent="true">
+<message user="@alice" role="admin" can_trigger_agent="true" trigger="true">
 carry on
 </message>`,
   );
@@ -594,11 +601,10 @@ test("a queued run whose messages an earlier run read is skipped, with nothing p
   const id = "github:acme/api#41";
   const first = say(id, "first");
   const second = say(id, "second");
-  const conversation = { id, prompt: "unused" };
-  await post(run({ worktree: { branch: "issue-41" }, conversation: { ...conversation, message: first } }));
-  await post(run({ worktree: { branch: "issue-41" }, conversation: { ...conversation, message: second } }));
+  await post(run({ id, message: first }, { worktree: { branch: "issue-41" } }));
+  await post(run({ id, message: second }, { worktree: { branch: "issue-41" } }));
   assert.equal((await nextReply()).text, "done");
-  assert.match(lastPrompt(), /^### Messages in thread\n\n<message [^>]+>\nsecond\n<\/message>\n\n### User message\n\n<message [^>]+>\nfirst\n<\/message>$/);
+  assert.match(lastPrompt(), /^### Messages in thread\n\n<message [^>]+ trigger="true">\nfirst\n<\/message>\n\n<message [^>]+>\nsecond\n<\/message>$/);
   const before = relays;
   await idle();
   assert.equal(relays, before);
@@ -609,27 +615,28 @@ test("a run whose session is lost gets the whole thread again", async () => {
   const id = "github:acme/api#41";
   rmSync(join(data, "sessions", "github-acme-api-41", "coder.json"));
   state.delete("sessions/github-acme-api-41/coder.json");
-  await post(run({ worktree: { branch: "issue-41" }, conversation: { id, prompt: "again" } }));
+  await post(run({ id, message: say(id, "again") }, { worktree: { branch: "issue-41" } }));
   assert.equal((await nextReply()).text, "done");
   assert.doesNotMatch(lastCall()[2]!, /--resume/);
-  assert.match(lastPrompt(), /^### Messages in thread\n\n[^]*\nfirst\n[^]*\nsecond\n[^]*### User message\n\n<message [^>]+>\nagain\n<\/message>$/);
+  assert.match(lastPrompt(), /^### Messages in thread\n\n[^]*\nfirst\n[^]*\nsecond\n[^]*<message [^>]+ trigger="true">\nagain\n<\/message>$/);
 });
 
 test("a run whose thread the router can't read replies with the error", async () => {
   const id = "github:acme/api#42";
   unreadable.add(id);
-  await post(run({ worktree: { branch: "issue-42" }, conversation: { id, prompt: "go" } }));
+  await post(run({ id, message: say(id, "go") }, { worktree: { branch: "issue-42" } }));
   assert.match((await nextReply()).text, /^The run failed: The router refused the thread's messages with status 502: .*GitHub is down/);
 });
 
 test("each agent has its own config directory, with its own files over the container's, and its own transcripts", async () => {
   const files = { "~/.npmrc": "npmrc", "~/.claude/CLAUDE.md": "shared.md", "~/.claude/rules/style.md": "shared.md" };
   const reviewer = { id: "reviewer", runtime: "claude", files: { "~/.claude/CLAUDE.md": "reviewer.md", "~/.gitignore": "npmrc" } };
-  const conversation = { id: "github:acme/api#50", prompt: "go" };
+  const id = "github:acme/api#50";
+  const conversation = { id, message: say(id, "go") };
   const worktree = { branch: "issue-50" };
-  await post(run({ files, agent: reviewer, conversation, worktree }));
+  await post(run(conversation, { files, agent: reviewer, worktree }));
   assert.equal((await nextReply()).text, "done");
-  await post(run({ files, conversation, worktree }));
+  await post(run(conversation, { files, worktree }));
   assert.equal((await nextReply()).text, "done");
 
   const config = (agent: string) => join(data, "agents", agent, ".claude");
@@ -644,18 +651,20 @@ test("each agent has its own config directory, with its own files over the conta
 });
 
 test("a droid or cursor agent's config directory is its own", async () => {
-  const conversation = { id: "github:acme/api#51", prompt: "go" };
+  const id = "github:acme/api#51";
+  const conversation = { id, message: say(id, "go") };
   const worktree = { branch: "issue-51" };
-  await post(run({ runtimes: ["droid"], agent: { id: "droid-a", runtime: "droid" }, conversation, worktree }));
+  await post(run(conversation, { runtimes: ["droid"], agent: { id: "droid-a", runtime: "droid" }, worktree }));
   assert.equal((await nextReply()).text, "done");
-  await post(run({ runtimes: ["cursor"], agent: { id: "cursor-a", runtime: "cursor" }, conversation, worktree }));
+  await post(run(conversation, { runtimes: ["cursor"], agent: { id: "cursor-a", runtime: "cursor" }, worktree }));
   assert.equal((await nextReply()).text, "done");
   assert.ok(existsSync(join(data, "agents", "droid-a", ".factory", "sessions", "-p-issue-51", "s-issue-51.jsonl")));
   assert.ok(existsSync(join(data, "agents", "cursor-a", ".cursor", "chats", "-p-issue-51", "s-issue-51")));
 });
 
 test("a run with no branch gets a scratch worktree for its conversation", async () => {
-  await post(run({ worktree: undefined, conversation: { id: "github:acme/api#2", prompt: "look" } }));
+  const id = "github:acme/api#2";
+  await post(run({ id, message: say(id, "look") }, { worktree: undefined }));
   assert.equal((await nextReply()).text, "done");
   const scratch = join(data, "scratch", "github-acme-api-2");
   assert.equal(lastCall()[0], scratch);
@@ -664,7 +673,8 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
 
 test("the agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
-  await post(run({ worktree: { branch: "issue-5" }, conversation: { id: "github:acme/api#5", prompt: "talk to me" } }));
+  const conversation = "github:acme/api#5";
+  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } }));
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.equal(first.message, undefined);
@@ -681,18 +691,20 @@ test("the agent's messages during a run share one comment, which its final reply
 });
 
 test("a run of a runtime that the hub has no runner module for replies with the error", async () => {
-  await post(run({ agent: { id: "coder", runtime: "codex" }, conversation: { id: "github:acme/api#4", prompt: "go" } }));
+  const id = "github:acme/api#4";
+  await post(run({ id, message: say(id, "go") }, { agent: { id: "coder", runtime: "codex" } }));
   assert.match((await nextReply()).text, /The run failed: The runner can't run agents of the runtime codex: The hub has no runner module runtimes\/codex\.ts\./);
 });
 
 test("a failed run replies with the error", async () => {
-  await post(run({ conversation: { id: "github:acme/api#3", prompt: "fail now" } }));
+  const id = "github:acme/api#3";
+  await post(run({ id, message: say(id, "fail now") }));
   assert.match((await nextReply()).text, /The run failed: Claude Code exited with code 1: it broke/);
 });
 
 test("after the container sleeps, a run restores its worktree and its conversation's session", async () => {
-  const conversation = { id: "github:acme/api#9", prompt: "edit the code" };
-  await post(run({ worktree: { branch: "issue-9" }, conversation }));
+  const id = "github:acme/api#9";
+  await post(run({ id, message: say(id, "edit the code") }, { worktree: { branch: "issue-9" } }));
   assert.equal((await nextReply()).text, "done");
   assert.ok(state.has("worktrees/issue-9.bundle"));
   assert.ok(state.has("sessions/github-acme-api-9/coder.json"));
@@ -700,7 +712,7 @@ test("after the container sleeps, a run restores its worktree and its conversati
   await sleepContainer();
   await startRunner();
 
-  await post(run({ worktree: { branch: "issue-9" }, conversation: { ...conversation, prompt: "carry on" } }));
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-9" } }));
   assert.equal((await nextReply()).text, "done");
   const worktree = join(data, "worktrees", "acme-api", "issue-9");
   assert.match(lastCall()[2]!, /--resume s-issue-9/);
@@ -709,12 +721,13 @@ test("after the container sleeps, a run restores its worktree and its conversati
   assert.equal(readFileSync(join(worktree, "notes.txt"), "utf8"), "draft\n");
   assert.equal(sh(worktree, "status", "--porcelain"), "D README.md\n?? notes.txt");
   const transcript = join(data, "agents", "coder", ".claude", "projects", "-p-issue-9", "s-issue-9.jsonl");
-  assert.match(readFileSync(transcript, "utf8"), /edit the code\n<\/message>\n### User message[^]*carry on\n<\/message>\n$/);
+  assert.match(readFileSync(transcript, "utf8"), /edit the code\n<\/message>\n### Messages in thread since last turn[^]*carry on\n<\/message>\n$/);
 });
 
 test("a snapshot that can't be restored leaves a note, and the run starts from the remote", async () => {
   state.set("worktrees/issue-10.bundle", Buffer.from("not a bundle"));
-  await post(run({ worktree: { branch: "issue-10" }, conversation: { id: "github:acme/api#10", prompt: "go" } }));
+  const id = "github:acme/api#10";
+  await post(run({ id, message: say(id, "go") }, { worktree: { branch: "issue-10" } }));
   const reply = await nextReply();
   assert.match(reply.text, /^done\n\n> Factory couldn't restore this worktree's saved state/);
   assert.equal(sh(join(data, "worktrees", "acme-api", "issue-10"), "log", "-1", "--format=%s"), "init");
@@ -723,7 +736,8 @@ test("a snapshot that can't be restored leaves a note, and the run starts from t
 test("during a long run, the runner refreshes the tokens that gh and git read", async () => {
   freshToken = "fresh-token";
   tokenRequests.length = 0;
-  await post(run({ conversation: { id: "github:acme/api#11", prompt: "wait for it" } }));
+  const id = "github:acme/api#11";
+  await post(run({ id, message: say(id, "wait for it") }));
   assert.equal((await nextReply()).text, "done");
   const lines = readFileSync(calls, "utf8").trim().split("\n").slice(-4);
   assert.equal(lines[1], "fresh-token");
@@ -739,7 +753,8 @@ test("status counts the runs that are running or queued", async () => {
 });
 
 test("when the container stops during a run, the run's conversation says the run was lost", async () => {
-  await post(run({ worktree: { branch: "issue-12" }, conversation: { id: "github:acme/api#12", prompt: "hang" } }));
+  const id = "github:acme/api#12";
+  await post(run({ id, message: say(id, "hang") }, { worktree: { branch: "issue-12" } }));
   const exited = new Promise((resolve) => runner.once("exit", resolve));
   runner.kill("SIGTERM");
   assert.match((await nextReply()).text, /^The container stopped before this run finished, so the run was lost\./);

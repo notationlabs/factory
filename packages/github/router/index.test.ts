@@ -251,7 +251,7 @@ test("a comment's conversation names the issue, and the comment that started the
     const conversation = await keyed.conversation!(await accepted("issue_comment", commentPayload), trigger);
     assert.equal(conversation.id, "github:acme/api#7");
     assert.equal(conversation.message, "99");
-    assert.deepEqual(conversation.thread, { repo: "acme/api", issue: 7, agent: "claude-coder" });
+    assert.deepEqual(conversation.thread, { repo: "acme/api", issue: 7, agent: "claude-coder", from: collaborators });
     assert.equal(conversation.channel, "GitHub issue");
     assert.match(conversation.context!, /The issue is acme\/api#7: Broken\./);
   });
@@ -275,7 +275,7 @@ test("a thread's messages are the opening post and the comments, with each perso
     { id: 99, body: "@claude fix", user: { login: "alice" } },
   ];
   await withGithub({ roles: { alice: "admin", bob: "write", carol: "triage" }, issue, comments }, async () => {
-    const messages = await keyed.messages!({ repo: "acme/api", issue: 7, agent: "claude-coder" }, trigger.selector);
+    const messages = await keyed.messages!({ repo: "acme/api", issue: 7, agent: "claude-coder", from: collaborators });
     assert.deepEqual(messages, [
       { id: "issue", author: "@bob", body: "It breaks", role: "write", canTrigger: true },
       { id: "2", author: "@hub[bot]", body: "Found it.", agent: "claude-coder" },

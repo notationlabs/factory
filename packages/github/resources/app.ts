@@ -24,12 +24,11 @@ type AppApi = {
     permissions?: Permissions;
   };
   UpdateParams: {
-    name: string;
     hookUrl: string;
     events?: GithubEvent[];
     permissions?: Permissions;
   };
-  ReadResult: { slug: string; id: string };
+  ReadResult: { id: string };
 };
 
 const githubEvent = v.picklist([
@@ -65,6 +64,8 @@ export const App = defineResource<AppApi>({
     name: {
       propertyType: "param",
       presence: "required",
+      immutable: true,
+      volatile: true,
       value: v.string(),
     },
     org: {
@@ -92,8 +93,6 @@ export const App = defineResource<AppApi>({
       primaryKey: true,
       value: v.string(),
     },
-    /** The App's slug, which changes when the App is renamed. */
-    slug: { propertyType: "computed", presence: "required", value: v.string() },
     /**
      * The App's private key, which GitHub returns once, when the manifest
      * flow creates the App. GitHub has no API that makes another.
@@ -114,12 +113,11 @@ export const App = defineResource<AppApi>({
           permissions: params.permissions,
         });
       }
-      // A new name isn't applied: GitHub has no API to rename an App.
       // A new hookUrl reaches GitHub through the router's sync, which signs
       // in as the App with its private key.
     },
     // GitHub has no API to delete an App.
-    delete: async (key) => requestAppDeletion(key),
+    delete: async (key, state) => requestAppDeletion({ ...key, org: state.org }),
   });
 
 export type AppInstance = InstanceType<typeof App>;

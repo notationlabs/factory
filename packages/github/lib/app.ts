@@ -66,9 +66,9 @@ export const createApp = async (params: {
   hookUrl: string;
   events?: GithubEvent[];
   permissions?: Permissions;
-}): Promise<{ slug: string; id: string; privateKey: string }> => {
+}): Promise<{ id: string; privateKey: string }> => {
   const state = randomBytes(16).toString("hex");
-  type Created = { slug: string; id: string; privateKey: string };
+  type Created = { id: string; privateKey: string };
   let resolve!: (app: Created) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<Created>((res, rej) => {
@@ -119,7 +119,7 @@ export const createApp = async (params: {
         `/app-manifests/${encodeURIComponent(code)}/conversions`,
       );
       console.error(`Created the GitHub App ${app.slug}, with the ID ${app.id}. Outposts name the App by this ID in .factory/config.ts.`);
-      resolve({ slug: app.slug, id: String(app.id), privateKey: app.pem });
+      resolve({ id: String(app.id), privateKey: app.pem });
       send(200, "App created. You can close this tab.");
     } catch (error) {
       reject(error);
@@ -153,32 +153,30 @@ export const appSlug = async (id: string): Promise<string> => {
     throw new Error(`Looking up the GitHub App ${id} needs a GitHub token. Run \`gh auth login\`, or set GH_TOKEN.`);
   }
   const nodeId = Buffer.from(`03:App${id}`).toString("base64");
-  const { data } = await github<{ data?: { node?: { slug?: string } | null } }>(
+  const { data, errors } = await github<{
+    data?: { node?: { slug?: string } | null };
+    errors?: { message: string }[];
+  }>(
     "POST",
     "/graphql",
     token,
     { query: "query($id: ID!) { node(id: $id) { ... on App { slug } } }", variables: { id: nodeId } },
   );
   const slug = data?.node?.slug;
-  if (!slug) throw new Error(`There's no GitHub App with the ID ${id}.`);
+  if (!slug) throw new Error(`Looking up the GitHub App ${id} failed: ${errors?.[0]?.message ?? "GitHub returned no App"}`);
   return slug;
 };
 
-/** Reads the App by its id. GitHub only shows a private App to its owner, so this uses your gh login when there is one. */
-export const readApp = async (key: { id: string }): Promise<{ slug: string; id: string }> => ({
-  slug: await appSlug(key.id),
-  id: key.id,
-});
+/** Reads the App by its id, which fails if the App is gone. The lookup needs your gh login or GH_TOKEN. */
+export const readApp = async (key: { id: string }): Promise<{ id: string }> => {
+  await appSlug(key.id);
+  return { id: key.id };
+};
 
 /** Opens the App's advanced settings, where its owner must delete it. */
-export const requestAppDeletion = async (key: { id: string }): Promise<void> => {
+export const requestAppDeletion = async (key: { id: string; org?: string }): Promise<void> => {
   const slug = await appSlug(key.id);
-  const app = await github<{ owner: { login: string; type: string } }>(
-    "GET",
-    `/apps/${encodeURIComponent(slug)}`,
-    await ghToken(),
-  );
-  const owner = app.owner.type === "Organization" ? `/organizations/${app.owner.login}` : "";
+  const owner = key.org ? `/organizations/${key.org}` : "";
   const url = `${GITHUB_WEB}${owner}/settings/apps/${slug}/advanced`;
   console.error(`Delete the GitHub App ${slug} on its settings page: ${url}`);
   openBrowser(url);

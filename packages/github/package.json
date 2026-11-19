@@ -15,7 +15,6 @@
       "default": "./implementations/index.ts"
     },
     "./app": "./lib/app.ts",
-    "./app-name": "./lib/app-name.ts",
     "./router": "./router/index.ts"
   },
   "files": [

@@ -265,15 +265,44 @@ test("an issue's conversation names its opening post as the message that started
   });
 });
 
-test("an issue event that posts no message names what happened instead of a message", async () => {
+test("an issue event that posts no message names what happened, and who did it, instead of a message", async () => {
   const { repository, issue } = commentPayload;
+  const sender = { login: "carol" };
   const pull = { ...issue, pull_request: { url: "https://api.github.com/repos/acme/api/pulls/7" } };
   await withGithub({}, async () => {
-    const labeled = await keyed.conversation!(await accepted("issues", { action: "labeled", label: { name: "ready" }, repository, issue }), trigger);
+    const labeled = await keyed.conversation!(
+      await accepted("issues", { action: "labeled", label: { name: "ready" }, repository, issue, sender }),
+      trigger,
+    );
     assert.equal(labeled.message, undefined);
-    assert.equal(labeled.event, "The issue was labelled `ready`.");
-    const reopened = await keyed.conversation!(await accepted("issues", { action: "reopened", repository, issue: pull }), trigger);
-    assert.equal(reopened.event, "The pull request was reopened.");
+    assert.equal(labeled.event, "The issue was labelled `ready` by @carol.");
+    const unnamed = await keyed.conversation!(await accepted("issues", { action: "labeled", repository, issue, sender }), trigger);
+    assert.equal(unnamed.event, "The issue was labelled by @carol.");
+    const reopened = await keyed.conversation!(await accepted("issues", { action: "reopened", repository, issue: pull, sender }), trigger);
+    assert.equal(reopened.event, "The pull request was reopened by @carol.");
+  });
+});
+
+test("an issue event that posts no message needs both the person who acted and the issue's author to be allowed", async () => {
+  const { repository, issue } = commentPayload;
+  const labeled = (sender: object) => ({ action: "labeled", label: { name: "ready" }, repository, issue, sender });
+  const select = selector({ actions: ["labeled"], mention: undefined, from: collaborators });
+  await withGithub({ roles: { bob: "write", carol: "write" } }, async () => {
+    const delivery = await accepted("issues", labeled({ login: "carol" }));
+    assert.deepEqual(delivery.data.author, { login: "bob", bot: false, role: "write", write: true });
+    assert.deepEqual(delivery.data.actor, { login: "carol", bot: false, role: "write", write: true });
+    assert.deepEqual(channel.match(select, delivery), { result: "allowed" });
+    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "eve" }))), { result: "denied" });
+  });
+  await withGithub({ roles: { carol: "write" } }, async () => {
+    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "carol" }))), { result: "denied" });
+  });
+});
+
+test("an issue event that posts a message has no separate actor", async () => {
+  const opened = { action: "opened", repository: commentPayload.repository, issue: commentPayload.issue, sender: { login: "bob" } };
+  await withGithub({}, async () => {
+    assert.equal((await accepted("issues", opened)).data.actor, undefined);
   });
 });
 

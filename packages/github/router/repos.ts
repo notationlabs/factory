@@ -69,21 +69,17 @@ export const PUSH_ROLES = new Set(["admin", "maintain", "write"]);
  */
 export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
   const token = await repoToken(auth, repo, { metadata: "read" });
-  const found = new Map<string, string>();
-  for (const login of logins) {
+  const role = async (login: string) => {
     const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
     const response = await github("GET", path, token);
-    if (response.status === 404) {
-      found.set(login, "none");
-      continue;
-    }
+    if (response.status === 404) return "none";
     const { permission, role_name } = (await (await ok(response, `GET ${path}`)).json()) as {
       permission: string;
       role_name?: string;
     };
-    found.set(login, role_name || permission);
-  }
-  return found;
+    return role_name || permission;
+  };
+  return new Map(await Promise.all(logins.map(async (login) => [login, await role(login)] as const)));
 };
 
 /**

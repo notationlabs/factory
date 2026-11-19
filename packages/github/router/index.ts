@@ -55,6 +55,12 @@ export type GithubEvent = {
   action: string;
   /** The author of the comment, or of the issue. */
   author: Author;
+  /**
+   * Who acted, for an issue event that posted no message, such as adding a
+   * label. The issue's author must match too, since the prompt quotes the
+   * opening post.
+   */
+  actor?: Author;
   body: string;
   /** The body before an edit. The same as `body` when an edit didn't change it. */
   before: string;
@@ -72,6 +78,9 @@ const authorOf = (post: Post): Author => ({
   write: false,
 });
 
+/** Whether an issue or comment event with `action` posted a message. Other events, such as adding a label, start a run with what happened. */
+const postsMessage = (action: string) => action === "opened" || action === "created" || action === "edited";
+
 const parse = (event: string, payload: any): GithubEvent | undefined => {
   const post: Post | undefined =
     event === "issue_comment"
@@ -84,6 +93,7 @@ const parse = (event: string, payload: any): GithubEvent | undefined => {
   return {
     action: payload.action,
     author: authorOf(post),
+    ...(!postsMessage(payload.action) && payload.sender && { actor: authorOf({ user: payload.sender }) }),
     body,
     before: payload.changes?.body?.from ?? body,
     labels: (payload.issue?.labels ?? []).map((l: { name: string }) => l.name),
@@ -136,12 +146,16 @@ const readPost = (post: Omit<IssueComment, "id">, appId: string) => {
 /** The id of an issue's opening post among its thread's messages. Comments' ids are numbers. */
 const OPENING_POST = "issue";
 
-/** What happened to the issue, for an event that posted no message, such as a label being added. */
+/** What happened to the issue, and who did it, for an event that posted no message, such as a label being added. */
 const eventOf = (payload: Payload, kind: string) => {
   const { action } = payload;
-  if (action === "opened" || action === "created" || action === "edited") return undefined;
-  if (action === "labeled") return `The ${kind} was labelled \`${payload.label?.name}\`.`;
-  return `The ${kind} was ${action}.`;
+  if (postsMessage(action)) return undefined;
+  const by = payload.sender.login ? ` by @${payload.sender.login}` : "";
+  if (action === "labeled") {
+    const label = payload.label?.name ? ` \`${payload.label.name}\`` : "";
+    return `The ${kind} was labelled${label}${by}.`;
+  }
+  return `The ${kind} was ${action}${by}.`;
 };
 
 /**
@@ -222,6 +236,13 @@ const checkOne = (sets: AuthorSet[], author: Author): AuthorCheck => {
 const checkAuthor = (from: Selector["from"], author: Author): AuthorCheck =>
   checkOne(Array.isArray(from) ? from : [from], author);
 
+/** Whether the event's author, and its actor if it has one, may start a run. Both must be allowed. */
+const checkEvent = (from: Selector["from"], event: GithubEvent): AuthorCheck => {
+  const checks = [event.author, ...(event.actor ? [event.actor] : [])].map((a) => checkAuthor(from, a));
+  if (checks.some((c) => c.result === "denied")) return { result: "denied" };
+  return checks.find((c) => c.result === "check") ?? { result: "allowed" };
+};
+
 /**
  * Sets `role` and `write` on the people among `authors`, by asking GitHub.
  * If GitHub can't answer, they stay without a role.
@@ -266,7 +287,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      await resolveRoles(await auth(), repo, [data.author]);
+      await resolveRoles(await auth(), repo, [data.author, ...(data.actor ? [data.actor] : [])]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
@@ -288,7 +309,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
     match(selector, delivery) {
       const s = selector as Selector;
       return selects(s, delivery.data)
-        ? checkAuthor(s.from, delivery.data.author)
+        ? checkEvent(s.from, delivery.data)
         : undefined;
     },
 

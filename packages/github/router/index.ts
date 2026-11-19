@@ -128,17 +128,23 @@ const commentMessage = (c: IssueComment, appId: string): Message => {
   };
 };
 
-/** The message's header. Bots other than the hub's agents can't trigger agents, so theirs names only the bot. */
-const header = (m: Message, from: Selector["from"]) => {
-  const fields = [`user: @${m.author.login}`];
-  if (m.agent) fields.push(`agent: ${m.agent}`);
-  else if (!m.author.bot) {
-    fields.push(`role: ${m.author.role ?? "unknown"}`, `can_trigger_agent: ${checkAuthor(from, m.author).result === "allowed"}`);
-  }
-  return `<!-- ${fields.join(", ")} -->`;
-};
+const attribute = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 
-const render = (m: Message, from: Selector["from"]) => `${header(m, from)}\n${m.body}`;
+/**
+ * The message as a `<message>` tag. Its body can't open or close a tag of
+ * its own, so it can't pose as another message. Bots other than the hub's
+ * agents can't trigger agents, so their tag names only the bot.
+ */
+const render = (m: Message, from: Selector["from"]) => {
+  const fields: [string, string][] = [["user", `@${m.author.login}`]];
+  if (m.agent) fields.push(["agent", m.agent]);
+  else if (!m.author.bot) {
+    fields.push(["role", m.author.role ?? "unknown"], ["can_trigger_agent", String(checkAuthor(from, m.author).result === "allowed")]);
+  }
+  const attributes = fields.map(([name, value]) => `${name}="${attribute(value)}"`).join(" ");
+  const body = m.body.replace(/<(\/?message)/gi, "&lt;$1");
+  return `<message ${attributes}>\n${body}\n</message>`;
+};
 
 /**
  * The run's prompt: the messages since the agent's last reply, then the

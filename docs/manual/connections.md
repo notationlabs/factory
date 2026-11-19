@@ -63,20 +63,26 @@ On GitHub, a run's prompt looks like this:
 ```text
 ### Messages in thread since last turn
 
-<!-- user: @notation-factory-hub[bot], agent: claude-coder -->
+<message user="@notation-factory-hub[bot]" agent="claude-coder">
 The handler compares `expires` in seconds against `Date.now()` in milliseconds. …
+</message>
 
-<!-- user: @dependabot[bot] -->
+<message user="@dependabot[bot]">
 Bumps jsonwebtoken from 9.0.0 to 9.0.2.
+</message>
 
-<!-- user: @alice, role: triage, can_trigger_agent: false -->
+<message user="@alice" role="triage" can_trigger_agent="false">
 @claude can you also bump the token lifetime to 30 days?
+</message>
 
 ### User message
 
-<!-- user: @dan, role: admin, can_trigger_agent: true -->
+<message user="@dan" role="admin" can_trigger_agent="true">
 @claude fix both and open a PR.
+</message>
 ```
+
+A body can't open or close a `<message>` tag: the router escapes `<message` and `</message` in it as `&lt;message` and `&lt;/message`.
 
 An agent's first prompt starts at the issue's opening post. The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
 

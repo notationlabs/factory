@@ -79,6 +79,8 @@ A trigger that runs `coder` must target a container that lists `droid.runtime`.
 
 A channel trigger runs the agent headless in the conversation's worktree:
 
-`droid exec <prompt> --output-format json [--auto <level> \| --skip-permissions-unsafe] [--session-id <uuid>]`
+`droid exec <prompt> --output-format stream-json [--auto <level> \| --skip-permissions-unsafe] [--session-id <uuid>]`
+
+The runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. Droid runs subagents in their own processes, so their messages aren't in the output and aren't posted. The `completion` event's `finalText` is the final reply, which replaces them. A failed run ends with an `error` event instead, whose message the runner posts as the error.
 
 Without a `--session-id`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from `~/.factory/sessions` to the state store after each run, so a container that slept resumes the session.

@@ -9,7 +9,7 @@ Every conversation on `/data` can be driven from two interfaces interchangeably:
 
 A conversation is whatever the channel replies to: a GitHub issue, or a Slack thread. The agent's final message is posted back to it through the router.
 
-When a message starts a run, the router reacts to it with 👀 before it hands the run to the container. While the agent runs, the runner posts the agent's latest message as one reply, and edits that reply with each later message, at most once every 10 seconds. The final message replaces it. Only Claude agents post messages during a run. Other runtimes post only the final message.
+When a message starts a run, the router reacts to it with 👀 before it hands the run to the container. While the agent runs, the runner posts the agent's latest message as one reply, and edits that reply with each later message, at most once every 10 seconds. The final message replaces it. Only Claude and Droid agents post messages during a run. Cursor agents post only the final message.
 
 ## Slash commands
 

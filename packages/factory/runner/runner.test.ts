@@ -60,14 +60,31 @@ echo "$*" >> "$HOME/.cursor/chats/-p-$(basename "$(pwd)")/$session"
 echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
-/** A fake Droid: like the fake Claude Code, but for droid's CLI. */
+// A fake Droid: like the fake Claude Code, but for droid's CLI and its
+// stream-json events. It fails, or writes messages before its completion,
+// when the prompt says so.
 const FAKE_DROID = `#!/bin/sh
 prompt="$2"
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.factory/sessions/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$HOME/.factory/sessions/-p-$(basename "$(pwd)")/$session.jsonl"
-echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
+echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+echo "{\\"type\\":\\"message\\",\\"role\\":\\"user\\",\\"text\\":\\"$prompt\\",\\"session_id\\":\\"$session\\"}"
+case "$prompt" in
+  fail*)
+    echo "{\\"type\\":\\"error\\",\\"source\\":\\"agent_loop\\",\\"message\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"
+    echo "{\\"type\\":\\"error\\",\\"source\\":\\"cli\\",\\"message\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"
+    exit 1 ;;
+  talk*)
+    echo '{"type":"message","role":"assistant","text":"Looking."}'
+    sleep 0.3
+    echo '{"type":"tool_call","toolName":"Task","parameters":{"subagent_type":"worker"}}'
+    echo '{"type":"tool_result","toolId":"Task","value":"A subagent."}'
+    echo '{"type":"message","role":"assistant","text":"Found it."}'
+    sleep 0.3 ;;
+esac
+echo "{\\"type\\":\\"completion\\",\\"finalText\\":\\"done\\",\\"numTurns\\":1,\\"session_id\\":\\"$session\\"}"
 `;
 
 /** The hub's runner modules, by the path the runner fetches them at. */
@@ -324,7 +341,7 @@ test("a droid run invokes droid exec, skipping permissions without an autonomy l
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^exec droid it --output-format json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
+    /^exec droid it --output-format stream-json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
   );
 });
 
@@ -335,12 +352,32 @@ test("a droid agent with autonomy runs with --auto, and resumes its session", as
   assert.equal((await nextReply()).text, "done");
   assert.match(
     lastCall()[2]!,
-    /^exec droid it --output-format json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
+    /^exec droid it --output-format stream-json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
   );
 
   await post(run({ runtimes: ["droid"], agent, conversation: { ...conversation, prompt: "carry on" } }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
+});
+
+test("a droid agent's messages during a run share one comment, which its final reply replaces", async () => {
+  const id = `m${relays + 1}`;
+  const agent = { id: "coder", runtime: "droid" };
+  await post(run({ runtimes: ["droid"], agent, conversation: { id: "github:acme/api#23", prompt: "talk to me" } }));
+  const first = await nextReply();
+  assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
+  const second = await nextReply();
+  assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(second.message, { id, signature: "msig" });
+  const final = await nextReply();
+  assert.equal(final.text, "done");
+  assert.deepEqual(final.message, { id, signature: "msig" });
+});
+
+test("a failed droid run replies with the error", async () => {
+  const agent = { id: "coder", runtime: "droid" };
+  await post(run({ runtimes: ["droid"], agent, conversation: { id: "github:acme/api#24", prompt: "fail now" } }));
+  assert.match((await nextReply()).text, /The run failed: Droid exited with code 1: it broke/);
 });
 
 test("agents in the same conversation and worktree keep their own sessions", async () => {

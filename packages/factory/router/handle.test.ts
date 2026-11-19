@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
 import { type DeliveryRecord, failedDelivery, type Inbox, replayRecord, RETRY_FOR_MS } from "./deliveries.ts";
+import { signSession, verifySession } from "./admin.ts";
 import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
 import { type Run, type RunResult, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
 
@@ -28,6 +29,9 @@ const fake = (
   acknowledge: async () => {},
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
+  repos: async () => [],
+  signInUrl: async (redirect, state) => `https://sign-in.test/?redirect=${encodeURIComponent(redirect)}&state=${state}`,
+  signIn: async (code) => code.replace(/^code-/, ""),
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -687,4 +691,146 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.match(record.dispatches[0]!.error!, /no longer has the trigger `mention`/);
   assert.equal(runs.length, 2);
+});
+
+const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<string, unknown> } => {
+  const saved = new Map<string, any>();
+  return {
+    saved,
+    get: async (repo) => saved.get(repo.toLowerCase()),
+    put: async (deploy) => void saved.set(deploy.repo.toLowerCase(), structuredClone(deploy)),
+    remove: async (repo) => void saved.delete(repo.toLowerCase()),
+    list: async () => [...saved.values()],
+  };
+};
+
+const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({
+  ...sourceStore(channel, calls),
+  config: {
+    // Operator auth signs in through a connection of its own provider.
+    connections: { "fake/main": entry("CHANNEL_MAIN"), "github/main": { ...entry("CHANNEL_MAIN"), provider: "github" } },
+    codeHost: { provider: "fake", connection: "main", allow: [{ owner: "acme" }] },
+    operators: { provider: "github", connection: "main", logins: ["Alice"] },
+  },
+  channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
+});
+
+const adminCall = async (s: RouterStore, method: string, path: string, { body, session }: { body?: unknown; session?: string } = {}) => {
+  const response = await handle(
+    new Request(`https://router.test${path}`, {
+      method,
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+      ...(session && { headers: { authorization: `Bearer ${session}` } }),
+    }),
+    s,
+  );
+  return { status: response.status, body: await response.json() };
+};
+
+const adminChannel = () => sourceChannel([], []);
+
+test("an operator signs in through the operator auth's channel, and gets a session that the admin routes take", async () => {
+  const s = adminStore(adminChannel());
+  const signIn = await adminCall(s, "POST", "/admin/sign-in", { body: { redirect: "http://127.0.0.1:1/callback", state: "s1" } });
+  assert.equal(signIn.status, 200);
+  assert.equal(signIn.body.url, "https://sign-in.test/?redirect=http%3A%2F%2F127.0.0.1%3A1%2Fcallback&state=s1");
+
+  const signed = await adminCall(s, "POST", "/admin/session", { body: { code: "code-alice", redirect: "http://127.0.0.1:1/callback" } });
+  assert.equal(signed.status, 200);
+  assert.equal(signed.body.operator, "alice");
+  assert.ok(signed.body.expires > Date.now());
+  assert.equal((await verifySession(ROOT_KEY, signed.body.session))?.operator, "alice");
+
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: signed.body.session })).status, 200);
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries")).status, 401);
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: `${signed.body.session}0` })).status, 401);
+});
+
+test("a sign-in by someone outside the operator auth gets no session", async () => {
+  const s = adminStore(adminChannel());
+  const { status, body } = await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory", redirect: "r" } });
+  assert.equal(status, 403);
+  assert.equal(body.session, undefined);
+});
+
+test("a session stops working when it expires, or when its operator leaves the operator auth", async () => {
+  const s = adminStore(adminChannel());
+  const expired = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() - 1 });
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: expired })).status, 401);
+  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  s.config.operators = { provider: "github", connection: "main", logins: ["bob"] };
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 401);
+});
+
+test("a deploy is logged with its builds, and build reports update the log", async () => {
+  const calls: string[] = [];
+  const deploys = memoryDeploys();
+  const s: RouterStore = { ...sourceStore(sourceChannel([{ repo: "acme/api", ref: "abc" }], calls), calls), deploys };
+  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", builds: ["dev"] });
+  await call(s);
+  assert.deepEqual(await deploys.get("acme/api"), {
+    repo: "acme/api",
+    status: { state: "deployed", ref: "abc", at: "now", builds: ["dev"] },
+    builds: { dev: { state: "queued", ref: "abc", at: "now" } },
+  });
+
+  const report = { repo: "acme/api", ref: "abc", container: "dev", state: "success" as const, url: "https://dash.test/b", expires: Date.now() + 60_000 };
+  await buildReport(s, { report, signature: await signBuildReport(ROOT_KEY, report) });
+  const build = (await deploys.get("acme/api"))!.builds!.dev!;
+  assert.equal(build.state, "success");
+  assert.equal(build.url, "https://dash.test/b");
+
+  // A report of an older commit's build doesn't replace the newer build.
+  const older = { ...report, ref: "old", state: "failure" as const };
+  await buildReport(s, { report: older, signature: await signBuildReport(ROOT_KEY, older) });
+  assert.equal((await deploys.get("acme/api"))!.builds!.dev!.state, "success");
+});
+
+test("repos lists each repo's last deploy with its outpost's containers", async () => {
+  const deploys = memoryDeploys();
+  await deploys.put({ repo: "acme/web", status: { state: "failed", error: "bad", at: "then" } });
+  await deploys.put({ repo: "acme/api", status: { state: "deployed", ref: "abc", at: "now" } });
+  const s: RouterStore = { ...adminStore(adminChannel()), deploys, outpost: async (repo) => (repo === "acme/api" ? runOutpost : undefined) };
+  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const { status, body } = await adminCall(s, "GET", "/admin/repos", { session });
+  assert.equal(status, 200);
+  assert.deepEqual(body.repos.map((r: { repo: string; containers: string[] }) => [r.repo, r.containers]), [
+    ["acme/api", ["dev"]],
+    ["acme/web", []],
+  ]);
+});
+
+test("sync deploys every repo that the code host can read, and removes the outposts of the others", async () => {
+  const calls: string[] = [];
+  const deploys = memoryDeploys();
+  await deploys.put({ repo: "acme/gone", status: { state: "deployed", at: "then" } });
+  const channel = sourceChannel([], calls);
+  channel.repos = async () => ["acme/api"];
+  const s: RouterStore = { ...adminStore(channel, calls), deploys };
+  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const { status, body } = await adminCall(s, "POST", "/admin/sync", { session });
+  assert.equal(status, 202);
+  assert.deepEqual(body, { deploying: ["acme/api"], removing: ["acme/gone"] });
+  assert.deepEqual(calls.sort(), ["deploy acme/api head", "read acme/api .factory undefined", "remove acme/gone", "status acme/api deployed"]);
+  assert.deepEqual([...deploys.saved.keys()], ["acme/api"]);
+});
+
+test("replay replays one failed delivery, or all of them, against the router's origin", async () => {
+  const replays: string[] = [];
+  const inbox: Inbox = {
+    receive: async () => true,
+    failed: async () => [
+      { connection: "fake/main", id: "d1", repo: "acme/api", event: "post", received: 1, failed: 2, triggers: [] },
+      { connection: "fake/main", id: "d2", repo: "acme/api", event: "post", received: 1, failed: 2, triggers: [] },
+    ],
+    replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
+  };
+  const s: RouterStore = { ...adminStore(adminChannel()), inbox };
+  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const one = await adminCall(s, "POST", "/admin/replay", { session, body: { connection: "fake/main", id: "d1" } });
+  assert.deepEqual(one.body, { replayed: [{ connection: "fake/main", id: "d1" }], skipped: [] });
+  const all = await adminCall(s, "POST", "/admin/replay", { session });
+  assert.deepEqual(all.body, { replayed: [{ connection: "fake/main", id: "d1" }], skipped: [{ connection: "fake/main", id: "d2" }] });
+  assert.deepEqual(replays, ["fake/main/d1 https://router.test", "fake/main/d1 https://router.test", "fake/main/d2 https://router.test"]);
+  assert.equal((await adminCall(s, "POST", "/admin/replay", { session, body: { id: "d1" } })).status, 400);
 });

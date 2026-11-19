@@ -121,6 +121,16 @@ interface ChannelBase<E> {
   reply?(thread: unknown, text: string, message?: string): Promise<string | undefined>;
   /** For a code host's channel: a short-lived token for `repo`, with only `permissions`. */
   token?(repo: string, permissions: Record<string, "read" | "write">): Promise<string>;
+  /** For a code host's channel: every repo that the hub can read, as `owner/name`. */
+  repos?(): Promise<string[]>;
+  /**
+   * For operator sign-in through the channel's platform: the page that
+   * signs the operator in, and then sends the browser to `redirect` with a
+   * code and `state`.
+   */
+  signInUrl?(redirect: string, state: string): Promise<string>;
+  /** For operator sign-in: exchanges the code that `redirect` got for the operator's identity, such as a GitHub login. */
+  signIn?(code: string, redirect: string): Promise<string>;
 }
 
 /** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */

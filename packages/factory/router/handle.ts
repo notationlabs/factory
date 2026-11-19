@@ -1,6 +1,23 @@
 import type { OutpostConfig, TriggerEntry } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import { allowsRepo } from "../lib/repos.ts";
+import {
+  type ContainerBuild,
+  type DeliveriesResult,
+  type DeployLog,
+  isOperator,
+  type ReplayRequest,
+  type ReplayResult,
+  type ReposResult,
+  SESSION_TTL_MS,
+  type SessionRequest,
+  type SessionResult,
+  type SignInRequest,
+  type SignInResult,
+  signSession,
+  type SyncResult,
+  verifySession,
+} from "./admin.ts";
 import type {
   AuthorCheck,
   BuildCheck,
@@ -61,6 +78,8 @@ export type RouterStore = {
    * and keeps nothing.
    */
   inbox?: Inbox;
+  /** Where the router keeps each repo's last deploy. Without it, operators can't list deploys. */
+  deploys?: DeployLog;
 };
 
 /** The deployer, as the router calls it. */
@@ -503,12 +522,24 @@ const builds = async (request: Request, store: RouterStore) => {
   const channel = codeHostChannel(store)?.channel;
   if (!channel) return json(404, { error: "the hub has no code host" });
   const { repo, ref, container, state, url, summary } = report;
+  await logBuild(store, repo, container, { state, ref, ...(url && { url }), at: new Date().toISOString() }).catch((error) =>
+    console.error(JSON.stringify({ repo, container, state: "build log failed", error: message(error) })),
+  );
   try {
     await channel.writeCheck(repo, ref, { name: buildCheckName(container), state, ...(url && { url }), ...(summary && { summary }) });
   } catch (error) {
     return json(502, { error: message(error) });
   }
   return json(200, { ok: true });
+};
+
+/** Records a container's build in the repo's last deploy, unless a later deploy started another build of it. */
+const logBuild = async (store: RouterStore, repo: string, container: string, build: ContainerBuild) => {
+  const deploy = await store.deploys?.get(repo);
+  if (!deploy) return;
+  const known = deploy.builds?.[container];
+  if (known && known.ref !== build.ref && deploy.status.ref !== build.ref) return;
+  await store.deploys!.put({ ...deploy, builds: { ...deploy.builds, [container]: build } });
 };
 
 /** Writes a check, and logs a failure instead of throwing it. The App may not have the checks permission yet. */
@@ -537,9 +568,14 @@ const redeploy = async (
   allow: RepoPattern[],
   channel: RemoteChannel,
   deployer: RemoteDeployer,
+  log?: DeployLog,
 ) => {
   const { repo, ref } = change;
-  if (change.removed) return deployer.remove(repo);
+  if (change.removed) {
+    await deployer.remove(repo);
+    await log?.remove(repo);
+    return;
+  }
   const at = () => new Date().toISOString();
   let status: FactoryStatus;
   if (!allowsRepo(allow, repo)) {
@@ -552,6 +588,13 @@ const redeploy = async (
       status = { state: "failed", ref, error: message(error), at: at() };
     }
   }
+  await log?.put({
+    repo,
+    status,
+    ...(status.ref && status.builds?.length && {
+      builds: Object.fromEntries(status.builds.map((c) => [c, { state: "queued" as const, ref: status.ref!, at: status.at }])),
+    }),
+  });
   await channel.writeStatus(repo, status);
   for (const container of status.builds ?? []) {
     if (status.ref) await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
@@ -575,7 +618,7 @@ const source = async (
   const task = (async () => {
     for (const change of changes) {
       try {
-        await redeploy(change, codeHost.allow ?? [], channel, deployer);
+        await redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys);
       } catch (error) {
         console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
       }
@@ -602,11 +645,185 @@ const sync = async (request: Request, store: RouterStore) => {
   return json(failed ? 502 : 200, { connections: results });
 };
 
+/** Reads a JSON body, or answers 400. An empty body reads as `{}`. */
+const readJson = async <T>(request: Request): Promise<T | Response> => {
+  const text = await request.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+};
+
+/** The channel that signs operators in, for an operator auth that signs in through a connection's platform. */
+const signInChannel = (store: RouterStore) => {
+  const operators = store.config.operators;
+  if (!operators) return json(404, { error: "the hub has no operator auth" });
+  if (operators.provider !== "github") {
+    return json(501, { error: `the router can't sign operators in with ${operators.provider} yet` });
+  }
+  const key = `${operators.provider}/${operators.connection}`;
+  const channel = channels(store).find((c) => c.key === key)?.channel;
+  if (!channel) return json(404, { error: `no channel for connection ${key}` });
+  return channel;
+};
+
+/** Answers the page that signs an operator in, which sends their browser back to `redirect`. */
+const signIn = async (request: Request, store: RouterStore) => {
+  const body = await readJson<SignInRequest>(request);
+  if (body instanceof Response) return body;
+  if (typeof body.redirect !== "string" || typeof body.state !== "string") {
+    return json(400, { error: "the body needs redirect and state" });
+  }
+  const channel = signInChannel(store);
+  if (channel instanceof Response) return channel;
+  try {
+    const result: SignInResult = { url: await channel.signInUrl(body.redirect, body.state) };
+    return json(200, result);
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
+};
+
+/** Exchanges a sign-in code for an admin session, if the operator auth lets the operator in. */
+const session = async (request: Request, store: RouterStore) => {
+  const body = await readJson<SessionRequest>(request);
+  if (body instanceof Response) return body;
+  if (typeof body.code !== "string" || typeof body.redirect !== "string") {
+    return json(400, { error: "the body needs code and redirect" });
+  }
+  const channel = signInChannel(store);
+  if (channel instanceof Response) return channel;
+  let operator: string;
+  try {
+    operator = await channel.signIn(body.code, body.redirect);
+  } catch (error) {
+    return json(401, { error: message(error) });
+  }
+  if (!isOperator(store.config.operators, operator)) {
+    return json(403, { error: `${operator} isn't one of the hub's operators` });
+  }
+  const expires = Date.now() + SESSION_TTL_MS;
+  const result: SessionResult = { session: await signSession(await store.rootKey(), { operator, expires }), operator, expires };
+  console.log(JSON.stringify({ operator, state: "signed in" }));
+  return json(200, result);
+};
+
+/** The operator of the request's admin session, or a 401. The operator must still be in the operator auth. */
+const operatorOf = async (request: Request, store: RouterStore) => {
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  const found = token ? await verifySession(await store.rootKey(), token) : undefined;
+  if (!found || !isOperator(store.config.operators, found.operator)) {
+    return json(401, { error: "sign in as an operator" });
+  }
+  return found.operator;
+};
+
+/** Lists each repo's last deploy, with the containers that its outpost declares now. */
+const listRepos = async (store: RouterStore) => {
+  if (!store.deploys) return json(501, { error: "the router keeps no deploys" });
+  const deploys = await store.deploys.list();
+  const result: ReposResult = {
+    repos: await Promise.all(
+      deploys.map(async (deploy) => ({
+        ...deploy,
+        containers: Object.keys((await store.outpost(deploy.repo))?.containers ?? {}),
+      })),
+    ),
+  };
+  result.repos.sort((a, b) => a.repo.localeCompare(b.repo));
+  return json(200, result);
+};
+
+const listDeliveries = async (store: RouterStore) => {
+  const failed = (await store.inbox?.failed()) ?? [];
+  failed.sort((a, b) => a.received - b.received);
+  const result: DeliveriesResult = { failed };
+  return json(200, result);
+};
+
+/** Replays one failed delivery, or every one. Runs reply to this router's origin. */
+const replay = async (request: Request, store: RouterStore, operator: string) => {
+  const body = await readJson<ReplayRequest>(request);
+  if (body instanceof Response) return body;
+  const { inbox } = store;
+  if (!inbox) return json(501, { error: "the router keeps no deliveries" });
+  if ((body.connection === undefined) !== (body.id === undefined)) {
+    return json(400, { error: "name both connection and id, or neither" });
+  }
+  const targets =
+    body.connection !== undefined && body.id !== undefined
+      ? [{ connection: body.connection, id: body.id }]
+      : (await inbox.failed()).map(({ connection, id }) => ({ connection, id }));
+  const { origin } = new URL(request.url);
+  const result: ReplayResult = { replayed: [], skipped: [] };
+  for (const target of targets) {
+    const replayed = await inbox.replay(target.connection, target.id, origin);
+    result[replayed ? "replayed" : "skipped"].push(target);
+  }
+  console.log(JSON.stringify({ operator, ...result }));
+  return json(200, result);
+};
+
+/**
+ * Deploys every repo again, and answers before the deploys finish:
+ * 1. Has the code host's channel list the repos that the hub can read.
+ * 2. Deploys each of them again from its default branch.
+ * 3. Removes the outposts of the deployed repos that the hub can no longer
+ *    read.
+ */
+const syncRepos = async (store: RouterStore, operator: string) => {
+  const codeHost = store.config.codeHost;
+  const channel = codeHostChannel(store)?.channel;
+  if (!codeHost || !channel) return json(404, { error: "the hub has no code host" });
+  const { deployer } = store;
+  if (!deployer) return json(404, { error: "the hub has no deployer" });
+  let readable: string[];
+  try {
+    readable = await channel.repos();
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
+  const known = new Set(readable.map((repo) => repo.toLowerCase()));
+  const deployed = (await store.deploys?.list()) ?? [];
+  const removing = deployed.map((d) => d.repo).filter((repo) => !known.has(repo.toLowerCase()));
+  const changes: SourceChange[] = [...readable.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
+  const task = Promise.all(
+    changes.map((change) =>
+      redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys).catch((error) =>
+        console.error(JSON.stringify({ repo: change.repo, error: message(error) })),
+      ),
+    ),
+  );
+  if (store.background) store.background(task);
+  else await task;
+  const result: SyncResult = { deploying: readable, removing };
+  console.log(JSON.stringify({ operator, sync: result }));
+  return json(202, result);
+};
+
+/** The routes under `/admin/`. Signing in needs no session. The others need an operator's admin session. */
+const admin = async (request: Request, route: string, store: RouterStore) => {
+  const { method } = request;
+  if (method === "POST" && route === "sign-in") return signIn(request, store);
+  if (method === "POST" && route === "session") return session(request, store);
+  const operator = await operatorOf(request, store);
+  if (operator instanceof Response) return operator;
+  if (method === "GET" && route === "repos") return listRepos(store);
+  if (method === "GET" && route === "deliveries") return listDeliveries(store);
+  if (method === "POST" && route === "replay") return replay(request, store, operator);
+  if (method === "POST" && route === "sync") return syncRepos(store, operator);
+  return json(404, { error: "not found" });
+};
+
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
  * only sets the values the router derives. `POST /relay`, `POST /messages`
  * and `POST /tokens` take tickets that the router signed when it started a
- * run. `POST /builds` takes reports that the deployer signed.
+ * run. `POST /builds` takes reports that the deployer signed. The routes
+ * under `/admin/` are for operators.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -627,6 +844,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);
+  }
+  if (pathname.startsWith("/admin/")) {
+    return admin(request, pathname.slice("/admin/".length), store);
   }
   return Promise.resolve(json(404, { error: "not found" }));
 };

@@ -24,6 +24,24 @@ export type {
   ThreadMessage,
 } from "./channel.ts";
 export {
+  type ContainerBuild,
+  type DeliveriesResult,
+  type DeployLog,
+  isOperator,
+  type ReplayRequest,
+  type ReplayResult,
+  type RepoDeploy,
+  type ReposResult,
+  SESSION_TTL_MS,
+  type SessionRequest,
+  type SessionResult,
+  type SignInRequest,
+  type SignInResult,
+  signSession,
+  type SyncResult,
+  verifySession,
+} from "./admin.ts";
+export {
   type DeliveryRecord,
   type FailedDelivery,
   failedDelivery,

@@ -19,12 +19,13 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called and the token that gh
 // gets, and writes a transcript for a session named after its working
 // directory, and writes stream-json. It fails, edits the worktree, waits for
-// the runner to refresh its tokens, or writes messages before its result,
-// when the prompt says so.
+// the runner to refresh its tokens, hangs, or writes messages before its
+// result, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$2"
 case "$prompt" in
   wait*) sleep 1 ;;
+  hang*) sleep 5 ;;
 esac
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
@@ -51,13 +52,31 @@ esac
 echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
-/** A fake Cursor Agent: like the fake Claude Code, but for Cursor's CLI. */
+// A fake Cursor Agent: like the fake Claude Code, but for Cursor's CLI and
+// its stream-json events. It fails, or writes messages before its result,
+// when the prompt says so. A subagent's text is nested in the task tool's
+// result, which is where the CLI puts it.
 const FAKE_CURSOR = `#!/bin/sh
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
 mkdir -p "$HOME/.cursor/chats/-p-$(basename "$(pwd)")"
 echo "$*" >> "$HOME/.cursor/chats/-p-$(basename "$(pwd)")/$session"
-echo "{\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
+case "$*" in
+  *fail*)
+    echo '{"type":"system","subtype":"init"}'
+    echo "it broke" >&2
+    exit 1 ;;
+  *talk*)
+    echo '{"type":"system","subtype":"init","session_id":"'"$session"'"}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."}]},"model_call_id":"m1","timestamp_ms":1}'
+    sleep 0.3
+    echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
+    echo '{"type":"thinking","subtype":"delta","text":"hidden"}'
+    sleep 0.3
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Found it."}]}}'
+    sleep 0.3 ;;
+esac
+echo "{\\"type\\":\\"result\\",\\"subtype\\":\\"success\\",\\"is_error\\":false,\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
 
 // A fake Droid: like the fake Claude Code, but for droid's CLI and its
@@ -306,13 +325,34 @@ test("a cursor run invokes agent in print mode, and resumes its session", async 
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^-p --output-format json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+cursor it --model composer-2\.5$/,
+    /^-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+cursor it --model composer-2\.5$/,
   );
   assert.equal(JSON.parse(readFileSync(join(home, ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
 
   await post(run({ runtimes: ["cursor"], agent, conversation: { ...conversation, prompt: "carry on" } }));
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--resume s-issue-1$/);
+});
+
+test("a cursor agent's messages during a run share one comment, which its final reply replaces", async () => {
+  const id = `m${relays + 1}`;
+  const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
+  await post(run({ runtimes: ["cursor"], agent, conversation: { id: "github:acme/api#32", prompt: "talk to me" } }));
+  const first = await nextReply();
+  assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.equal(first.message, undefined);
+  const second = await nextReply();
+  assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(second.message, { id, signature: "msig" });
+  const final = await nextReply();
+  assert.equal(final.text, "done");
+  assert.deepEqual(final.message, { id, signature: "msig" });
+});
+
+test("a failed cursor run replies with the error", async () => {
+  const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
+  await post(run({ runtimes: ["cursor"], agent, conversation: { id: "github:acme/api#33", prompt: "fail now" } }));
+  assert.match((await nextReply()).text, /The run failed: Cursor Agent exited with code 1: it broke/);
 });
 
 test("a cursor agent in plan mode passes --mode plan", async () => {
@@ -475,4 +515,13 @@ test("during a long run, the runner refreshes the tokens that gh and git read", 
 test("status counts the runs that are running or queued", async () => {
   const response = await fetch(`http://127.0.0.1:${port}/status`);
   assert.deepEqual(await response.json(), { active: 0 });
+});
+
+test("when the container stops during a run, the run's conversation says the run was lost", async () => {
+  await post(run({ worktree: { branch: "issue-12" }, conversation: { id: "github:acme/api#12", prompt: "hang" } }));
+  const exited = new Promise((resolve) => runner.once("exit", resolve));
+  runner.kill("SIGTERM");
+  assert.match((await nextReply()).text, /^The container stopped before this run finished, so the run was lost\./);
+  assert.equal(await exited, 0);
+  await startRunner();
 });

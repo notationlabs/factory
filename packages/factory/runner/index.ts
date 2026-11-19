@@ -26,6 +26,9 @@ const BIN = join(DATA, "bin");
 /** The shortest time between two posts of an agent's messages during a run. Each post edits the run's message on the conversation. */
 const PROGRESS_INTERVAL_MS = Number(process.env.FACTORY_PROGRESS_INTERVAL_MS ?? 10 * 1000);
 
+/** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
+const STOP_REPLY_TIMEOUT_MS = 5000;
+
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
@@ -537,6 +540,8 @@ const replies = (run: Run) => {
 };
 
 let active = 0;
+/** The replies of the runs that are running or queued. */
+const held = new Map<string, ReturnType<typeof replies>>();
 
 /**
  * Runs one run:
@@ -554,7 +559,7 @@ let active = 0;
  */
 const execute = async (run: Run) => {
   const started = Date.now();
-  const reply = replies(run);
+  const reply = held.get(run.id) ?? replies(run);
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const worktree = worktreeOf(run);
   const notes: string[] = [];
@@ -611,8 +616,12 @@ const execute = async (run: Run) => {
 
 const enqueue = (run: Run) => {
   active++;
+  held.set(run.id, replies(run));
   const key = run.worktree ? `branch:${run.repo}:${run.worktree.branch}` : `scratch:${run.conversation.id}`;
-  void worktreeLock(key, () => execute(run)).finally(() => active--);
+  void worktreeLock(key, () => execute(run)).finally(() => {
+    active--;
+    held.delete(run.id);
+  });
 };
 
 const send = (response: ServerResponse, status: number, body: unknown) => {
@@ -657,9 +666,15 @@ const server = createServer(async (request, response) => {
 
 // The runner is the container's PID 1, and Linux ignores a signal to PID 1
 // that the process doesn't handle. The provider stops a sleeping container
-// with SIGTERM.
-process.on("SIGTERM", () => {
-  log({ state: "stopping" });
+// with SIGTERM, and also a busy one when it rolls out a new image. The runs
+// the runner holds are lost then, so it says so on their conversations.
+process.on("SIGTERM", async () => {
+  log({ state: "stopping", runs: held.size });
+  const lost = [...held.values()].map((reply) =>
+    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over."),
+  );
+  const timeout = new Promise((resolve) => setTimeout(resolve, STOP_REPLY_TIMEOUT_MS));
+  await Promise.race([Promise.allSettled(lost), timeout]);
   process.exit(0);
 });
 

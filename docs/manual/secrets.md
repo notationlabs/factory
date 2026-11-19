@@ -65,7 +65,7 @@ At the end of every `factory infra up`, deploy asks the router to sync: the rout
 
 The sync key is a random key, apart from the root key. The router declares it as a `RecordedKey` resource from `@notation/factory`. Unlike the root key, its value is recorded in Notation state, so every deploy can sign with it. Deploy never records the root key's value, and would have to rotate the root key to get it again. The router keeps the sync key in the vault's store, and binds it as `FACTORY_SYNC_KEY`.
 
-The request carries the time it was made and an HMAC of that time with the sync key. The router refuses a request whose signature doesn't match, or whose time is more than 5 minutes from its own clock. Anyone who can read the hub's Notation state can sign a sync. A sync only does what `factory infra up` does anyway, and reveals no secrets.
+The request carries the time it was made and an HMAC, with the sync key, of that time and the router's origin. A captured request works only for that router. The router refuses a request whose signature doesn't match, or whose time is more than 5 minutes from its own clock. Anyone who can read the hub's Notation state can sign a sync. A sync only does what `factory infra up` does anyway, and reveals no secrets.
 
 ## The hub vault
 

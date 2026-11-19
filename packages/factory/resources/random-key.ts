@@ -92,5 +92,6 @@ export const RecordedKey = recordedKeySchema.defineOperations({
     KeyId: randomUUID(),
     Value: generate(params.Bytes),
   }),
+  read: async (key) => key,
   delete: async () => {},
 });

@@ -114,6 +114,8 @@ export class Router extends ResourceGroup implements RouterContract {
         // stand-in: Notation reads only its name, and the router's bundle
         // exports the real one.
         INBOX: $durableObject({ id: `${id}-inbox`, class: class DeliveryInbox {} }),
+        // Deploys a sync's repos one at a time, past a request's time limit.
+        REPO_SYNC: $durableObject({ id: `${id}-repo-sync`, class: class RepoSync {} }),
         FACTORY_ROOT_KEY: this.rootKey.secret,
         FACTORY_SYNC_KEY: this.syncKey.secret,
       }),

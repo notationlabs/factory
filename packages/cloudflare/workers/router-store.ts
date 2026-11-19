@@ -13,6 +13,7 @@ import {
   type RouterStore,
 } from "@notation/factory/router";
 import type { DeliveryInbox } from "./inbox.ts";
+import type { RepoSync } from "./repo-sync.ts";
 import type { DurableObjectNamespace, KVNamespace, SecretsStoreSecret } from "./types.ts";
 
 export type RouterEnv = {
@@ -21,6 +22,7 @@ export type RouterEnv = {
   FACTORY_SYNC_KEY?: SecretsStoreSecret;
   FACTORY_DEPLOYER?: RemoteDeployer;
   INBOX: DurableObjectNamespace<DeliveryInbox>;
+  REPO_SYNC: DurableObjectNamespace<RepoSync>;
 } & Record<string, unknown>;
 
 /** The KV prefix of the failed deliveries, which the inbox writes when a delivery fails. */
@@ -48,20 +50,23 @@ const deployKey = (repo: string) => `${DEPLOYS_PREFIX}${repo.toLowerCase()}`;
 
 const buildKey = (repo: string, container: string) => `${BUILDS_PREFIX}${repo.toLowerCase()}/${container}`;
 
-/** Each key in KV under `prefix`, with its value. */
-const listJson = async <T>(kv: KVNamespace, prefix: string) => {
-  const found: { key: string; value: T }[] = [];
+/** Each key in KV under `prefix`. */
+const listKeys = async (kv: KVNamespace, prefix: string) => {
+  const keys: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await kv.list({ prefix, ...(cursor && { cursor }) });
-    const values = await Promise.all(page.keys.map(({ name }) => kv.get(name, "json") as Promise<T | null>));
-    page.keys.forEach(({ name }, i) => {
-      const value = values[i];
-      if (value) found.push({ key: name, value });
-    });
+    keys.push(...page.keys.map(({ name }) => name));
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  return found;
+  return keys;
+};
+
+/** Each key in KV under `prefix`, with its value. */
+const listJson = async <T>(kv: KVNamespace, prefix: string) => {
+  const keys = await listKeys(kv, prefix);
+  const values = await Promise.all(keys.map((key) => kv.get(key, "json") as Promise<T | null>));
+  return keys.flatMap((key, i) => (values[i] ? [{ key, value: values[i] as T }] : []));
 };
 
 type DeployRecord = { repo: string; status: FactoryStatus };
@@ -71,11 +76,17 @@ const deploys = (env: RouterEnv): DeployLog => {
   return {
     put: (repo, status) => kv.put(deployKey(repo), JSON.stringify({ repo, status } satisfies DeployRecord)),
     remove: async (repo) => {
-      const builds = await listJson<ContainerBuild>(kv, `${BUILDS_PREFIX}${repo.toLowerCase()}/`);
-      await Promise.all([kv.delete(deployKey(repo)), ...builds.map(({ key }) => kv.delete(key))]);
+      const builds = await listKeys(kv, `${BUILDS_PREFIX}${repo.toLowerCase()}/`);
+      await Promise.all([kv.delete(deployKey(repo)), ...builds.map((key) => kv.delete(key))]);
     },
     build: async (repo, container) => ((await kv.get(buildKey(repo, container), "json")) ?? undefined) as ContainerBuild | undefined,
     putBuild: (repo, container, build) => kv.put(buildKey(repo, container), JSON.stringify(build)),
+    pruneBuilds: async (repo, containers) => {
+      const kept = new Set(containers.map((container) => buildKey(repo, container)));
+      const builds = await listKeys(kv, `${BUILDS_PREFIX}${repo.toLowerCase()}/`);
+      await Promise.all(builds.filter((key) => !kept.has(key)).map((key) => kv.delete(key)));
+    },
+    repos: async () => (await listKeys(kv, DEPLOYS_PREFIX)).map((key) => key.slice(DEPLOYS_PREFIX.length)),
     list: async () => {
       const [records, builds] = await Promise.all([
         listJson<DeployRecord>(kv, DEPLOYS_PREFIX),
@@ -107,5 +118,6 @@ export const routerStore = async (env: RouterEnv, background?: (task: Promise<un
   syncKey: async () => env.FACTORY_SYNC_KEY?.get(),
   inbox: inbox(env),
   deploys: deploys(env),
+  queueDeploys: (changes) => env.REPO_SYNC.get(env.REPO_SYNC.idFromName("sync")).start(changes),
   ...(background && { background }),
 });

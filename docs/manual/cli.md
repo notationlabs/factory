@@ -57,7 +57,7 @@ Plans and applies `factory.infra.ts` and writes secrets to the vault. At the end
 
 | Flag | Effect |
 | --- | --- |
-| `--dry-run` | Prints planned infra and outpost diffs without modifying resources |
+| `--dry-run` | Prints planned infra and outpost diffs without modifying resources. The plan always shows a change to the router's sync, since the sync runs on every deploy |
 | `--prune` | Deletes sleeping outpost containers and `/data` disks for unsubscribed repos or removed containers |
 | `--credential <id>.<credential>@<hash>=<var>` | Passed to Notation, to supply a credential that deploy can't get again, such as an App's client secret. See [Secrets](./secrets.md#a-credential-that-deploy-cant-get-again). Can be given more than once |
 

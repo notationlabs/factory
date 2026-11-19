@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { deferredOutputRef, type OutputRef, ResourceGroup } from "@notation/resource";
 import {
   type Account,
+  bindingName,
   type Deployer as DeployerContract,
+  type OutpostSecret,
+  reposOverlap,
   scopedName,
 } from "@notation/factory";
 import { kvJson } from "@notation/cloudflare/kv";
@@ -62,6 +65,8 @@ export type DeployerOptions = DeployerConfig & {
   router: Router;
   vault: Vault;
   accounts?: Account[];
+  /** Secrets for the containers of the repos that each one allows. */
+  secrets?: OutpostSecret[];
 };
 
 /** A module whose default export is Factory's default outpost Dockerfile. */
@@ -102,6 +107,26 @@ const scriptNameRef = (declaration: Worker) =>
     },
   }) as OutputRef<string>;
 
+/**
+ * Throws if a container could get two values for one env var: two secrets
+ * with one name whose repos overlap, or a secret with an account secret's name.
+ */
+const checkSecretNames = (secrets: OutpostSecret[], accounts: Account[]) => {
+  const accountNames = new Set(accounts.flatMap((a) => Object.keys(a.secrets)));
+  secrets.forEach((secret, i) => {
+    if (accountNames.has(secret.name)) {
+      throw new Error(`The outpost secret ${secret.id} has the name ${secret.name}, which an account's secret has too.`);
+    }
+    for (const other of secrets.slice(i + 1)) {
+      if (other.name === secret.name && reposOverlap(secret.allowedRepos, other.allowedRepos)) {
+        throw new Error(
+          `The outpost secrets ${secret.id} and ${other.id} both have the name ${secret.name}, and a repo that both allow would get two values.`,
+        );
+      }
+    }
+  });
+};
+
 /** Leaves room in an outpost Worker's name for `-` and a 12-character hash, within a DNS label. */
 const OUTPOST_PREFIX_MAX_LENGTH = 50;
 
@@ -111,7 +136,7 @@ const OUTPOST_PREFIX_MAX_LENGTH = 50;
  * Artifacts repo, and Workers Builds builds the image and deploys an outpost
  * Worker that hosts the container. It builds with a user API token, which
  * deploy asks you for once, and reports each build to the router. It binds
- * the root key and the accounts' secrets. Destroying it deletes the outpost
+ * the root key, the accounts' secrets and the outpost secrets. Destroying it deletes the outpost
  * Workers and their container applications.
  */
 export class Deployer
@@ -131,7 +156,7 @@ export class Deployer
 
   constructor(
     id: string,
-    { router, vault, accounts = [], ...config }: DeployerOptions,
+    { router, vault, accounts = [], secrets = [], ...config }: DeployerOptions,
   ) {
     const {
       regions,
@@ -143,6 +168,7 @@ export class Deployer
         `The deployer ${id} needs the Cloudflare account to create outpost Workers in. Set CLOUDFLARE_ACCOUNT_ID, or pass accountId.`,
       );
     }
+    checkSecretNames(secrets, accounts);
     super("cloudflare/Deployer", id, config);
     this.router = router;
     this.vault = vault;
@@ -158,6 +184,13 @@ export class Deployer
       id: `${id}-builds-token`,
       value: this.buildsToken.credentials.Value,
     });
+
+    const outpostSecrets = secrets.map((secret) => ({
+      name: secret.name,
+      binding: `OUTPOST_${bindingName(secret.id)}`,
+      allowedRepos: secret.allowedRepos,
+      stored: vault.secret({ id: `outpost-${secret.id}`, value: secret.value }),
+    }));
 
     const settingsKey = `outpost-settings/${id}`;
     const prefix = scopedName(`${id}-outpost`, OUTPOST_PREFIX_MAX_LENGTH);
@@ -194,6 +227,7 @@ export class Deployer
             ]),
           ),
         ),
+        OUTPOST_SECRETS: json(outpostSecrets.map(({ name, binding, allowedRepos }) => ({ name, binding, allowedRepos }))),
       }),
     });
     this.add(
@@ -226,6 +260,9 @@ export class Deployer
         assertCloudflareSecret(secret);
         addBindings(this.worker, { [name]: secret.secret });
       }
+    }
+    for (const { binding, stored } of outpostSecrets) {
+      addBindings(this.worker, { [binding]: stored.secret });
     }
   }
 }

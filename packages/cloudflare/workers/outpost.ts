@@ -118,7 +118,7 @@ export class OutpostContainer extends Container<Env> {
   async deliver(run: Run) {
     try {
       await this.startAndWaitForPorts({
-        startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes) },
+        startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
         cancellationOptions: { instanceGetTimeoutMS: START_TIMEOUT_MS, portReadyTimeoutMS: START_TIMEOUT_MS },
       });
       const response = await this.containerFetch("http://runner/runs", {

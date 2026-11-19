@@ -1,3 +1,4 @@
+import type { RepoPattern } from "@notation/factory";
 import { deriveKey, hmacHex, type OutpostConfig, type Run, timingSafeEqual } from "@notation/factory/router";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
@@ -23,6 +24,8 @@ export type OutpostsEnv = {
   OUTPOST_SETTINGS_KEY: string;
   /** Each runtime's account: its secret names, and its CLI's setup. */
   ACCOUNTS: Record<string, { secrets: string[]; setup?: string }>;
+  /** Each outpost secret: the env var name containers read it as, its binding, and the repos it's for. */
+  OUTPOST_SECRETS?: { name: string; binding: string; allowedRepos: RepoPattern[] }[];
 };
 
 export const settingsOf = async (env: OutpostsEnv): Promise<OutpostSettings> => {

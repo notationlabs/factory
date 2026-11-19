@@ -36,7 +36,7 @@ A Notation Factory instance has secrets in three places: your machine, the hub (
 | --- | --- | --- |
 | **Local** | Your container provider sign-in, your `gh` login, account secrets such as `CLAUDE_CODE_OAUTH_TOKEN` | `factory` on your machine |
 | **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Who binds each secret](#who-binds-each-secret) |
-| **Outpost** | Its `FACTORY_CONTAINER_KEY`, the secrets of the accounts whose runtimes it lists, short-lived code host tokens the router mints | That container; agents get only the minted tokens and account secrets |
+| **Outpost** | Its `FACTORY_CONTAINER_KEY`, the secrets of the accounts whose runtimes it lists, the outpost secrets that allow its repo, short-lived code host tokens the router mints | That container; agents get the minted tokens, account secrets and outpost secrets |
 
 **The hub vault is write-only from outside the hub.** `factory infra up` writes a secret's value to the vault's store, and never reads one back. Holding the container provider's credentials lets you replace the hub's secrets, not read them.
 
@@ -160,6 +160,7 @@ Each Worker or service binds only the secrets it uses:
 | Connection credentials | Bound by each connection, with `router.bind(...)` | Not bound |
 | The deployer's provider token | Not bound | Bound by the deployer |
 | Account secrets | Not bound | Bound by the deployer, for each of its `accounts` |
+| Outpost secrets | Not bound | Bound by the deployer, for each of its `secrets` |
 
 **The router never binds an account's secrets, and the deployer never binds a connection's credentials.** A leak of one Worker or service therefore exposes only the secrets it binds, plus the root key.
 
@@ -245,14 +246,42 @@ Containers get no channel credential. They read and reply on a conversation thro
 
 ## Outposts
 
-Outposts declare no secrets of their own. The deployer gives each container two things when it deploys it, stored as the provider's own secrets (Worker secrets on Cloudflare, sealed variables on Railway):
+Outposts declare no secrets of their own. The deployer gives each container its `FACTORY_CONTAINER_KEY` when it deploys it, stored as the provider's own secret (a Worker secret on Cloudflare, a sealed variable on Railway). When a run starts, the deployer reads these through its own bindings and passes them to the container as env vars:
 
-- its `FACTORY_CONTAINER_KEY`
-- the secrets of every account whose runtime the container lists, which the deployer reads through its own bindings
+- the secrets of every account whose runtime the container lists
+- the outpost secrets that allow the container's repo
 
-A container that lists only `claude.runtime` gets the Claude account's token and nothing else.
+A container that lists only `claude.runtime`, in a repo that no outpost secret allows, gets the Claude account's token and nothing else.
 
-Agents never see `FACTORY_CONTAINER_KEY` or any provider's private variables. They see the minted tokens and the account secrets.
+Agents never see `FACTORY_CONTAINER_KEY` or any provider's private variables. They see the minted tokens, the account secrets and the outpost secrets.
+
+### Outpost secrets
+
+An `OutpostSecret` from `@notation/factory` is a secret that the hub holds for the containers of some repos, such as a database URL that an agent needs. Declare it in `factory.infra.ts`, and pass it to the deployer:
+
+```ts [factory.infra.ts]
+import { OutpostSecret } from "@notation/factory";
+// …
+const databaseUrl = new sources.Env("web-database-url", {
+  config: { key: "WEB_DATABASE_URL", track: "hmac" },
+});
+
+const webDatabase = new OutpostSecret("web-database-url", {
+  name: "DATABASE_URL",                       // <-- 1. the env var name containers read it as
+  value: databaseUrl.credentials.value,       // <-- 2. a credential, as for vault.secret
+  allowedRepos: [{ owner: "acme", repo: "web" }], // <-- 3. the repos whose containers get it
+});
+
+new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount], secrets: [webDatabase] });
+```
+
+`allowedRepos` has the form of the code host's `allow`: a pattern without `repo` allows every repo of its owner. The deployer writes the value to the vault as the secret `outpost-<id>`, and binds it as `OUTPOST_<id>`, made with `bindingName`. Every container of an allowed repo gets it, whatever its runtimes.
+
+`factory infra up` fails if a container could get two values for one env var: two outpost secrets with the same `name` whose `allowedRepos` overlap, or an outpost secret with the name of an account's secret.
+
+The agents in those containers can read the value, so give an outpost secret no more access than you would give the agents. For a database, that's a role with only the privileges the agents need.
+
+An outpost Worker built by an earlier version of Factory doesn't pass its repo to the deployer, so its containers get no outpost secrets until the outpost deploys again and rebuilds it.
 
 ## Topology
 

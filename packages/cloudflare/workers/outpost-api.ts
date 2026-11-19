@@ -2,8 +2,8 @@
 export type DeployerService = {
   /** Whether `signature` is the deployer's signature of a run for the outpost Worker `worker`. */
   verifyRun(worker: string, timestamp: string, body: string, signature: string): Promise<boolean>;
-  /** The secrets of the accounts of `runtimes`, by the env var names that containers read them as. */
-  credentials(runtimes: string[]): Promise<Record<string, string>>;
+  /** The secrets of the accounts of `runtimes`, and the outpost secrets that allow `repo`, by the env var names that containers read them as. */
+  credentials(runtimes: string[], repo?: string): Promise<Record<string, string>>;
   /** The source of the hub's runner module at `path`, such as `runtimes/claude.ts`, or null if it has none. */
   runnerModule(path: string): Promise<string | null>;
   getState(container: string, key: string): Promise<ReadableStream | null>;

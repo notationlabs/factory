@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
-import { type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@notation/factory/router";
+import { allowsRepo, type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@notation/factory/router";
 import type { BuildWatch } from "./build-watch.ts";
 import { loaderContext } from "./loader.ts";
 import type { DeployerService } from "./outpost-api.ts";
@@ -84,12 +84,20 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     return verifyRun(this.env, worker, timestamp, body, signature);
   }
 
-  async credentials(runtimes: string[]) {
+  // Outpost Workers built before `repo` was passed call this without it, and get no outpost secrets.
+  async credentials(runtimes: string[], repo?: string) {
     const env: Record<string, string> = {};
     for (const runtime of runtimes) {
       const account = this.env.ACCOUNTS[runtime];
       if (!account) throw new Error(`The hub has no account for the runtime ${runtime}.`);
       for (const name of account.secrets) env[name] = await (this.env[name] as SecretsStoreSecret).get();
+    }
+    if (repo) {
+      for (const secret of this.env.OUTPOST_SECRETS ?? []) {
+        if (allowsRepo(secret.allowedRepos, repo)) {
+          env[secret.name] = await (this.env[secret.binding] as SecretsStoreSecret).get();
+        }
+      }
     }
     return env;
   }

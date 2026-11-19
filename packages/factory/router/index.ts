@@ -33,6 +33,7 @@ export {
   webhookPath,
 } from "./handle.ts";
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
+export { allowsRepo } from "../lib/repos.ts";
 export {
   type BuildReport,
   type BuildReportRequest,

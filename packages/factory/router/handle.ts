@@ -1,5 +1,6 @@
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
+import { allowsRepo } from "../lib/repos.ts";
 import type {
   AuthorCheck,
   BuildCheck,
@@ -331,13 +332,6 @@ const writeCheck = async (channel: RemoteChannel, repo: string, ref: string, che
   }
 };
 
-const allows = (allow: RepoPattern[], repo: string) => {
-  const [owner, name] = repo.toLowerCase().split("/");
-  return allow.some(
-    (p) => p.owner.toLowerCase() === owner && (!p.repo || p.repo.toLowerCase() === name),
-  );
-};
-
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
@@ -360,7 +354,7 @@ const redeploy = async (
   if (change.removed) return deployer.remove(repo);
   const at = () => new Date().toISOString();
   let status: FactoryStatus;
-  if (!allows(allow, repo)) {
+  if (!allowsRepo(allow, repo)) {
     await deployer.remove(repo);
     status = { state: "failed", error: `The hub doesn't serve ${repo}: the code host's allow list doesn't include it.`, at: at() };
   } else {

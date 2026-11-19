@@ -125,6 +125,7 @@ new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] }
 | Export | Role |
 | --- | --- |
 | `RandomKey` | A resource whose credential `Value` is `Bytes` random bytes in hex, such as the root key. Deploy makes the value when it creates the key, and never records it. When a resource that takes the value needs it again and deploy holds none, deploy rotates the key and writes every resource that takes it |
+| `OutpostSecret` | A secret for the containers of `allowedRepos`, which they read as the env var `name`. `value` is a credential, as for `vault.secret`. Pass it to the deployer's `secrets`. See [Outpost secrets](../manual/secrets.md#outpost-secrets) |
 | `scopedName(name, maxLength)` | Makes `<app>--<stage>--<name>` for a resource that Notation doesn't name itself, such as a KV namespace's title. A name longer than `maxLength` is cut, and ends in a hash |
 | `bindingName(id)` | Makes a binding name from a secret's id: upper case, with each character other than a letter, a digit or `_` replaced by `_`, and `_` in front if it starts with a digit. For example, `gh-private-key` becomes `GH_PRIVATE_KEY`. `router.bind(secret)` uses it when it is given no name |
 

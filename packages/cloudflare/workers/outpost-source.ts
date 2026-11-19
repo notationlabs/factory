@@ -33,6 +33,17 @@ WORKDIR /data/home
 EXPOSE 8080
 `;
 
+const INSTANCE_TYPES = ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"];
+
+/** The Cloudflare instance type of a container: its `instanceType`, or else `standard-1`. */
+export const instanceType = (container: OutpostConfig["containers"][string]) => {
+  const type = container.instanceType ?? "standard-1";
+  if (!INSTANCE_TYPES.includes(type)) {
+    throw new Error(`Cloudflare has no instance type \`${type}\`. Use one of ${INSTANCE_TYPES.map((t) => `\`${t}\``).join(", ")}.`);
+  }
+  return type;
+};
+
 /**
  * The files the deployer adds to a container's build context for its image,
  * and where the build finds the Dockerfile. The Dockerfile is the

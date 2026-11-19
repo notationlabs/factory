@@ -49,6 +49,7 @@ const customPolicy = new Policy("custom", { provider: "acme-auth", scopes: ["rea
 
 const dev = new Container("dev", {
   image: "./Dockerfile", // <-- optional; defaults to Factory's image
+  instanceType: "standard-2", // <-- optional; in the provider's names
   runtimes: [claude.runtime],
   policies: [customPolicy],
   files: {
@@ -58,7 +59,7 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares a scale-to-zero container: its image, the runtimes the image has, its credential policies (`github.Policy` or a custom `Policy`) and startup files. A container that lists a runtime twice throws.
+`Container` declares a scale-to-zero container: its image, the runtimes the image has, its credential policies (`github.Policy` or a custom `Policy`) and startup files. `instanceType` is the size of the machine, in the names of the hub's provider. Without it, the provider picks its default. See [Cloudflare](./cloudflare.md) for Cloudflare's names. A container that lists a runtime twice throws.
 
 `Policy` is for credentials a plugin mints: `provider` names the plugin, and `scopes` defaults to `[]`. A code host's own policy, such as `github.Policy`, comes from its plugin.
 

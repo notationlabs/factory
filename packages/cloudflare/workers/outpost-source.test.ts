@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { imageSource } from "./outpost-source.ts";
+import { imageSource, instanceType } from "./outpost-source.ts";
 
 const DOCKERFILE = "FROM oven/bun:1-debian\nRUN apt-get install -y git\n";
 const accounts = { claude: { setup: "install claude\n" }, droid: { setup: "install droid\n" } };
@@ -55,4 +55,16 @@ test("a container with no image and a runtime that has no setup fails its deploy
 
 test("a container whose image doesn't exist fails its deploy", () => {
   assert.throws(() => imageSource({ ...container, image: "./Dockerfile" }, {}, accounts, DOCKERFILE), /\.factory\/Dockerfile doesn't exist/);
+});
+
+test("a container with no instance type gets standard-1", () => {
+  assert.equal(instanceType(container), "standard-1");
+});
+
+test("a container gets the instance type it names", () => {
+  assert.equal(instanceType({ ...container, instanceType: "standard-3" }), "standard-3");
+});
+
+test("a container with an instance type that Cloudflare doesn't have fails its deploy", () => {
+  assert.throws(() => instanceType({ ...container, instanceType: "huge" }), /no instance type `huge`/);
 });

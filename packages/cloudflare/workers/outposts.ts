@@ -10,7 +10,7 @@ import { deleteOutpostWorker } from "../lib/outpost-workers.ts";
 import type { StartedBuild } from "./build-watch.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
-import { imageSource, type RuntimeAccount } from "./outpost-source.ts";
+import { imageSource, instanceType, type RuntimeAccount } from "./outpost-source.ts";
 import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
 import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
 
@@ -98,7 +98,7 @@ const outpostSource = (
         image: image.image,
         image_build_context: image.context,
         max_instances: 1,
-        instance_type: "standard-1",
+        instance_type: instanceType(container),
         ...(settings.regions && { constraints: { regions: settings.regions } }),
       },
     ],

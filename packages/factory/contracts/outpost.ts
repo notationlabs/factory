@@ -24,6 +24,8 @@ export interface PolicyContract extends ResourceGroup {
 export type ContainerEntry = {
   /** The Dockerfile, relative to `.factory/`. Without it, the container gets Factory's default image. */
   image?: string;
+  /** The size of the machine, in the provider's names. */
+  instanceType?: string;
   runtimes: string[];
   policies: string[];
   files: Record<string, string | Record<string, unknown>>;

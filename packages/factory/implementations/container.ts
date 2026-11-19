@@ -9,6 +9,11 @@ const containerConfig = v.object({
    * default image, which has Claude Code and Droid.
    */
   image: v.optional(v.string()),
+  /**
+   * The size of the machine, in the provider's names, such as Cloudflare's
+   * `standard-2`. Without it, the provider picks its default.
+   */
+  instanceType: v.optional(v.string()),
   runtimes: v.optional(
     v.array(
       v.custom<Runtime>(
@@ -42,7 +47,7 @@ export class Container extends OutpostGroup<ContainerConfig> {
   readonly policies: PolicyContract[];
 
   constructor(id: string, { policies = [], ...config }: ContainerOptions) {
-    const { image, runtimes, files } = v.parse(containerConfig, config);
+    const { image, instanceType, runtimes, files } = v.parse(containerConfig, config);
     const seen = new Set<string>();
     for (const runtime of runtimes) {
       if (seen.has(runtime.id)) {
@@ -57,6 +62,7 @@ export class Container extends OutpostGroup<ContainerConfig> {
       containers: {
         [id]: {
           ...(image && { image }),
+          ...(instanceType && { instanceType }),
           runtimes: runtimes.map((r) => r.id),
           policies: policies.map((p) => p.id),
           files,

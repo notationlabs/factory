@@ -10,6 +10,7 @@ Provision a persistent machine for your repository's agents:
 ```ts [.factory/infra.ts]
 const dev = new Container("dev", {
   image: "./Dockerfile",      // <-- optional; defaults to Factory's image
+  instanceType: "standard-2", // <-- optional; the machine's size, in the provider's names
   runtimes: [claude.runtime], // <-- matched to an infra Account
   policies: [code, shared],   // <-- credentials the container is allowed to mint
   files: {
@@ -18,7 +19,7 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares an outpost machine: its image, the runtimes the image has, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
+`Container` declares an outpost machine: its image, its size, the runtimes the image has, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
 
 ## Image
 

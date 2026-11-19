@@ -4,7 +4,7 @@ A Notation Factory hub runs its `Router`, `Deployer`, and every outpost `Contain
 
 | Capability | Cloudflare (`@notation/factory-cloudflare`) | Railway (`@notation/factory-railway`) |
 | --- | --- | --- |
-| **Compute** | Workers for the router, the deployer and each connection's channel, and an outpost Worker per container, which hosts one `standard-1` container | Railway Service per router, deployer, and outpost |
+| **Compute** | Workers for the router, the deployer and each connection's channel, and an outpost Worker per container, which hosts one container of the container's `instanceType`, or `standard-1` | Railway Service per router, deployer, and outpost |
 | **Private network** | Authenticated Worker routing (`*.factory.internal`) | Railway private network (`*.railway.internal`) |
 | **Service store** | Durable Object storage | JSON files on `/data` volume |
 | **Vault** | `cloudflare.Vault` (Secrets Store) | `railway.Vault` (sealed shared variables) |

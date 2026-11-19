@@ -414,7 +414,7 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<Attempt> => {
       tokens,
       refresh,
       reply,
-    }).catch((error): RunResult => ({ ok: false, retryable: true, error: message(error) }));
+    }).catch((error): RunResult => ({ ok: false, retryable: false, error: message(error) }));
     if (!result.ok) return { ...result, ...failed };
     console.log(JSON.stringify({ run: runId, repo, trigger: triggerId, container: trigger.container, worktree }));
     return { ok: true, thread: conversation.thread };

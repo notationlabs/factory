@@ -603,7 +603,7 @@ test("a dispatch whose container is building is retried with backoff, and its ru
   assert.equal(replies.length, 1);
 });
 
-test("an error thrown over RPC by the deployer is retried", async () => {
+test("an error thrown over RPC by the deployer isn't retried, since the run may have been queued", async () => {
   const { record, store } = await savedRecord(
     runStore(accepted(), {
       run: async () => {
@@ -611,8 +611,8 @@ test("an error thrown over RPC by the deployer is retried", async () => {
       },
     }),
   );
-  assert.deepEqual(await advance(record, store, 0), { wake: 2_000 });
-  assert.equal(record.dispatches[0]!.state, "pending");
+  await advance(record, store, 0);
+  assert.equal(record.dispatches[0]!.state, "failed");
 });
 
 test("a dispatch that still fails after its retries posts one notice, in place of the waiting message", async () => {

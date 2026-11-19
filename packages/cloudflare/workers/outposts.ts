@@ -294,13 +294,11 @@ const subdomain = async (env: OutpostsEnv, settings: OutpostSettings) => {
   return subdomain;
 };
 
-/** How long the deployer waits for an outpost Worker to take a run. The Worker queues the run, and answers before the container starts. */
-const POST_RUN_TIMEOUT_MS = 30_000;
-
 /**
  * Posts `run` to the outpost Worker of its repo's container, signed with
- * the Worker's key. A timeout, a 5xx, or an image whose first build hasn't
- * finished is worth retrying.
+ * the Worker's key. A 5xx, or an image whose first build hasn't finished,
+ * is worth retrying. A failed request isn't, since the Worker may already
+ * have queued the run, and a retry would run it twice.
  */
 export const postRun = async (env: OutpostsEnv, run: Run): Promise<RunResult> => {
   const settings = await settingsOf(env);
@@ -316,12 +314,11 @@ export const postRun = async (env: OutpostsEnv, run: Run): Promise<RunResult> =>
       method: "POST",
       headers: { "content-type": "application/json", [RUN_HEADERS.timestamp]: timestamp, [RUN_HEADERS.signature]: signature },
       body,
-      signal: AbortSignal.timeout(POST_RUN_TIMEOUT_MS),
     });
     text = await response.text();
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { ok: false, retryable: true, error: `The container \`${run.container}\`'s Worker ${worker} didn't answer: ${reason}` };
+    return { ok: false, retryable: false, error: `The container \`${run.container}\`'s Worker ${worker} didn't answer: ${reason}` };
   }
   if (response.status === 503 && text === "building") {
     return {

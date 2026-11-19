@@ -10,8 +10,10 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
+import { clientId, signIn, signInUrl } from "./operators.ts";
 import {
   comment,
+  installedRepos,
   type IssueComment,
   issueComments,
   issuePost,
@@ -40,7 +42,7 @@ export const verifySignature = async (
 };
 
 /** The names of what a GitHub channel reads from its context. */
-export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY" } as const;
+export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY", clientSecret: "CLIENT_SECRET" } as const;
 export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
 
 /**
@@ -266,6 +268,14 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
   const appId = ctx.value(CHANNEL_VALUES.appId);
   const rootKey = () => ctx.secret(CHANNEL_SECRETS.rootKey);
   const auth = async () => ({ appId, privateKey: await ctx.secret(CHANNEL_SECRETS.privateKey) });
+  let client: Promise<string> | undefined;
+  const appClientId = async () => {
+    client ??= auth().then(clientId);
+    return client.catch((error) => {
+      client = undefined;
+      throw error;
+    });
+  };
   return {
     async receive(request) {
       const target = request.headers.get("x-github-hook-installation-target-id");
@@ -368,6 +378,18 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
 
     async token(repo, permissions) {
       return repoToken(await auth(), repo, permissions);
+    },
+
+    async repos() {
+      return installedRepos(await auth());
+    },
+
+    async signInUrl(redirect, state) {
+      return signInUrl(await appClientId(), redirect, state);
+    },
+
+    async signIn(code, redirect) {
+      return signIn({ clientId: await appClientId(), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code, redirect);
     },
   };
 };

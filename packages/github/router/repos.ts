@@ -273,3 +273,33 @@ export const sourceChanges = (event: string, payload: any): SourceChange[] | und
   }
   return undefined;
 };
+
+/** Every repo of every installation of the App that isn't suspended, as `owner/name`. */
+export const installedRepos = async (auth: AppAuth) => {
+  const jwt = await appJwt(auth.appId, auth.privateKey);
+  const installations: { id: number; suspended_at?: string | null }[] = [];
+  for (let page = 1; ; page++) {
+    const path = `/app/installations?per_page=100&page=${page}`;
+    const batch = (await (await ok(await github("GET", path, jwt), `GET ${path}`)).json()) as typeof installations;
+    installations.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const repos: string[] = [];
+  for (const installation of installations.filter((i) => !i.suspended_at)) {
+    const { token } = (await (
+      await ok(
+        await github("POST", `/app/installations/${installation.id}/access_tokens`, jwt, { body: { permissions: { metadata: "read" } } }),
+        `POST /app/installations/${installation.id}/access_tokens`,
+      )
+    ).json()) as { token: string };
+    for (let page = 1; ; page++) {
+      const path = `/installation/repositories?per_page=100&page=${page}`;
+      const batch = (await (await ok(await github("GET", path, token), `GET ${path}`)).json()) as {
+        repositories: { full_name: string }[];
+      };
+      repos.push(...fullNames(batch.repositories));
+      if (batch.repositories.length < 100) break;
+    }
+  }
+  return repos;
+};

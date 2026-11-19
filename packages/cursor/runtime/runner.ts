@@ -3,6 +3,24 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RuntimeRunner } from "@notation/factory";
 
+/** One line of Cursor Agent's stream-json output. */
+type StreamEvent = {
+  type?: string;
+  result?: string;
+  is_error?: boolean;
+  session_id?: string;
+  message?: { content?: { type: string; text?: string }[] };
+};
+
+const parseLine = (line: string): StreamEvent | undefined => {
+  if (!line.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(line) as StreamEvent;
+  } catch {
+    return undefined;
+  }
+};
+
 /** How the runner runs Cursor Agent. Containers import it with no packages, so it imports only Node's. */
 const cursor: RuntimeRunner = {
   command: "agent",
@@ -12,10 +30,12 @@ const cursor: RuntimeRunner = {
     const { agent } = run;
     // The CLI has no public flag for a system prompt, so the runner's
     // prompt, then the agent's, come before the conversation's messages.
+    // stream-json writes a line for each event, so the runner can post the
+    // agent's messages as it writes them.
     const args = [
       "-p",
       "--output-format",
-      "json",
+      "stream-json",
       "--force",
       "--trust",
       "--sandbox",
@@ -55,13 +75,26 @@ const cursor: RuntimeRunner = {
     return args;
   },
   resume: (sessionId) => ["--resume", sessionId],
+  // A run that succeeds ends with a result event. A run that fails writes
+  // the error to stderr and exits non-zero, with no result event.
   parse: (stdout) => {
-    try {
-      const output = JSON.parse(stdout) as { result?: string; is_error?: boolean; session_id?: string };
-      return { result: output.result, isError: output.is_error, sessionId: output.session_id };
-    } catch {
-      return undefined;
+    const lines = stdout.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const event = parseLine(lines[i]!);
+      if (event?.type === "result") return { result: event.result, isError: event.is_error, sessionId: event.session_id };
     }
+    return undefined;
+  },
+  // The message before a tool call carries model_call_id. It is that
+  // message: the runner doesn't pass --stream-partial-output, so nothing
+  // earlier in the stream has the same text. A subagent's text is nested
+  // in the task tool's result, and thinking is its own event, so neither
+  // is an assistant message.
+  message: (line) => {
+    const event = parseLine(line);
+    if (event?.type !== "assistant") return undefined;
+    const text = (event.message?.content ?? []).flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
+    return text.length ? text.join("\n\n") : undefined;
   },
 };
 

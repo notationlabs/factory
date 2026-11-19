@@ -135,7 +135,7 @@ The router saves each delivery that starts a run before it answers the platform,
 1. A delivery whose connection and id the router saw in the last 7 days is a duplicate, and starts nothing. On GitHub, the id is the `X-GitHub-Delivery` header, which a redelivery keeps.
 2. The router hands each run to the deployer, which posts it to the container's outpost Worker. If the Worker doesn't answer within 30 seconds, answers with a 5xx, or the container's first image build hasn't finished, the router tries again. It waits 2 seconds, then 4, 8 and so on up to a minute between tries, for about 5 minutes. While it waits, the thread shows `Booting container dev...`, and the run's first reply replaces that message.
 3. If a run still can't start, or fails for another reason, the router posts one message on the thread with the error. With retries, the message replaces `Booting container dev...`. It says that the router kept the event, and that an operator can replay it with `factory infra replay`. The router keeps failed deliveries for 7 days.
-4. A replay starts the runs that failed again, as new runs, against the outpost config that the repo has at that time.
+4. `factory infra status` lists the failed deliveries, and `factory infra replay` replays them. A replay starts the runs that failed again, as new runs, against the outpost config that the repo has at that time.
 
 The router never saves a run, since a run's tokens expire. Each try mints new tokens. Deliveries in one thread aren't ordered: a retried run can start after a later one. That does no harm, since a run that finds no new messages is skipped.
 

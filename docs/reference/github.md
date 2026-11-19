@@ -32,11 +32,12 @@ new github.Connection("gh", {
 
 An App that doesn't exist yet is created through GitHub's manifest flow in your browser, named `<app>--<stage>--<id>` (truncated with a hash at 34 characters). Deploy prints the App's ID when it creates the App. Notation keeps the App by its ID, not its name, so you can rename the App on GitHub. The App is protected: `factory infra down` leaves it.
 
-The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`. The router runs the connection's channel with `router.channel(...)`, which gets the private key as `PRIVATE_KEY`, the root key as `ROOT_KEY` and the App's id as `APP_ID`. Only the channel reads the private key: the router and the deployer don't bind it. On Cloudflare, each connection's channel is a Worker with no URL, which the router binds as a service, such as `CHANNEL_GITHUB_GH` for the connection `gh`. The secret's value is the App's credential `privateKey`. GitHub returns the key once, when the manifest flow creates the App, and deploy writes it to the vault in memory. GitHub has no API that makes another key. So when deploy needs the key again, such as after the vault secret was deleted, plan fails: generate a private key on the App's settings page, and pass it with `notation deploy --credential`. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
+The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`, and its client secret as `<id>-client-secret`. The router runs the connection's channel with `router.channel(...)`, which gets the private key as `PRIVATE_KEY`, the client secret as `CLIENT_SECRET`, the root key as `ROOT_KEY` and the App's id as `APP_ID`. Only the channel reads the private key and the client secret: the router and the deployer don't bind them. On Cloudflare, each connection's channel is a Worker with no URL, which the router binds as a service, such as `CHANNEL_GITHUB_GH` for the connection `gh`. The secrets' values are the App's credentials `privateKey` and `clientSecret`. GitHub returns them once, when the manifest flow creates the App, and deploy writes them to the vault in memory. GitHub has no API that makes another. So when deploy needs one again, such as after the vault secret was deleted, plan fails: generate a private key or a client secret on the App's settings page, and pass it with `factory infra up --credential`. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
 
 | GitHub App manifest | Value |
 | --- | --- |
 | **Webhook URL** | `<Url>/webhook/github/<id>`, where `Url` is the router's URL |
+| **Callback URL** | `http://127.0.0.1:47219/callback`, where the CLI listens when an operator signs in |
 | **Events** | `issues`, `issue_comment`, `push` |
 | **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `checks: "write"`, `metadata: "read"` |
 
@@ -77,7 +78,9 @@ new github.OperatorAuth("operators", {
 });
 ```
 
-The CLI signs you in through the connection's App as a user-to-server token, and the router checks your login against `logins` before it returns a short-lived admin session. See [Operator auth](../manual/secrets.md#operator-auth).
+The CLI signs you in with GitHub's web flow for the connection's App. The connection's channel exchanges the code for a user token with the App's client secret, reads your login, and revokes the token. The router checks your login against `logins`, without case, before it returns an admin session that lasts 4 hours. An App that an earlier version of Factory created needs a client secret and the callback URL `http://127.0.0.1:47219/callback`, which you add on its settings page. See [Signing in with GitHub](../manual/secrets.md#signing-in-with-github).
+
+The code host's channel also lists the repos of every installation of the App that isn't suspended. `factory infra up` has the router deploy each of them again.
 
 ## Channel
 

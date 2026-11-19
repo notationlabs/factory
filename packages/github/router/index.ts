@@ -104,6 +104,7 @@ const eventPayload = (payload: any) => ({
   ...(payload.comment && {
     comment: { id: payload.comment.id, body: payload.comment.body, user: { login: payload.comment.user?.login } },
   }),
+  ...(payload.label && { label: { name: payload.label.name } }),
   repository: { full_name: payload.repository?.full_name, default_branch: payload.repository?.default_branch },
   sender: { login: payload.sender?.login },
 });
@@ -134,6 +135,14 @@ const readPost = (post: Omit<IssueComment, "id">, appId: string) => {
 
 /** The id of an issue's opening post among its thread's messages. Comments' ids are numbers. */
 const OPENING_POST = "issue";
+
+/** What happened to the issue, for an event that posted no message, such as a label being added. */
+const eventOf = (payload: Payload, kind: string) => {
+  const { action } = payload;
+  if (action === "opened" || action === "created" || action === "edited") return undefined;
+  if (action === "labeled") return `The ${kind} was labelled \`${payload.label?.name}\`.`;
+  return `The ${kind} was ${action}.`;
+};
 
 /**
  * The messages in an issue's thread: its opening post, then its comments.
@@ -310,9 +319,10 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const kind = issue.pull_request ? "pull request" : "issue";
       const { from } = selector as Selector;
       const thread: Thread = { repo: delivery.repo, issue: issue.number, agent, from };
+      const event = eventOf(payload, kind);
       return {
         id: `github:${thread.repo}#${thread.issue}`.toLowerCase(),
-        message: payload.comment ? String(payload.comment.id) : OPENING_POST,
+        ...(event ? { event } : { message: payload.comment ? String(payload.comment.id) : OPENING_POST }),
         thread,
         channel: `GitHub ${kind}`,
         context: context(delivery.repo, kind, issue),

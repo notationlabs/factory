@@ -90,8 +90,22 @@ The runner builds the prompt when the run starts, not when the router dispatches
 
 1. It asks the router for the thread's messages, with the run's reply ticket.
 2. It leaves out the messages that the agent's session has seen, and the agent's own replies. After each run, the runner saves a hash of each message's body with the session, so a message that someone edited since shows again, in full, with `edited="true"`.
-3. If nothing is left, the run is skipped, and nothing is posted. This happens when an earlier run in the queue already showed the agent the messages.
+3. If nothing is left, the run is skipped, and nothing is posted. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
 4. A new session, or one that was lost, gets the whole thread, under `### Messages in thread`.
+
+A run that such an event started has no message with `trigger="true"`. Its prompt starts with what happened, which the channel describes, and then has any messages the agent hasn't seen. The agent resumes its session:
+
+```text
+### Event
+
+The issue was labelled `ready`.
+
+### Messages in thread since last turn
+
+<message user="@alice" role="triage" can_trigger_agent="false">
+This one is ready to pick up.
+</message>
+```
 
 The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
 

@@ -247,6 +247,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       conversation: {
         id: conversation.id,
         ...(conversation.message && { message: conversation.message }),
+        ...(conversation.event && { event: conversation.event }),
         ...(conversation.channel && { channel: conversation.channel }),
         ...(conversation.context && { context: conversation.context }),
       },

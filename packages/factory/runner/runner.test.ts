@@ -611,6 +611,21 @@ test("a queued run whose messages an earlier run read is skipped, with nothing p
   assert.equal(replies.length, 0);
 });
 
+test("a run that an event started resumes its session even with nothing new, and says what happened", async () => {
+  const id = "github:acme/api#41";
+  await post(run({ id, event: "The issue was labelled `ready`." }, { worktree: { branch: "issue-41" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--resume s-issue-41/);
+  assert.equal(lastPrompt(), "### Event\n\nThe issue was labelled `ready`.");
+  say(id, "please look again");
+  await post(run({ id, event: "The issue was reopened." }, { worktree: { branch: "issue-41" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(
+    lastPrompt(),
+    /^### Event\n\nThe issue was reopened\.\n\n### Messages in thread since last turn\n\n<message [^>]+>\nplease look again\n<\/message>$/,
+  );
+});
+
 test("a run whose session is lost gets the whole thread again", async () => {
   const id = "github:acme/api#41";
   rmSync(join(data, "sessions", "github-acme-api-41", "coder.json"));

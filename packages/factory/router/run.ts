@@ -58,8 +58,11 @@ export type Run = {
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
   agent: { id: string } & AgentEntry;
-  /** The conversation. `message` is the id of the thread's message that started the run. */
-  conversation: { id: string; message?: string; channel?: string; context?: string };
+  /**
+   * The conversation. `message` is the id of the thread's message that
+   * started the run, and `event` says what happened when no message did.
+   */
+  conversation: { id: string; message?: string; event?: string; channel?: string; context?: string };
   /** The branch to run on, cut from `base` if it doesn't exist. Without it, the run gets a scratch checkout of the default branch. */
   worktree?: { branch: string; base?: string };
   /** A read-only token for cloning the repo. */

@@ -34,6 +34,11 @@ export type Conversation = {
   thread: unknown;
   /** The id of the thread's message that started the run, as `messages` names it. */
   message?: string;
+  /**
+   * What happened, for a run that an event without a message started, such
+   * as `The issue was labelled \`ready\`.` The runner never skips such a run.
+   */
+  event?: string;
   /** What the conversation is, such as `GitHub issue`, for the runner's system prompt. */
   channel?: string;
   /** Text that the runner adds to its system prompt, such as which repo the conversation is in. */

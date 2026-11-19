@@ -265,6 +265,18 @@ test("an issue's conversation names its opening post as the message that started
   });
 });
 
+test("an issue event that posts no message names what happened instead of a message", async () => {
+  const { repository, issue } = commentPayload;
+  const pull = { ...issue, pull_request: { url: "https://api.github.com/repos/acme/api/pulls/7" } };
+  await withGithub({}, async () => {
+    const labeled = await keyed.conversation!(await accepted("issues", { action: "labeled", label: { name: "ready" }, repository, issue }), trigger);
+    assert.equal(labeled.message, undefined);
+    assert.equal(labeled.event, "The issue was labelled `ready`.");
+    const reopened = await keyed.conversation!(await accepted("issues", { action: "reopened", repository, issue: pull }), trigger);
+    assert.equal(reopened.event, "The pull request was reopened.");
+  });
+});
+
 test("a thread's messages are the opening post and the comments, with each person's role and whether they can trigger the agent", async () => {
   const issue = { body: "It breaks", user: { login: "bob" } };
   const comments = [

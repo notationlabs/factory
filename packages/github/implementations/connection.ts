@@ -56,6 +56,10 @@ export class Connection
         actions_variables: "write",
         checks: "write",
         metadata: "read",
+        // Policies can give agents these, to follow a pull request's CI.
+        actions: "read",
+        deployments: "read",
+        statuses: "read",
       },
     });
     router.channel({

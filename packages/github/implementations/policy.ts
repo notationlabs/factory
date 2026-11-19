@@ -10,6 +10,7 @@ const policyConfig = v.object({
     actions_variables: level,
     checks: level,
     contents: level,
+    deployments: level,
     issues: level,
     metadata: level,
     pull_requests: level,

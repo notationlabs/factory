@@ -3,7 +3,15 @@ import type { DeepPartial } from "@notation/resource";
 export type Permission = "read" | "write";
 export type Permissions = Partial<
   Record<
-    "actions_variables" | "checks" | "contents" | "issues" | "metadata" | "pull_requests",
+    | "actions"
+    | "actions_variables"
+    | "checks"
+    | "contents"
+    | "deployments"
+    | "issues"
+    | "metadata"
+    | "pull_requests"
+    | "statuses",
     Permission
   >
 >;

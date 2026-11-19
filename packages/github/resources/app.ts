@@ -43,12 +43,15 @@ const permission = v.picklist(["read", "write"]);
 
 const permissions = v.partial(
   v.object({
+    actions: permission,
     actions_variables: permission,
     checks: permission,
     contents: permission,
+    deployments: permission,
     issues: permission,
     metadata: permission,
     pull_requests: permission,
+    statuses: permission,
   }),
 );
 

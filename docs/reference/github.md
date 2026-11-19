@@ -38,7 +38,7 @@ The connection declares the App's private key in the hub vault as the secret `<i
 | --- | --- |
 | **Webhook URL** | `<Url>/webhook/github/<id>`, where `Url` is the router's URL |
 | **Events** | `issues`, `issue_comment`, `push` |
-| **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `checks: "write"`, `metadata: "read"` |
+| **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `checks: "write"`, `metadata: "read"`, `actions: "read"`, `deployments: "read"`, `statuses: "read"` |
 
 The router sets the App's webhook secret, because only the hub can read the root key that the secret is derived from. `POST <Url>/sync` makes the router ask each connection's channel to set its App's webhook URL to `<Url>/webhook/github/<id>` and its secret to the derived one. The channel authenticates as the App with its private key, so set the private key first. The route needs no auth, because it only sets the values the router derives. Deploy calls it whenever the router's URL or config changes. `github.collaborators()` matches authors whose role on the repo is `admin`, `maintain` or `write`. The channel asks GitHub for each author's role, with a `metadata: read` token, since the author association in the event doesn't show it: an org member may only be able to read. Bot accounts never match.
 
@@ -136,4 +136,4 @@ const code = new github.Policy("code", {
 });
 ```
 
-The code host mints a 1-hour GitHub installation token scoped to `repo` and `permissions` before each agent run.
+The code host mints a 1-hour GitHub installation token scoped to `repo` and `permissions` before each agent run. A policy can only ask for permissions the App has, at the same level or lower. For an agent to follow a pull request's CI, give it `actions: "read"`, `checks: "read"`, `statuses: "read"` and `deployments: "read"`.

@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Share the Secrets Store between hubs.** The hubs on one Cloudflare account share its one Secrets Store, since Cloudflare allows one per account: `prod` uses the store that `test` created. Notation names each hub's secrets `<app>--<stage>--…`, and `factory infra down` deletes only those, by name, and leaves the store. [Secrets](docs/manual/secrets.md#losing-the-vault) says so.
 - [x] **Find a renamed GitHub App in `factory repo install`.** `.factory/config.ts` names each connection's App by its ID in `githubApps`, and `factory repo install` looks up the App's current slug from the ID. It no longer derives the slug from the hub's app, stage and connection, so it finds an App that was renamed, as `notation-factory` was. `factory infra up` prints the ID when it creates the App.
 - [x] **Session feedback.** The router reacts with 👀 to the comment or issue that starts a run, before it hands the run to the container. The runner reads Claude's, Cursor's and Droid's `stream-json` output, and posts the agent's messages as one comment, which it edits with each message, at most once every 10 seconds, and then with the final reply. The router signs each posted message's id with the run's reply ticket, so a run can only edit its own comment. Not yet tested live.
 - [x] **Show outpost builds on GitHub.** Each container's build is a check on the pushed commit, such as `factory/build dev`, that links to the build's log. The router writes a queued check after a deploy. The deployer's `BuildWatch` Durable Object polls the Builds API every 30 seconds, and posts signed reports to the router's `/builds` route. A failed build clears the source's hash, so the next push builds it again. When the App's permissions change, deploy opens its permissions page, waits for the change, then opens its installations. Tested live: a push's check went from queued to success, and linked to its build.
@@ -33,7 +34,6 @@ These items have to be done before Factory's agents work on `notationlabs/factor
 In priority order.
 
 - [ ] **Found while deploying the `notationlabs` hub:**
-  - The hubs on one Cloudflare account share its Secrets Store: `prod` took over the store that `test` created. `factory infra down` on either hub could delete the other's secrets.
   - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
 
 - [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Identity and permissions are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.

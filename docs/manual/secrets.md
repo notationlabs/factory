@@ -177,7 +177,7 @@ The deployer has a provider token of its own, which it owns as a resource and ke
 
 ### Losing the vault
 
-The vault's secrets belong to the hub's Notation stage, so `factory infra down` deletes them along with the router and deployer. When you bring the hub up again, or move it to another provider:
+The vault's secrets belong to the hub's Notation stage, so `factory infra down` deletes them along with the router and deployer. On Cloudflare, every hub on the account shares the account's one Secrets Store. The first hub creates the store, and each later hub uses it. `factory infra down` deletes only the hub's own secrets, by their `<app>--<stage>--` names, and leaves the store and the other hubs' secrets. When you bring the hub up again, or move it to another provider:
 
 - `factory infra up` generates a new root key, and the router re-derives every webhook secret and container key.
 - The GitHub Apps survive, but deploy doesn't hold their private keys. Generate a new private key on each App's page, and pass it with `--credential`.

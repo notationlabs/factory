@@ -88,10 +88,11 @@ const cursor: RuntimeRunner = {
   // The message before a tool call carries model_call_id. It is that
   // message: the runner doesn't pass --stream-partial-output, so nothing
   // earlier in the stream has the same text. A subagent's text is nested
-  // in the task tool's result, and thinking is its own event, so neither
-  // is an assistant message.
+  // in the task tool's result, so it isn't an assistant message. A
+  // thinking event has no text the conversation should see.
   message: (line) => {
     const event = parseLine(line);
+    if (event?.type === "thinking") return "Thinking...";
     if (event?.type !== "assistant") return undefined;
     const text = (event.message?.content ?? []).flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
     return text.length ? text.join("\n\n") : undefined;

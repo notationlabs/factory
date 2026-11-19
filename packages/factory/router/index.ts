@@ -8,6 +8,7 @@ export type {
   ConversationTrigger,
   Delivery,
   FactoryStatus,
+  Operator,
   RemoteChannel,
   SourceChange,
   SourceFiles,

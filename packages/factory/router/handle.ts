@@ -22,6 +22,7 @@ import type {
   BuildCheck,
   Delivery,
   FactoryStatus,
+  Operator,
   RemoteChannel,
   SourceChange,
   SourceFiles,
@@ -726,18 +727,19 @@ const session = async (request: Request, store: RouterStore) => {
   if (typeof body.code !== "string") return json(400, { error: "the body needs code" });
   const channel = signInChannel(store);
   if (channel instanceof Response) return channel;
-  let operator: string;
+  let operator: Operator;
   try {
     operator = await channel.signIn(body.code);
   } catch (error) {
     return json(401, { error: message(error) });
   }
   if (!isOperator(store.config.operators, operator)) {
-    return json(403, { error: `${operator} isn't one of the hub's operators` });
+    return json(403, { error: `${operator.login} isn't one of the hub's operators` });
   }
   const expires = Date.now() + SESSION_TTL_MS;
-  const result: SessionResult = { session: await signSession(await store.rootKey(), { operator, expires }), operator, expires };
-  console.log(JSON.stringify({ operator, state: "signed in" }));
+  const session = await signSession(await store.rootKey(), { ...operator, expires });
+  const result: SessionResult = { session, operator: operator.login, expires };
+  console.log(JSON.stringify({ operator: operator.login, id: operator.id, state: "signed in" }));
   return json(200, result);
 };
 
@@ -746,10 +748,10 @@ const operatorOf = async (request: Request, store: RouterStore) => {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   const found = token ? await verifySession(await store.rootKey(), token) : undefined;
-  if (!found || !isOperator(store.config.operators, found.operator)) {
+  if (!found || !isOperator(store.config.operators, found)) {
     return json(401, { error: "sign in as an operator" });
   }
-  return found.operator;
+  return found.login;
 };
 
 /** Lists each repo's last deploy, and its containers' latest builds. */

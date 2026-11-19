@@ -3,14 +3,21 @@ import type { OperatorAuth as OperatorAuthContract } from "@notation/factory";
 import * as v from "valibot";
 import type { Connection } from "./connection.ts";
 
-const operatorAuthConfig = v.object({ logins: v.array(v.string()) });
+const operatorAuthConfig = v.object({
+  /**
+   * The GitHub users who may run the CLI against the hub, each by login or
+   * by numeric account id. An id keeps matching after the user renames
+   * their account.
+   */
+  logins: v.array(v.union([v.string(), v.pipe(v.number(), v.integer())])),
+});
 export type OperatorAuthConfig = v.InferInput<typeof operatorAuthConfig>;
 
 export type OperatorAuthOptions = OperatorAuthConfig & {
   connection: Connection;
 };
 
-/** Operators sign in with GitHub, through the connection's App, and the router checks their login against `logins`. */
+/** Operators sign in with GitHub, through the connection's App, and the router checks their login and id against `logins`. */
 export class OperatorAuth
   extends ResourceGroup<OperatorAuthConfig>
   implements OperatorAuthContract

@@ -26,18 +26,18 @@ test("signInUrl names the App's client, the CLI's callback and the state", () =>
   );
 });
 
-test("signIn exchanges the code, reads the user's login, and revokes the token", async () => {
+test("signIn exchanges the code, reads the user's login and id, and revokes the token", async () => {
   await withFetch(
     (url, init) => {
       if (url.endsWith("/login/oauth/access_token")) {
         assert.deepEqual(JSON.parse(String(init?.body)), { client_id: "Iv1.abc", client_secret: "shh", code: "c1", redirect_uri: "http://127.0.0.1:47219/callback" });
         return Response.json({ access_token: "ghu_1" });
       }
-      if (url.endsWith("/user")) return Response.json({ login: "alice" });
+      if (url.endsWith("/user")) return Response.json({ login: "alice", id: 42 });
       return new Response(null, { status: 204 });
     },
     async (calls) => {
-      assert.equal(await signIn(app, "c1"), "alice");
+      assert.deepEqual(await signIn(app, "c1"), { login: "alice", id: "42" });
       assert.deepEqual(calls, [
         "POST https://github.com/login/oauth/access_token",
         "GET https://api.github.com/user",

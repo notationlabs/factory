@@ -233,7 +233,7 @@ Each `OperatorAuth` decides who you are differently:
 
 | `OperatorAuth` | You sign in with | Who decides access |
 | --- | --- | --- |
-| `github.OperatorAuth` | GitHub, through the connection's App, in your browser | The router, against `logins` |
+| `github.OperatorAuth` | GitHub, through the connection's App, in your browser | The router, against `logins`, which lists GitHub logins or account IDs |
 | `cloudflare.OperatorAuth` | Cloudflare Access, in your browser | Cloudflare Access, against `emails`; the router verifies Access's token. The router can't sign operators in this way yet |
 
 ### Signing in with GitHub
@@ -242,8 +242,10 @@ Each `OperatorAuth` decides who you are differently:
 
 1. The CLI asks the router for GitHub's sign-in page, and opens it in your browser.
 2. You authorize the App. GitHub sends your browser to `http://127.0.0.1:47219/callback` with a code, where the CLI listens.
-3. The CLI sends the code to the router. The connection's channel exchanges it for a user token with the App's client secret, reads your login with the token, and revokes the token.
-4. The router checks your login against `logins`, without case, and returns the admin session.
+3. The CLI sends the code to the router. The connection's channel exchanges it for a user token with the App's client secret, reads your login and account ID with the token, and revokes the token.
+4. The router checks your login and ID against `logins`, and returns the admin session. A login entry matches without case. An ID entry, a number, matches your account ID.
+
+List operators by account ID where you can. A GitHub user can rename their account, and someone else can then register the old login. A login entry would let that person in. An ID entry keeps matching the same account after a rename. `https://api.github.com/users/<login>` shows a user's `id`.
 
 The App needs two things for this, which Factory sets up when it creates the App:
 

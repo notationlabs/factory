@@ -1,5 +1,5 @@
 import type { OperatorsEntry } from "../contracts/router.ts";
-import type { BuildCheck, FactoryStatus } from "./channel.ts";
+import type { BuildCheck, FactoryStatus, Operator } from "./channel.ts";
 import type { FailedDelivery } from "./deliveries.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
@@ -56,25 +56,37 @@ export type ReplayResult = {
 
 const sessionKey = (rootKey: string) => deriveKey(rootKey, "operator:session");
 
-type Session = { operator: string; expires: number };
+type Session = Operator & { expires: number };
 
-/** A session token for `operator`: `<operator>.<expires>.<signature>`. A GitHub login has no dot. */
-export const signSession = async (rootKey: string, { operator, expires }: Session) => {
-  const body = `${operator}.${expires}`;
+/**
+ * A session token for an operator: `<login>.<id>.<expires>.<signature>`. A
+ * GitHub login has no dot, and its id is a number. The token carries both,
+ * so that each request can check them against the operator auth again.
+ */
+export const signSession = async (rootKey: string, { login, id, expires }: Session) => {
+  const body = `${login}.${id}.${expires}`;
   return `${body}.${await hmacHex(await sessionKey(rootKey), body)}`;
 };
 
 /** The session in `token`, if the router signed it and it hasn't expired. */
 export const verifySession = async (rootKey: string, token: string, now = Date.now()): Promise<Session | undefined> => {
-  const [operator, expires, signature, ...rest] = token.split(".");
-  if (!operator || !expires || !signature || rest.length) return undefined;
-  if (!timingSafeEqual(signature, await hmacHex(await sessionKey(rootKey), `${operator}.${expires}`))) return undefined;
-  const session = { operator, expires: Number(expires) };
+  const [login, id, expires, signature, ...rest] = token.split(".");
+  if (!login || !id || !expires || !signature || rest.length) return undefined;
+  if (!timingSafeEqual(signature, await hmacHex(await sessionKey(rootKey), `${login}.${id}.${expires}`))) return undefined;
+  const session = { login, id, expires: Number(expires) };
   return session.expires > now ? session : undefined;
 };
 
-/** Whether the hub's operator auth lets `operator` in. GitHub logins are compared without case. */
-export const isOperator = (operators: OperatorsEntry | undefined, operator: string) => {
+/**
+ * Whether the hub's operator auth lets `operator` in. Each of `logins` is a
+ * GitHub login, compared without case, or a numeric account id.
+ */
+export const isOperator = (operators: OperatorsEntry | undefined, { login, id }: Operator) => {
   const logins = operators?.logins;
-  return Array.isArray(logins) && logins.some((login) => String(login).toLowerCase() === operator.toLowerCase());
+  return (
+    Array.isArray(logins) &&
+    logins.some((entry) =>
+      typeof entry === "number" ? String(entry) === id : String(entry).toLowerCase() === login.toLowerCase(),
+    )
+  );
 };

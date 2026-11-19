@@ -33,7 +33,11 @@ const fake = (
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
   repos: async () => [],
   signInUrl: async (state) => `https://sign-in.test/?state=${state}`,
-  signIn: async (code) => code.replace(/^code-/, ""),
+  // A code of `code-<login>-<id>` signs in as that user.
+  signIn: async (code) => {
+    const [login = "", id = "0"] = code.replace(/^code-/, "").split("-");
+    return { login, id };
+  },
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -820,14 +824,15 @@ test("an operator signs in through the operator auth's channel, and gets a sessi
   assert.equal(signIn.body.url, "https://sign-in.test/?state=s1");
   assert.equal((await adminCall(s, "POST", "/admin/sign-in")).status, 400);
 
-  const signed = await adminCall(s, "POST", "/admin/session", { body: { code: "code-alice" } });
+  const signed = await adminCall(s, "POST", "/admin/session", { body: { code: "code-alice-1" } });
   assert.equal(signed.status, 200);
   assert.equal(signed.body.operator, "alice");
   assert.ok(signed.body.expires > Date.now());
-  assert.equal((await verifySession(ROOT_KEY, signed.body.session))?.operator, "alice");
-  assert.equal(signed.body.session.split(".").slice(0, 2).join("."), `alice.${signed.body.expires}`);
+  assert.equal((await verifySession(ROOT_KEY, signed.body.session))?.login, "alice");
+  assert.equal(signed.body.session.split(".").slice(0, 3).join("."), `alice.1.${signed.body.expires}`);
   // A token whose operator or expiry is changed fails its signature.
-  assert.equal(await verifySession(ROOT_KEY, signed.body.session.replace(/^alice\.\d+/, `alice.${signed.body.expires + 1}`)), undefined);
+  assert.equal(await verifySession(ROOT_KEY, signed.body.session.replace(/^alice\.1\.\d+/, `alice.1.${signed.body.expires + 1}`)), undefined);
+  assert.equal(await verifySession(ROOT_KEY, signed.body.session.replace(/^alice\.1\./, "alice.2.")), undefined);
 
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: signed.body.session })).status, 200);
   assert.equal((await adminCall(s, "GET", "/admin/deliveries")).status, 401);
@@ -841,11 +846,21 @@ test("a sign-in by someone outside the operator auth gets no session", async () 
   assert.equal(body.session, undefined);
 });
 
+test("an operator listed by account id signs in under any login, and a login of digits is not an id", async () => {
+  const s = adminStore(adminChannel());
+  s.config.operators = { provider: "github", connection: "main", logins: [7, "8"] };
+  assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-renamed-7" } })).status, 200);
+  assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory-8" } })).status, 403);
+  // A session keeps working after its operator's rename, since the id still matches.
+  const session = await signSession(ROOT_KEY, { login: "old-name", id: "7", expires: Date.now() + 60_000 });
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 200);
+});
+
 test("a session stops working when it expires, or when its operator leaves the operator auth", async () => {
   const s = adminStore(adminChannel());
-  const expired = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() - 1 });
+  const expired = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() - 1 });
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: expired })).status, 401);
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   s.config.operators = { provider: "github", connection: "main", logins: ["bob"] };
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 401);
 });
@@ -879,7 +894,7 @@ test("repos lists each repo's last deploy with its builds", async () => {
   await deploys.put("acme/api", { state: "deployed", ref: "abc", at: "now" });
   await deploys.putBuild("acme/api", "dev", { state: "success", ref: "abc", at: "now" });
   const s: RouterStore = { ...adminStore(adminChannel()), deploys };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   const { status, body } = await adminCall(s, "GET", "/admin/repos", { session });
   assert.equal(status, 200);
   assert.deepEqual(body.repos.map((r: RepoDeploy) => [r.repo, Object.keys(r.builds)]), [
@@ -924,7 +939,7 @@ test("replay replays one failed delivery, or all of them, against the router's o
     replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
   };
   const s: RouterStore = { ...adminStore(adminChannel()), inbox };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   const one = await adminCall(s, "POST", "/admin/replay", { session, body: { connection: "fake/main", id: "d1" } });
   assert.deepEqual(one.body, { replayed: [{ connection: "fake/main", id: "d1" }], skipped: [] });
   const all = await adminCall(s, "POST", "/admin/replay", { session, body: {} });

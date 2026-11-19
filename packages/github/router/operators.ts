@@ -25,7 +25,7 @@ export const signInUrl = (client: string, state: string) => {
 };
 
 /**
- * The login of the user who signed in:
+ * The login and account id of the user who signed in:
  * 1. Exchanges the code for a user access token, with the App's client secret.
  * 2. Asks GitHub whose token it is.
  * 3. Revokes the token, which the router has no other use for.
@@ -44,7 +44,7 @@ export const signIn = async (app: { clientId: string; clientSecret: string }, co
   const token = result.access_token;
   const user = await fetch(`${GITHUB_API}/user`, { headers: headers(token) });
   if (!user.ok) throw new Error(`GitHub GET /user failed with status ${user.status}: ${await user.text()}`);
-  const { login } = (await user.json()) as { login: string };
+  const { login, id } = (await user.json()) as { login: string; id: number };
   await fetch(`${GITHUB_API}/applications/${app.clientId}/token`, {
     method: "DELETE",
     headers: {
@@ -54,5 +54,5 @@ export const signIn = async (app: { clientId: string; clientSecret: string }, co
     },
     body: JSON.stringify({ access_token: token }),
   }).catch(() => {});
-  return login;
+  return { login, id: String(id) };
 };

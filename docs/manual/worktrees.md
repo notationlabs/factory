@@ -93,4 +93,4 @@ Each branch worktree runs one agent at a time, and queues the rest:
 | --- | --- |
 | **1. Trigger arrives (idle)** | Starts the agent in the `issue-42` worktree |
 | **2. Trigger arrives (busy)** | Queues the run behind the current one |
-| **3. Queued run starts** | Sees every message posted in the conversation since the last run |
+| **3. Queued run starts** | Sees every message posted or edited in the conversation since the agent's last run. If the run before it already showed the agent every message, the queued run is skipped |

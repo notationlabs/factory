@@ -59,7 +59,7 @@ When `actions` includes `"edited"`, the trigger fires only if the edit newly add
 | `slack.group("eng")` | Members of a Slack user group |
 | `slack.user("dan@acme.dev")` | One Slack user |
 
-Pass an array to accept several. Bot accounts never match. The agent also gets the conversation's other messages since its last reply, with each author's role and whether they match `from`. See [Connections & Channels](./connections.md#trust).
+Pass an array to accept several. Bot accounts never match. The agent also gets the conversation's other messages since its last run, with each author's role and whether they match `from`. See [Connections & Channels](./connections.md#trust).
 
 ## Multiple agents on one conversation
 

@@ -56,7 +56,7 @@ ops.mention("@claude", { from: [slack.group("eng"), slack.user("dan@acme.dev")] 
 ```
 
 - `from` decides who can start a run. The router checks it when it matches the event.
-- A run's prompt has the conversation's messages since the agent's last reply, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
+- A run's prompt has the conversation's messages that the agent's session hasn't seen, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
 
 On GitHub, a run's prompt looks like this:
 
@@ -82,9 +82,16 @@ Bumps jsonwebtoken from 9.0.0 to 9.0.2.
 </message>
 ```
 
-A body can't open or close a `<message>` tag: the router escapes `<message` and `</message` in it as `&lt;message` and `&lt;/message`.
+A body can't open or close a `<message>` tag: the runner escapes `<message` and `</message` in it as `&lt;message` and `&lt;/message`.
 
-An agent's first prompt starts at the issue's opening post. The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
+The runner builds the prompt when the run starts, not when the router dispatches it, since a run may wait in the container's queue behind others:
+
+1. It asks the router for the thread's messages, with the run's reply ticket.
+2. It leaves out the messages that the agent's session has seen, and the agent's own replies. After each run, the runner saves a hash of each message's body with the session, so a message that someone edited since shows again, in full, with `edited="true"`.
+3. If nothing is left, the run is skipped, and nothing is posted. This happens when an earlier run in the queue already showed the agent the messages.
+4. A new session, or one that was lost, gets the whole thread, under `### Messages in thread`.
+
+The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
 
 ## Channel relay
 
@@ -101,7 +108,7 @@ Router
 Slack thread / GitHub issue
 ```
 
-The relay lets a container read a conversation's thread and messages, reply to it, and acknowledge an event. The router refuses any call for a conversation it didn't dispatch to that container.
+The relay lets a container read a conversation's messages and reply to it. The router refuses any call for a conversation it didn't dispatch to that container: each run gets a ticket that the router signed, which names the thread and the trigger, and the router reads and replies only on that thread.
 
 A reply can replace a message that an earlier reply of the same run posted. The router answers each reply with the message's id, signed together with the run's reply ticket, and replaces a message only when the container sends that signature back. A run can't edit any other message.
 

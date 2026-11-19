@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Build the prompt from the thread's history.** The runner builds a run's prompt when the run starts, since runs wait in a queue behind each worktree's lock. It reads the thread's messages from the router's `/messages` route with the run's reply ticket, and the channel contract's `messages` reads them from the platform. A resumed session sees only the messages it hasn't seen, and those edited since, labelled `edited`. The runner saves a hash of each message's body with the session. A run with nothing new is skipped, with nothing posted, and a lost session gets the whole thread. Each message shows its author's role and whether they can trigger the agent. Not yet tested live.
 - [x] **Share the Secrets Store between hubs.** The hubs on one Cloudflare account share its one Secrets Store, since Cloudflare allows one per account: `prod` uses the store that `test` created. Notation names each hub's secrets `<app>--<stage>--…`, and `factory infra down` deletes only those, by name, and leaves the store. [Secrets](docs/manual/secrets.md#losing-the-vault) says so.
 - [x] **Find a renamed GitHub App in `factory repo install`.** `.factory/config.ts` names each connection's App by its ID in `githubApps`, and `factory repo install` looks up the App's current slug from the ID. It no longer derives the slug from the hub's app, stage and connection, so it finds an App that was renamed, as `notation-factory` was. `factory infra up` prints the ID when it creates the App.
 - [x] **Session feedback.** The router reacts with 👀 to the comment or issue that starts a run, before it hands the run to the container. The runner reads Claude's, Cursor's and Droid's `stream-json` output, and posts the agent's messages as one comment, which it edits with each message, at most once every 10 seconds, and then with the final reply. The router signs each posted message's id with the run's reply ticket, so a run can only edit its own comment. Not yet tested live.
@@ -36,7 +37,6 @@ In priority order.
 - [ ] **Found while deploying the `notationlabs` hub:**
   - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
 
-- [ ] **Build the prompt from the thread's history.** A resumed session sees only the messages since its last run, plus an edited opening post or comment. Identity and permissions are labelled. A run with nothing new is skipped. The channel contract needs a way to read a thread's messages.
 - [ ] **Deliveries:** the old prototype had these, and Factory doesn't yet:
   - An inbox that saves each delivery before answering, and replays saved deliveries when the router starts.
   - De-duplication by delivery id.

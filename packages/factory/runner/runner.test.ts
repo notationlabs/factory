@@ -31,8 +31,9 @@ esac
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 printf '%s' "$prompt" > "${calls}.prompt"
 session="s-$(basename "$(pwd)")"
-mkdir -p "$HOME/.claude/projects/-p-$(basename "$(pwd)")"
-echo "$prompt" >> "$HOME/.claude/projects/-p-$(basename "$(pwd)")/$session.jsonl"
+projects="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+mkdir -p "$projects/-p-$(basename "$(pwd)")"
+echo "$prompt" >> "$projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
   *"fail now"*) echo "{\\"type\\":\\"result\\",\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   *"edit the code"*)
@@ -64,8 +65,9 @@ echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$sess
 const FAKE_CURSOR = `#!/bin/sh
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
-mkdir -p "$HOME/.cursor/chats/-p-$(basename "$(pwd)")"
-echo "$*" >> "$HOME/.cursor/chats/-p-$(basename "$(pwd)")/$session"
+chats="\${CURSOR_CONFIG_DIR:-$HOME/.cursor}/chats"
+mkdir -p "$chats/-p-$(basename "$(pwd)")"
+echo "$*" >> "$chats/-p-$(basename "$(pwd)")/$session"
 case "$*" in
   *fail*)
     echo '{"type":"system","subtype":"init"}'
@@ -94,8 +96,9 @@ const FAKE_DROID = `#!/bin/sh
 prompt="$2"
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
 session="s-$(basename "$(pwd)")"
-mkdir -p "$HOME/.factory/sessions/-p-$(basename "$(pwd)")"
-echo "$prompt" >> "$HOME/.factory/sessions/-p-$(basename "$(pwd)")/$session.jsonl"
+sessions="\${FACTORY_HOME_OVERRIDE:-$HOME}/.factory/sessions"
+mkdir -p "$sessions/-p-$(basename "$(pwd)")"
+echo "$prompt" >> "$sessions/-p-$(basename "$(pwd)")/$session.jsonl"
 echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
 echo "{\\"type\\":\\"message\\",\\"role\\":\\"user\\",\\"text\\":\\"the prompt\\",\\"session_id\\":\\"$session\\"}"
 case "$prompt" in
@@ -176,6 +179,8 @@ before(async () => {
   mkdirSync(join(work, ".factory"), { recursive: true });
   writeFileSync(join(work, ".factory", "prompt.md"), "Be brief.");
   writeFileSync(join(work, ".factory", "npmrc"), "registry=x");
+  writeFileSync(join(work, ".factory", "shared.md"), "Shared.");
+  writeFileSync(join(work, ".factory", "reviewer.md"), "Review.");
   writeFileSync(join(work, "README.md"), "# api\n");
   sh(root, "init", "-q", "-b", "main", work);
   sh(work, "add", ".");
@@ -370,7 +375,7 @@ test("a cursor run invokes agent in print mode, and resumes its session", async 
     args!,
     /^-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+### User message\s+<message [^>]+>\s+cursor it\s+<\/message> --model composer-2\.5$/,
   );
-  assert.equal(JSON.parse(readFileSync(join(home, ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
+  assert.equal(JSON.parse(readFileSync(join(data, "agents", "coder", ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
 
   await post(run({ runtimes: ["cursor"], agent, conversation: { ...conversation, prompt: "carry on" } }));
   assert.equal((await nextReply()).text, "done");
@@ -464,8 +469,8 @@ test("a droid agent's messages during a run share one comment, which its final r
 });
 
 test("a droid run sets Droid's user settings to send thinking as reasoning, and keeps the other settings", async () => {
-  const path = join(home, ".factory", "settings.json");
-  mkdirSync(join(home, ".factory"), { recursive: true });
+  const path = join(data, "agents", "coder", ".factory", "settings.json");
+  mkdirSync(join(data, "agents", "coder", ".factory"), { recursive: true });
   writeFileSync(path, JSON.stringify({ logoAnimation: "off", showThinkingInMainView: false }));
   await post(run({ runtimes: ["droid"], agent: { id: "coder", runtime: "droid" }, conversation: { id: "github:acme/api#25", prompt: "go" } }));
   assert.equal((await nextReply()).text, "done");
@@ -617,6 +622,38 @@ test("a run whose thread the router can't read replies with the error", async ()
   assert.match((await nextReply()).text, /^The run failed: The router refused the thread's messages with status 502: .*GitHub is down/);
 });
 
+test("each agent has its own config directory, with its own files over the container's, and its own transcripts", async () => {
+  const files = { "~/.npmrc": "npmrc", "~/.claude/CLAUDE.md": "shared.md", "~/.claude/rules/style.md": "shared.md" };
+  const reviewer = { id: "reviewer", runtime: "claude", files: { "~/.claude/CLAUDE.md": "reviewer.md", "~/.gitignore": "npmrc" } };
+  const conversation = { id: "github:acme/api#50", prompt: "go" };
+  const worktree = { branch: "issue-50" };
+  await post(run({ files, agent: reviewer, conversation, worktree }));
+  assert.equal((await nextReply()).text, "done");
+  await post(run({ files, conversation, worktree }));
+  assert.equal((await nextReply()).text, "done");
+
+  const config = (agent: string) => join(data, "agents", agent, ".claude");
+  assert.equal(readFileSync(join(config("reviewer"), "CLAUDE.md"), "utf8"), "Review.");
+  assert.equal(readFileSync(join(config("reviewer"), "rules", "style.md"), "utf8"), "Shared.");
+  assert.equal(readFileSync(join(config("coder"), "CLAUDE.md"), "utf8"), "Shared.");
+  assert.equal(readFileSync(join(home, ".gitignore"), "utf8"), "registry=x");
+  assert.ok(!existsSync(join(home, ".claude", "CLAUDE.md")));
+  for (const agent of ["reviewer", "coder"]) {
+    assert.ok(existsSync(join(config(agent), "projects", "-p-issue-50", "s-issue-50.jsonl")));
+  }
+});
+
+test("a droid or cursor agent's config directory is its own", async () => {
+  const conversation = { id: "github:acme/api#51", prompt: "go" };
+  const worktree = { branch: "issue-51" };
+  await post(run({ runtimes: ["droid"], agent: { id: "droid-a", runtime: "droid" }, conversation, worktree }));
+  assert.equal((await nextReply()).text, "done");
+  await post(run({ runtimes: ["cursor"], agent: { id: "cursor-a", runtime: "cursor" }, conversation, worktree }));
+  assert.equal((await nextReply()).text, "done");
+  assert.ok(existsSync(join(data, "agents", "droid-a", ".factory", "sessions", "-p-issue-51", "s-issue-51.jsonl")));
+  assert.ok(existsSync(join(data, "agents", "cursor-a", ".cursor", "chats", "-p-issue-51", "s-issue-51")));
+});
+
 test("a run with no branch gets a scratch worktree for its conversation", async () => {
   await post(run({ worktree: undefined, conversation: { id: "github:acme/api#2", prompt: "look" } }));
   assert.equal((await nextReply()).text, "done");
@@ -671,7 +708,7 @@ test("after the container sleeps, a run restores its worktree and its conversati
   assert.equal(sh(worktree, "log", "-1", "--format=%s"), "local work");
   assert.equal(readFileSync(join(worktree, "notes.txt"), "utf8"), "draft\n");
   assert.equal(sh(worktree, "status", "--porcelain"), "D README.md\n?? notes.txt");
-  const transcript = join(home, ".claude", "projects", "-p-issue-9", "s-issue-9.jsonl");
+  const transcript = join(data, "agents", "coder", ".claude", "projects", "-p-issue-9", "s-issue-9.jsonl");
   assert.match(readFileSync(transcript, "utf8"), /edit the code\n<\/message>\n### User message[^]*carry on\n<\/message>\n$/);
 });
 

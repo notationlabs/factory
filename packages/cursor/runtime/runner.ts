@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RuntimeRunner } from "@notation/factory";
 
@@ -25,8 +24,11 @@ const parseLine = (line: string): StreamEvent | undefined => {
 const cursor: RuntimeRunner = {
   command: "agent",
   name: "Cursor Agent",
-  transcripts: join(homedir(), ".cursor", "chats"),
-  args: async (run, { prompt, systemPrompt }) => {
+  configDir: ".cursor",
+  // The CLI reads its config and keeps its chats in CURSOR_CONFIG_DIR.
+  configEnv: (dir) => ({ CURSOR_CONFIG_DIR: dir }),
+  transcripts: "chats",
+  args: async (run, { prompt, systemPrompt, configDir }) => {
     const { agent } = run;
     // The CLI has no public flag for a system prompt, so the runner's
     // prompt, then the agent's, come before the conversation's messages.
@@ -47,7 +49,7 @@ const cursor: RuntimeRunner = {
     if (agent.mode === "plan" || agent.mode === "ask") args.push("--mode", agent.mode);
     if (agent.settings && typeof agent.settings === "object") {
       // The CLI reads one config for the user, which a run merges for itself.
-      const path = join(homedir(), ".cursor", "cli-config.json");
+      const path = join(configDir, "cli-config.json");
       await mkdir(dirname(path), { recursive: true });
       let current: Record<string, unknown> = {};
       try {

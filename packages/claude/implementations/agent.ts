@@ -7,9 +7,9 @@ const agentConfig = v.object({
   effort: v.optional(v.picklist(["low", "medium", "high", "xhigh", "max"])),
   /** Relative to `.factory/`. Appended to the runner's prompt. */
   systemPrompt: v.optional(v.string()),
-  /** Merged into `/data/agents/<id>/settings.json`. */
+  /** Passed with `--settings`, over the agent's `/data/agents/<id>/.claude/settings.json`. */
   settings: v.optional(v.record(v.string(), v.unknown())),
-  /** `~/.claude/*` is written to `/data/agents/<id>/`, other `~/*` to `/data/home/`. */
+  /** `~/.claude/*` is written to `/data/agents/<id>/.claude/`, other `~/*` to `/data/home/`. Relative to `.factory/`. */
   files: v.optional(v.record(v.string(), v.string())),
 });
 export type AgentConfig = v.InferInput<typeof agentConfig>;

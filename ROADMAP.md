@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Give each agent its own config directory.** A runtime's runner module names its CLI's config directory, such as `.claude`, and the variable that moves it. Each agent's directory is `/data/agents/<agent>/`: Claude runs with `CLAUDE_CONFIG_DIR`, Cursor with `CURSOR_CONFIG_DIR`, and Droid with `FACTORY_HOME_OVERRIDE`, which Droid doesn't document. The runner writes the container's `files`, then the agent's. A file under the config directory goes to the agent's directory, and any other to the shared home. Sessions are saved from and restored to the agent's directory. Not yet tested live.
 - [x] **Build the prompt from the thread's history.** The runner builds a run's prompt when the run starts, since runs wait in a queue behind each worktree's lock. It reads the thread's messages from the router's `/messages` route with the run's reply ticket, and the channel contract's `messages` reads them from the platform. A resumed session sees only the messages it hasn't seen, and those edited since, labelled `edited`. The runner saves a hash of each message's body with the session. A run with nothing new is skipped, with nothing posted, and a lost session gets the whole thread. Each message shows its author's role and whether they can trigger the agent. Not yet tested live.
 - [x] **Share the Secrets Store between hubs.** The hubs on one Cloudflare account share its one Secrets Store, since Cloudflare allows one per account: `prod` uses the store that `test` created. Notation names each hub's secrets `<app>--<stage>--…`, and `factory infra down` deletes only those, by name, and leaves the store. [Secrets](docs/manual/secrets.md#losing-the-vault) says so.
 - [x] **Find a renamed GitHub App in `factory repo install`.** `.factory/config.ts` names each connection's App by its ID in `githubApps`, and `factory repo install` looks up the App's current slug from the ID. It no longer derives the slug from the hub's app, stage and connection, so it finds an App that was renamed, as `notation-factory` was. `factory infra up` prints the ID when it creates the App.
@@ -48,8 +49,6 @@ In priority order.
   - Add `factory infra status`, which shows each repo's deploys and the failed deliveries, as `docs/manual/cli.md` already describes.
   - Have `factory infra up` wait for the deployer's sync to finish, and report its result.
 - [ ] **Stage 2 follow-up:** Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
-- [ ] **Runner:**
-  - Write an agent's `files`. Give each Claude agent its own `CLAUDE_CONFIG_DIR`, so agents in one container don't share settings or files.
 
 ## Later
 

@@ -73,14 +73,16 @@ A trigger that runs `coder` must target a container that lists `droid.runtime`.
 | `autonomy` | Passed as `--auto <low \| medium \| high>`; without it, runs pass `--skip-permissions-unsafe` |
 | `systemPrompt` | Appended to the runner's prompt, and passed with `--append-system-prompt` |
 | `settings` | Written to `/data/agents/<name>/settings.json`, and passed via `--settings` |
-| `files` | `~/.factory/*` writes to `/data/agents/<name>/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+| `files` | `~/.factory/*` writes to `/data/agents/<name>/.factory/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+
+The container's own `~/.factory/*` files are written to each Droid agent's directory too, before the agent's `files`, so an agent's file replaces the container's file at the same path.
 
 ## Runtime invocation
 
-A channel trigger runs the agent headless in the conversation's worktree:
+A channel trigger runs the agent headless in the conversation's worktree, with `FACTORY_HOME_OVERRIDE=/data/agents/<name>`. Droid reads `.factory` under that directory in place of `~/.factory`, so agents in one container don't share settings, files or sessions. Droid doesn't document the variable:
 
 `droid exec <prompt> --output-format stream-json [--auto <level> \| --skip-permissions-unsafe] [--session-id <uuid>]`
 
-The runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. Droid runs subagents in their own processes, so their messages aren't in the output and aren't posted. When the agent thinks, the runner posts "Thinking..." in place of its thoughts. To keep thinking out of the agent's messages, the runner sets `showThinkingInMainView` to `true` in `~/.factory/settings.json` before each run. Droid reads that setting when it creates a session, so a session created without it may still post its thinking. The `completion` event's `finalText` is the final reply, which replaces them. A failed run ends with an `error` event instead, whose message the runner posts as the error.
+The runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. Droid runs subagents in their own processes, so their messages aren't in the output and aren't posted. When the agent thinks, the runner posts "Thinking..." in place of its thoughts. To keep thinking out of the agent's messages, the runner sets `showThinkingInMainView` to `true` in the agent's `.factory/settings.json` before each run. Droid reads that setting when it creates a session, so a session created without it may still post its thinking. The `completion` event's `finalText` is the final reply, which replaces them. A failed run ends with an `error` event instead, whose message the runner posts as the error.
 
-Without a `--session-id`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from `~/.factory/sessions` to the state store after each run, so a container that slept resumes the session.
+Without a `--session-id`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from the agent's `.factory/sessions` to the state store after each run, so a container that slept resumes the session.

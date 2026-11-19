@@ -17,6 +17,8 @@ export type RunContext = {
   systemPrompt: string;
   /** The runner's state directory, `/data`. */
   dataDir: string;
+  /** The agent's config directory, which the CLI reads in place of `~/<configDir>`. */
+  configDir: string;
 };
 
 /** What a runtime's CLI said at the end of a run. */
@@ -28,7 +30,15 @@ export type RuntimeRunner = {
   command: string;
   /** The CLI's name, for errors. */
   name: string;
-  /** Where the CLI keeps its sessions' transcripts, in a directory per working directory. */
+  /** The CLI's config directory, relative to the home, such as `.claude`. */
+  configDir: string;
+  /**
+   * The environment that has the CLI read `dir` as its config directory.
+   * The runner gives each agent a directory of its own. Without it, the
+   * agents of the runtime share `~/<configDir>`.
+   */
+  configEnv?(dir: string): Record<string, string>;
+  /** Where the CLI keeps its sessions' transcripts, relative to its config directory, in a directory per working directory. */
   transcripts: string;
   /** The CLI's arguments for a run. */
   args(run: Run, context: RunContext): Promise<string[]>;

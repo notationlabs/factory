@@ -303,11 +303,37 @@ const inside = (root: string, relative: string) => {
   return path;
 };
 
-/** Writes the container's startup files to the home directory: a string is a file in `.factory/`, an object is written as JSON. */
-const writeFiles = async (run: Run, worktree: string) => {
-  for (const [target, source] of Object.entries(run.files)) {
-    if (!target.startsWith("~/")) throw new Error(`The container file ${target} isn't under ~/.`);
-    const path = inside(HOME, target.slice(2));
+/**
+ * The agent's config directory. A runtime that can move its CLI's config
+ * directory gets one under `/data/agents/<agent>/`, so agents in one
+ * container don't share settings, files or sessions.
+ */
+const configDirOf = (run: Run, adapter: RuntimeRunner) =>
+  adapter.configEnv ? join(DATA, "agents", slug(run.agent.id), adapter.configDir) : join(HOME, adapter.configDir);
+
+/** The agent's own files, by their path under `~/`. Each value is a file in `.factory/`. */
+const agentFiles = (run: Run): Record<string, string> => {
+  const { files } = run.agent;
+  if (files === undefined) return {};
+  if (!files || typeof files !== "object" || Object.values(files).some((source) => typeof source !== "string")) {
+    throw new Error(`The agent ${run.agent.id}'s files must map paths to files in .factory/.`);
+  }
+  return files as Record<string, string>;
+};
+
+/**
+ * Writes the container's startup files, then the agent's, so the agent's
+ * win. A string is a file in `.factory/`, and an object is written as JSON.
+ * A file under the runtime's `~/<configDir>/` goes to the agent's config
+ * directory, and any other to the home directory.
+ */
+const writeFiles = async (
+  files: Record<string, string | Record<string, unknown>>[],
+  { worktree, configDir, prefix }: { worktree: string; configDir: string; prefix: string },
+) => {
+  for (const [target, source] of files.flatMap((set) => Object.entries(set))) {
+    if (!target.startsWith("~/")) throw new Error(`The file ${target} isn't under ~/.`);
+    const path = target.startsWith(prefix) ? inside(configDir, target.slice(prefix.length)) : inside(HOME, target.slice(2));
     const content =
       typeof source === "string"
         ? await readFile(inside(join(worktree, ".factory"), source))
@@ -412,21 +438,21 @@ const loadRuntime = (id: string) =>
  * files, as a tarball of their paths under the runtime's transcripts
  * directory, and then the session's id and working directory.
  */
-const saveSession = async (run: Run, adapter: RuntimeRunner) => {
+const saveSession = async (run: Run, transcripts: string) => {
   const session = await readSession(run);
   if (!session) return;
   const paths: string[] = [];
-  for (const project of await readdir(adapter.transcripts).catch(() => [])) {
+  for (const project of await readdir(transcripts).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
       // Runtimes name the directories after the working directory, so
       // they start with "-", which tar would read as an option.
-      if (existsSync(join(adapter.transcripts, project, name))) paths.push(`./${join(project, name)}`);
+      if (existsSync(join(transcripts, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
   if (paths.length > 0) {
     await withTempDir(async (dir) => {
       const tarball = join(dir, "session.tar.gz");
-      const result = await exec("tar", ["-czf", tarball, "-C", adapter.transcripts, ...paths]);
+      const result = await exec("tar", ["-czf", tarball, "-C", transcripts, ...paths]);
       if (result.code !== 0) throw new Error(`tar failed: ${result.stderr.trim()}`);
       await putState(`${sessionKey(run)}.tar.gz`, await readFile(tarball));
     });
@@ -435,16 +461,16 @@ const saveSession = async (run: Run, adapter: RuntimeRunner) => {
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
-const restoreSession = async (run: Run, adapter: RuntimeRunner) => {
+const restoreSession = async (run: Run, transcripts: string) => {
   if (existsSync(sessionPath(run))) return;
   const session = await getState(`${sessionKey(run)}.json`);
   if (!session) return;
   const tarball = await getState(`${sessionKey(run)}.tar.gz`);
   if (tarball) {
-    await mkdir(adapter.transcripts, { recursive: true });
+    await mkdir(transcripts, { recursive: true });
     await withTempDir(async (dir) => {
       await writeFile(join(dir, "session.tar.gz"), tarball);
-      const result = await exec("tar", ["-xzf", join(dir, "session.tar.gz"), "-C", adapter.transcripts]);
+      const result = await exec("tar", ["-xzf", join(dir, "session.tar.gz"), "-C", transcripts]);
       if (result.code !== 0) throw new Error(`tar failed: ${result.stderr.trim()}`);
     });
   }
@@ -510,8 +536,9 @@ const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined
 };
 
 /**
- * Runs the run's agent in `cwd` with `prompt`, and returns its final
- * message. It resumes `session` if it's set. Once the agent has a session,
+ * Runs the run's agent in `cwd` with `prompt` and the config directory
+ * `configDir`, and returns its final message. It resumes `session` if it's
+ * set. Once the agent has a session,
  * it saves that the session has seen `seen`. `onMessage` gets each message
  * the agent writes while it runs, if the runtime reads them.
  */
@@ -519,15 +546,23 @@ const runAgent = async (
   adapter: RuntimeRunner,
   run: Run,
   cwd: string,
+  configDir: string,
   { prompt, session, seen }: { prompt: string; session: Session | undefined; seen: Seen },
   onMessage: (text: string) => void,
 ) => {
-  const args = await adapter.args(run, { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA });
+  await mkdir(configDir, { recursive: true });
+  const args = await adapter.args(run, { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir });
   if (session) args.push(...adapter.resume(session.id));
 
   const result = await exec(adapter.command, args, {
     cwd,
-    env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, FACTORY_TOKEN_FILE: tokenFile(run), ...adapter.env },
+    env: {
+      ...process.env,
+      PATH: `${BIN}:${process.env.PATH}`,
+      FACTORY_TOKEN_FILE: tokenFile(run),
+      ...adapter.env,
+      ...adapter.configEnv?.(configDir),
+    },
     timeout: RUN_TIMEOUT_MS,
     onLine:
       adapter.message &&
@@ -628,7 +663,8 @@ const held = new Map<string, ReturnType<typeof replies>>();
 /**
  * Runs one run:
  * 1. Imports the runtime's runner module, and restores the conversation's
- *    session if this container doesn't have it.
+ *    session to the agent's config directory if this container doesn't
+ *    have it.
  * 2. Reads the thread's messages from the router, and builds the prompt
  *    from those the session hasn't seen. The session is resumed only if it
  *    ran in the same worktree, and a new session sees the whole thread. If
@@ -636,7 +672,8 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    queue read them, the run ends here, with nothing posted.
  * 3. Imports the code host's runner module, updates the repo's clone, and
  *    checks out the run's worktree.
- * 4. Writes the container's files and the policies' tokens.
+ * 4. Writes the container's files, the agent's files, and the policies'
+ *    tokens.
  * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
  *    place of the last.
@@ -651,13 +688,15 @@ const execute = async (run: Run) => {
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const worktree = worktreeOf(run);
   const notes: string[] = [];
-  let adapter: RuntimeRunner | undefined;
+  let transcripts = "";
   let checkedOut = false;
   let text: string;
   try {
-    adapter = await loadRuntime(run.agent.runtime);
+    const adapter = await loadRuntime(run.agent.runtime);
     await assertCommand(adapter.command, adapter.name);
-    await restoreSession(run, adapter).catch((error: unknown) =>
+    const configDir = configDirOf(run, adapter);
+    transcripts = join(configDir, adapter.transcripts);
+    await restoreSession(run, transcripts).catch((error: unknown) =>
       notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
     );
     const saved = await readSession(run);
@@ -672,7 +711,11 @@ const execute = async (run: Run) => {
     const repo = await fetchRepo(run, await loadCodeHost());
     await checkout(run, repo, worktree, notes);
     checkedOut = true;
-    await writeFiles(run, worktree.path);
+    await writeFiles([run.files, agentFiles(run)], {
+      worktree: worktree.path,
+      configDir,
+      prefix: `~/${adapter.configDir}/`,
+    });
     await writeTokens(run.tokens);
     const refreshing = setInterval(
       () =>
@@ -685,7 +728,7 @@ const execute = async (run: Run) => {
       TOKEN_REFRESH_MS,
     );
     try {
-      text = await runAgent(adapter, run, worktree.path, { prompt, session, seen }, reply.progress);
+      text = await runAgent(adapter, run, worktree.path, configDir, { prompt, session, seen }, reply.progress);
     } finally {
       clearInterval(refreshing);
     }
@@ -694,10 +737,10 @@ const execute = async (run: Run) => {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
     text = `The run failed: ${message(error)}`;
   }
-  if (checkedOut && adapter) {
+  if (checkedOut) {
     try {
       await saveWorktree(worktree);
-      await saveSession(run, adapter);
+      await saveSession(run, transcripts);
     } catch (error) {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);

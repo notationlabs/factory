@@ -1,5 +1,5 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeRunner } from "@notation/factory";
 
@@ -37,7 +37,9 @@ const parseLine = (line: string): StreamEvent | undefined => {
 const claude: RuntimeRunner = {
   command: "claude",
   name: "Claude Code",
-  transcripts: join(homedir(), ".claude", "projects"),
+  configDir: ".claude",
+  configEnv: (dir) => ({ CLAUDE_CONFIG_DIR: dir }),
+  transcripts: "projects",
   args: async (run, { prompt, systemPrompt }) => {
     const { agent } = run;
     // stream-json writes a line for each event, so the runner can post the

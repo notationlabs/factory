@@ -16,9 +16,9 @@ const agentConfig = v.object({
   mode: v.optional(v.picklist(["plan", "ask"])),
   /** Relative to `.factory/`. Appended to the runner's prompt. */
   systemPrompt: v.optional(v.string()),
-  /** Merged into `~/.cursor/cli-config.json` before each run. */
+  /** Merged into `/data/agents/<id>/.cursor/cli-config.json` before each run. */
   settings: v.optional(v.record(v.string(), v.unknown())),
-  /** `~/.cursor/*` is written to `/data/agents/<id>/`, other `~/*` to `/data/home/`. */
+  /** `~/.cursor/*` is written to `/data/agents/<id>/.cursor/`, other `~/*` to `/data/home/`. Relative to `.factory/`. */
   files: v.optional(v.record(v.string(), v.string())),
 });
 export type AgentConfig = v.InferInput<typeof agentConfig>;

@@ -67,15 +67,17 @@ A trigger that runs `coder` must target a container that lists `claude.runtime`.
 
 | Option | Effect in outpost container |
 | --- | --- |
-| `model` | Written to `/data/agents/<name>/settings.json` (and passed via `--model`) |
+| `model` | Passed via `--model` |
 | `effort` | Passed as `--effort <low \| medium \| high \| xhigh \| max>` |
 | `systemPrompt` | Appended to the runner's prompt, and passed with `--append-system-prompt` |
-| `settings` | Merged into `/data/agents/<name>/settings.json` at runtime |
-| `files` | `~/.claude/*` writes to `/data/agents/<name>/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+| `settings` | Passed via `--settings`, over the agent's `settings.json` |
+| `files` | `~/.claude/*` writes to `/data/agents/<name>/.claude/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+
+The container's own `~/.claude/*` files are written to each Claude agent's directory too, before the agent's `files`, so an agent's file replaces the container's file at the same path.
 
 ## Runtime invocation
 
-Each agent runs with `CLAUDE_CONFIG_DIR=/data/agents/<name>`:
+Each agent runs with `CLAUDE_CONFIG_DIR=/data/agents/<name>/.claude`, so agents in one container don't share settings, files or sessions. The runner saves the session's transcripts from the agent's `projects` directory to the state store after each run, so a container that slept resumes the session.
 
 | Mode | Invocation |
 | --- | --- |

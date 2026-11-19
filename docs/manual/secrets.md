@@ -215,6 +215,8 @@ export default {
 
 Commands that talk to a running hub sign you in as an operator instead of using the root key: `factory infra status`, `factory infra replay`, and the repo sync at the end of `factory infra up`. The router checks who you are and returns an admin session, signed with a key derived from the root key, that lasts 4 hours. The router also checks that the session's operator is still in the operator auth on each request, so removing an operator ends their session. `factory infra status` and `factory infra replay` need no provider credentials at all. See [Operator sign-in](./cli.md#operator-sign-in).
 
+The router keeps no list of sessions, so it can't revoke one session. If an admin session leaks, whoever holds it can use it until it expires, for up to 4 hours. To end it sooner, remove its operator from the operator auth and deploy, which ends all of that operator's sessions, or rotate the root key, which ends every session.
+
 **Operators are not the code host's `allow` list.** `allow` on `CodeHost` decides whose repos get outposts. Operators are the people allowed to run the CLI against the hub.
 
 Each `OperatorAuth` decides who you are differently:

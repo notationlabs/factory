@@ -199,7 +199,9 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  * 2. Reads the repo's outpost config as it is now, and dispatches each due
  *    trigger with new tokens.
  * 3. A dispatch whose container's first image build hasn't finished waits
- *    for it. See `waitForBuild`.
+ *    for it. See `waitForBuild`. It isn't tried again while the deploy log
+ *    says the build is queued or in progress, so it doesn't mint tokens
+ *    for nothing.
  * 4. When the last dispatch settles, posts a notice to the thread of each
  *    failed one.
  */
@@ -218,14 +220,20 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
     }
     const outpost = await store.outpost(record.delivery.repo);
     const name = record.connection.slice(entry.provider.length + 1);
+    const repo = record.delivery.repo;
     await Promise.all(
       due.map(async (d) => {
         try {
+          const waitingFor = d.since !== undefined ? outpost?.triggers?.[d.trigger]?.container : undefined;
+          if (waitingFor && (await isBuilding(store, repo, waitingFor))) {
+            await waitForBuild(d, waitingFor, repo, channel, store, now);
+            return;
+          }
           const building = await dispatch(
             { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
             store,
           );
-          if (building) await waitForBuild(d, building, record.delivery.repo, channel, store, now);
+          if (building) await waitForBuild(d, building, repo, channel, store, now);
           else d.state = "dispatched";
         } catch (error) {
           Object.assign(d, { state: "failed", error: message(error) });
@@ -249,6 +257,11 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
   return pending.length ? Math.min(...pending.map((d) => d.next ?? now)) : undefined;
 };
 
+const isBuilding = async (store: RouterStore, repo: string, container: string) => {
+  const state = (await store.deploys?.build(repo, container))?.state;
+  return state === "queued" || state === "in_progress";
+};
+
 /**
  * Has a dispatch wait for its container's first image build, and try again
  * in `BUILD_POLL_MS`. The first time, it posts the waiting message to the
@@ -263,7 +276,7 @@ const waitForBuild = async (
   store: RouterStore,
   now: number,
 ) => {
-  const build = (await store.deploys?.get(repo))?.builds?.[container];
+  const build = await store.deploys?.build(repo, container);
   if (build?.state === "failure" || build?.state === "cancelled") {
     const outcome = build.state === "failure" ? "failed" : "was cancelled";
     const details = [build.summary, build.url && `The build's log: ${build.url}`].filter(Boolean).join(" ");
@@ -505,7 +518,8 @@ const builds = async (request: Request, store: RouterStore) => {
   const channel = codeHostChannel(store)?.channel;
   if (!channel) return json(404, { error: "the hub has no code host" });
   const { repo, ref, container, state, url, summary } = report;
-  await logBuild(store, repo, container, { state, ref, ...(url && { url }), ...(summary && { summary }), at: new Date().toISOString() }).catch((error) =>
+  const build: ContainerBuild = { state, ref, ...(url && { url }), ...(summary && { summary }), at: new Date().toISOString() };
+  await store.deploys?.putBuild(repo, container, build).catch((error) =>
     console.error(JSON.stringify({ repo, container, state: "build log failed", error: message(error) })),
   );
   try {
@@ -514,15 +528,6 @@ const builds = async (request: Request, store: RouterStore) => {
     return json(502, { error: message(error) });
   }
   return json(200, { ok: true });
-};
-
-/** Records a container's build in the repo's last deploy, unless a later deploy started another build of it. */
-const logBuild = async (store: RouterStore, repo: string, container: string, build: ContainerBuild) => {
-  const deploy = await store.deploys?.get(repo);
-  if (!deploy) return;
-  const known = deploy.builds?.[container];
-  if (known && known.ref !== build.ref && deploy.status.ref !== build.ref) return;
-  await store.deploys!.put({ ...deploy, builds: { ...deploy.builds, [container]: build } });
 };
 
 /** Writes a check, and logs a failure instead of throwing it. The App may not have the checks permission yet. */
@@ -571,16 +576,12 @@ const redeploy = async (
       status = { state: "failed", ref, error: message(error), at: at() };
     }
   }
-  await log?.put({
-    repo,
-    status,
-    ...(status.ref && status.builds?.length && {
-      builds: Object.fromEntries(status.builds.map((c) => [c, { state: "queued" as const, ref: status.ref!, at: status.at }])),
-    }),
-  });
+  await log?.put(repo, status);
   await channel.writeStatus(repo, status);
   for (const container of status.builds ?? []) {
-    if (status.ref) await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
+    if (!status.ref) continue;
+    await log?.putBuild(repo, container, { state: "queued", ref: status.ref, at: status.at });
+    await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
   }
   console.log(JSON.stringify({ repo, ...status }));
 };
@@ -598,10 +599,22 @@ const source = async (
   }
   const { deployer } = store;
   if (!deployer) return json(200, { ignored: "no deployer" });
+  await redeployEach(changes, codeHost.allow ?? [], channel, deployer, store);
+  return json(202, { connection: key, deploying: changes.map((c) => c.repo) });
+};
+
+/** Deploys each change one at a time, after the response where the platform allows it. */
+const redeployEach = async (
+  changes: SourceChange[],
+  allow: RepoPattern[],
+  channel: RemoteChannel,
+  deployer: RemoteDeployer,
+  store: RouterStore,
+) => {
   const task = (async () => {
     for (const change of changes) {
       try {
-        await redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys);
+        await redeploy(change, allow, channel, deployer, store.deploys);
       } catch (error) {
         console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
       }
@@ -609,7 +622,6 @@ const source = async (
   })();
   if (store.background) store.background(task);
   else await task;
-  return json(202, { connection: key, deploying: changes.map((c) => c.repo) });
 };
 
 /** Has each connection's channel set up its platform side, pointing it at this router. */
@@ -628,21 +640,20 @@ const sync = async (request: Request, store: RouterStore) => {
   return json(failed ? 502 : 200, { connections: results });
 };
 
-/** Reads a JSON body, or answers 400. An empty body reads as `{}`. */
+/** Reads a JSON object body, or answers 400. */
 const readJson = async <T>(request: Request): Promise<T | Response> => {
-  const text = await request.text();
-  if (!text) return {} as T;
   try {
-    return JSON.parse(text) as T;
-  } catch {
-    return json(400, { error: "the body isn't JSON" });
-  }
+    const body = (await request.json()) as T;
+    if (body && typeof body === "object") return body;
+  } catch {}
+  return json(400, { error: "the body isn't a JSON object" });
 };
 
 /** The channel that signs operators in, for an operator auth that signs in through a connection's platform. */
 const signInChannel = (store: RouterStore) => {
   const operators = store.config.operators;
   if (!operators) return json(404, { error: "the hub has no operator auth" });
+  // Only GitHub sign-in is built. `isOperator` relies on this check.
   if (operators.provider !== "github") {
     return json(501, { error: `the router can't sign operators in with ${operators.provider} yet` });
   }
@@ -652,17 +663,15 @@ const signInChannel = (store: RouterStore) => {
   return channel;
 };
 
-/** Answers the page that signs an operator in, which sends their browser back to `redirect`. */
+/** Answers the page that signs an operator in, which sends their browser back to the CLI's callback. */
 const signIn = async (request: Request, store: RouterStore) => {
   const body = await readJson<SignInRequest>(request);
   if (body instanceof Response) return body;
-  if (typeof body.redirect !== "string" || typeof body.state !== "string") {
-    return json(400, { error: "the body needs redirect and state" });
-  }
+  if (typeof body.state !== "string") return json(400, { error: "the body needs state" });
   const channel = signInChannel(store);
   if (channel instanceof Response) return channel;
   try {
-    const result: SignInResult = { url: await channel.signInUrl(body.redirect, body.state) };
+    const result: SignInResult = { url: await channel.signInUrl(body.state) };
     return json(200, result);
   } catch (error) {
     return json(502, { error: message(error) });
@@ -673,14 +682,12 @@ const signIn = async (request: Request, store: RouterStore) => {
 const session = async (request: Request, store: RouterStore) => {
   const body = await readJson<SessionRequest>(request);
   if (body instanceof Response) return body;
-  if (typeof body.code !== "string" || typeof body.redirect !== "string") {
-    return json(400, { error: "the body needs code and redirect" });
-  }
+  if (typeof body.code !== "string") return json(400, { error: "the body needs code" });
   const channel = signInChannel(store);
   if (channel instanceof Response) return channel;
   let operator: string;
   try {
-    operator = await channel.signIn(body.code, body.redirect);
+    operator = await channel.signIn(body.code);
   } catch (error) {
     return json(401, { error: message(error) });
   }
@@ -704,18 +711,10 @@ const operatorOf = async (request: Request, store: RouterStore) => {
   return found.operator;
 };
 
-/** Lists each repo's last deploy, with the containers that its outpost declares now. */
+/** Lists each repo's last deploy, and its containers' latest builds. */
 const listRepos = async (store: RouterStore) => {
   if (!store.deploys) return json(501, { error: "the router keeps no deploys" });
-  const deploys = await store.deploys.list();
-  const result: ReposResult = {
-    repos: await Promise.all(
-      deploys.map(async (deploy) => ({
-        ...deploy,
-        containers: Object.keys((await store.outpost(deploy.repo))?.containers ?? {}),
-      })),
-    ),
-  };
+  const result: ReposResult = { repos: await store.deploys.list() };
   result.repos.sort((a, b) => a.repo.localeCompare(b.repo));
   return json(200, result);
 };
@@ -751,10 +750,10 @@ const replay = async (request: Request, store: RouterStore, operator: string) =>
 
 /**
  * Deploys every repo again, and answers before the deploys finish:
- * 1. Has the code host's channel list the repos that the hub can read.
+ * 1. Has the code host's channel list the repos that the hub can read, and
+ *    keeps those that the code host's allow list includes.
  * 2. Deploys each of them again from its default branch.
- * 3. Removes the outposts of the deployed repos that the hub can no longer
- *    read.
+ * 3. Removes the outposts of the other deployed repos.
  */
 const syncRepos = async (store: RouterStore, operator: string) => {
   const codeHost = store.config.codeHost;
@@ -768,20 +767,14 @@ const syncRepos = async (store: RouterStore, operator: string) => {
   } catch (error) {
     return json(502, { error: message(error) });
   }
-  const known = new Set(readable.map((repo) => repo.toLowerCase()));
+  const allow = codeHost.allow ?? [];
+  const deploying = readable.filter((repo) => allowsRepo(allow, repo));
+  const kept = new Set(deploying.map((repo) => repo.toLowerCase()));
   const deployed = (await store.deploys?.list()) ?? [];
-  const removing = deployed.map((d) => d.repo).filter((repo) => !known.has(repo.toLowerCase()));
-  const changes: SourceChange[] = [...readable.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
-  const task = Promise.all(
-    changes.map((change) =>
-      redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys).catch((error) =>
-        console.error(JSON.stringify({ repo: change.repo, error: message(error) })),
-      ),
-    ),
-  );
-  if (store.background) store.background(task);
-  else await task;
-  const result: SyncResult = { deploying: readable, removing };
+  const removing = deployed.map((d) => d.repo).filter((repo) => !kept.has(repo.toLowerCase()));
+  const changes: SourceChange[] = [...deploying.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
+  await redeployEach(changes, allow, channel, deployer, store);
+  const result: SyncResult = { deploying, removing };
   console.log(JSON.stringify({ operator, sync: result }));
   return json(202, result);
 };

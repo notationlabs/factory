@@ -46,7 +46,7 @@ Deploy infrastructure changes and reconcile subscribed outposts:
 factory infra up [--dry-run] [--prune] [--credential <id>.<credential>@<hash>=<var>]
 ```
 
-Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and asks the router to deploy every repository again. The router deploys each repository that the code host's App can read from its default branch, and removes the outposts of the repositories that it can no longer read. `factory infra up` doesn't wait for the deploys. Run `factory infra status` to see how they went. Without `router` in `factory.config.ts`, it skips this step and says so. Each secret is written when its credential has a new version: a `sources.Env` without `track` on every deploy, with `track` when its value changes, and a key that a resource issues once, when the resource is created. See [Secrets](./secrets.md#when-a-value-is-written).
+Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and asks the router to deploy every repository again. The router deploys, one at a time and from its default branch, each repository that the code host's App can read and that the code host's `allow` includes. It removes the outposts of the other repositories that it has deployed. `factory infra up` doesn't wait for the deploys. Run `factory infra status` to see how they went. Without `router` in `factory.config.ts`, it skips this step and says so. Each secret is written when its credential has a new version: a `sources.Env` without `track` on every deploy, with `track` when its value changes, and a key that a resource issues once, when the resource is created. See [Secrets](./secrets.md#when-a-value-is-written).
 
 | Step | Authenticates with |
 | --- | --- |
@@ -71,7 +71,7 @@ factory infra status
 
 Signs you in as an operator, then lists every repository that the hub has deployed, and the deliveries that failed in the last 7 days. Needs no provider credentials.
 
-For each repository, it shows the state of its last deploy, the commit it deployed, and when. For each container of the outpost, it shows the latest build of the container's image and a link to its log. For each failed delivery, it shows its name, such as `github/gh/<id>`, its event and repository, and why each trigger's run couldn't start.
+For each repository, it shows the state of its last deploy, the commit it deployed, and when. For each container whose image the router has seen built, it shows the latest build and a link to its log. A container keeps its latest build when a later deploy doesn't rebuild its image. For each failed delivery, it shows its name, such as `github/gh/<id>`, its event and repository, and why each trigger's run couldn't start.
 
 The router keeps each repository's last deploy in its own storage, so `status` makes no calls to GitHub. A repository appears once the hub deploys it after this version of the router.
 

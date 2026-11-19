@@ -9,32 +9,39 @@ export const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 /** The latest build of a container's image, as the deployer last reported it. */
 export type ContainerBuild = { state: BuildCheck["state"]; ref: string; url?: string; summary?: string; at: string };
 
-/** A repo's last deploy, and the builds that it started. */
+/** A repo's last deploy, and the latest build of each of its containers. */
 export type RepoDeploy = {
   repo: string;
   status: FactoryStatus;
-  builds?: Record<string, ContainerBuild>;
+  builds: Record<string, ContainerBuild>;
 };
 
-/** Where the router keeps each repo's last deploy, so that an operator can list them without a call to the code host. */
+/**
+ * Where the router keeps each repo's last deploy, and each container's latest
+ * build, so that an operator can list them without a call to the code host.
+ * Each build is kept on its own, so that reports of different builds don't
+ * overwrite each other.
+ */
 export type DeployLog = {
-  get(repo: string): Promise<RepoDeploy | undefined>;
-  put(deploy: RepoDeploy): Promise<void>;
+  put(repo: string, status: FactoryStatus): Promise<void>;
+  /** Removes the repo's deploy and its builds. */
   remove(repo: string): Promise<void>;
+  build(repo: string, container: string): Promise<ContainerBuild | undefined>;
+  putBuild(repo: string, container: string, build: ContainerBuild): Promise<void>;
   list(): Promise<RepoDeploy[]>;
 };
 
-/** `POST /admin/sign-in`: where the operator's browser comes back to, with a code. */
-export type SignInRequest = { redirect: string; state: string };
+/** `POST /admin/sign-in`: `state` comes back to the operator's browser with the code. */
+export type SignInRequest = { state: string };
 export type SignInResult = { url: string };
 
-/** `POST /admin/session`: the code that the sign-in page sent to `redirect`. */
-export type SessionRequest = { code: string; redirect: string };
+/** `POST /admin/session`: the code that the sign-in page sent to the operator's browser. */
+export type SessionRequest = { code: string };
 /** `operator` is who signed in, such as a GitHub login. `expires` is a time in milliseconds. */
 export type SessionResult = { session: string; operator: string; expires: number };
 
-/** `GET /admin/repos`: each repo's last deploy, and the containers that its outpost declares now. */
-export type ReposResult = { repos: (RepoDeploy & { containers: string[] })[] };
+/** `GET /admin/repos`. */
+export type ReposResult = { repos: RepoDeploy[] };
 
 /** `GET /admin/deliveries`. */
 export type DeliveriesResult = { failed: FailedDelivery[] };
@@ -50,44 +57,27 @@ export type ReplayResult = {
 /** `POST /admin/sync`: the repos that the router started to deploy again, and those whose outposts it removes. */
 export type SyncResult = { deploying: string[]; removing: string[] };
 
-const encoder = new TextEncoder();
-
-const base64url = (text: string) =>
-  btoa(String.fromCharCode(...encoder.encode(text)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-const fromBase64url = (text: string) =>
-  new TextDecoder().decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
-
 const sessionKey = (rootKey: string) => deriveKey(rootKey, "operator:session");
 
 type Session = { operator: string; expires: number };
 
-/** A session token for `operator`: the session as base64url JSON, a dot, and its signature. */
-export const signSession = async (rootKey: string, session: Session) => {
-  const body = base64url(JSON.stringify(session));
+/** A session token for `operator`: `<operator>.<expires>.<signature>`. A GitHub login has no dot. */
+export const signSession = async (rootKey: string, { operator, expires }: Session) => {
+  const body = `${operator}.${expires}`;
   return `${body}.${await hmacHex(await sessionKey(rootKey), body)}`;
 };
 
 /** The session in `token`, if the router signed it and it hasn't expired. */
 export const verifySession = async (rootKey: string, token: string, now = Date.now()): Promise<Session | undefined> => {
-  const [body, signature, ...rest] = token.split(".");
-  if (!body || !signature || rest.length) return undefined;
-  if (!timingSafeEqual(signature, await hmacHex(await sessionKey(rootKey), body))) return undefined;
-  try {
-    const session = JSON.parse(fromBase64url(body)) as Session;
-    if (typeof session.operator !== "string" || typeof session.expires !== "number" || session.expires <= now) return undefined;
-    return session;
-  } catch {
-    return undefined;
-  }
+  const [operator, expires, signature, ...rest] = token.split(".");
+  if (!operator || !expires || !signature || rest.length) return undefined;
+  if (!timingSafeEqual(signature, await hmacHex(await sessionKey(rootKey), `${operator}.${expires}`))) return undefined;
+  const session = { operator, expires: Number(expires) };
+  return session.expires > now ? session : undefined;
 };
 
 /** Whether the hub's operator auth lets `operator` in. GitHub logins are compared without case. */
 export const isOperator = (operators: OperatorsEntry | undefined, operator: string) => {
-  if (operators?.provider !== "github") return false;
-  const logins = Array.isArray(operators.logins) ? (operators.logins as string[]) : [];
-  return logins.some((login) => login.toLowerCase() === operator.toLowerCase());
+  const logins = operators?.logins;
+  return Array.isArray(logins) && logins.some((login) => String(login).toLowerCase() === operator.toLowerCase());
 };

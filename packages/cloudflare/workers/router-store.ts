@@ -1,5 +1,7 @@
 import {
+  type ContainerBuild,
   type DeployLog,
+  type FactoryStatus,
   type FailedDelivery,
   type Inbox,
   type OutpostConfig,
@@ -31,34 +33,66 @@ const inbox = (env: RouterEnv): Inbox => {
   return {
     receive: (record) => object(record.connection, record.id).receive(record),
     replay: (connection, id, origin) => object(connection, id).replay(origin),
-    failed: () => listJson<FailedDelivery>(env.FACTORY_KV, FAILED_PREFIX),
+    failed: async () => (await listJson<FailedDelivery>(env.FACTORY_KV, FAILED_PREFIX)).map(({ value }) => value),
   };
 };
 
 /** The KV prefix of each repo's last deploy, which the router writes when it deploys the repo. */
 export const DEPLOYS_PREFIX = "deploys/";
 
+/** The KV prefix of each container's latest build, as `builds/<repo>/<container>`. */
+export const BUILDS_PREFIX = "builds/";
+
 const deployKey = (repo: string) => `${DEPLOYS_PREFIX}${repo.toLowerCase()}`;
 
-/** Every value in KV under `prefix`. */
+const buildKey = (repo: string, container: string) => `${BUILDS_PREFIX}${repo.toLowerCase()}/${container}`;
+
+/** Each key in KV under `prefix`, with its value. */
 const listJson = async <T>(kv: KVNamespace, prefix: string) => {
-  const found: T[] = [];
+  const found: { key: string; value: T }[] = [];
   let cursor: string | undefined;
   do {
     const page = await kv.list({ prefix, ...(cursor && { cursor }) });
     const values = await Promise.all(page.keys.map(({ name }) => kv.get(name, "json") as Promise<T | null>));
-    for (const value of values) if (value) found.push(value);
+    page.keys.forEach(({ name }, i) => {
+      const value = values[i];
+      if (value) found.push({ key: name, value });
+    });
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
   return found;
 };
 
-const deploys = (env: RouterEnv): DeployLog => ({
-  get: async (repo) => ((await env.FACTORY_KV.get(deployKey(repo), "json")) ?? undefined) as RepoDeploy | undefined,
-  put: (deploy) => env.FACTORY_KV.put(deployKey(deploy.repo), JSON.stringify(deploy)),
-  remove: (repo) => env.FACTORY_KV.delete(deployKey(repo)),
-  list: () => listJson<RepoDeploy>(env.FACTORY_KV, DEPLOYS_PREFIX),
-});
+type DeployRecord = { repo: string; status: FactoryStatus };
+
+const deploys = (env: RouterEnv): DeployLog => {
+  const kv = env.FACTORY_KV;
+  return {
+    put: (repo, status) => kv.put(deployKey(repo), JSON.stringify({ repo, status } satisfies DeployRecord)),
+    remove: async (repo) => {
+      const builds = await listJson<ContainerBuild>(kv, `${BUILDS_PREFIX}${repo.toLowerCase()}/`);
+      await Promise.all([kv.delete(deployKey(repo)), ...builds.map(({ key }) => kv.delete(key))]);
+    },
+    build: async (repo, container) => ((await kv.get(buildKey(repo, container), "json")) ?? undefined) as ContainerBuild | undefined,
+    putBuild: (repo, container, build) => kv.put(buildKey(repo, container), JSON.stringify(build)),
+    list: async () => {
+      const [records, builds] = await Promise.all([
+        listJson<DeployRecord>(kv, DEPLOYS_PREFIX),
+        listJson<ContainerBuild>(kv, BUILDS_PREFIX),
+      ]);
+      const repos = new Map<string, RepoDeploy>(
+        records.map(({ value }) => [value.repo.toLowerCase(), { ...value, builds: {} }]),
+      );
+      for (const { key, value } of builds) {
+        const path = key.slice(BUILDS_PREFIX.length);
+        const slash = path.lastIndexOf("/");
+        const deploy = repos.get(path.slice(0, slash));
+        if (deploy) deploy.builds[path.slice(slash + 1)] = value;
+      }
+      return [...repos.values()];
+    },
+  };
+};
 
 /** The router's store, which the router Worker and the inbox's objects share. */
 export const routerStore = async (env: RouterEnv, background?: (task: Promise<unknown>) => void): Promise<RouterStore> => ({

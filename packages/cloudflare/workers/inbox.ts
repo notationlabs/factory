@@ -11,6 +11,9 @@ import { failedKey, type RouterEnv, routerStore } from "./router-store.ts";
 
 const RECORD = "record";
 
+/** Set once a settled delivery is listed, if it failed. Its alarm then deletes the delivery. */
+const LISTED = "listed";
+
 /**
  * One saved delivery. The router names each object by the delivery's
  * connection and id, so a delivery that arrives twice finds the first
@@ -32,6 +35,7 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
     const record = (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
     if (!record || !settled(record) || !replayRecord(record, origin)) return false;
     await this.ctx.storage.put(RECORD, record);
+    await this.ctx.storage.delete(LISTED);
     await this.env.FACTORY_KV.delete(failedKey(record.connection, record.id));
     await this.ctx.storage.setAlarm(Date.now());
     return true;
@@ -40,19 +44,21 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
   /**
    * Tries the delivery's due dispatches, and sets the alarm for the next
    * retry. Once the delivery settles, lists it as failed if a dispatch
-   * failed, and sets the alarm that deletes it.
+   * failed, and then sets the alarm that deletes it. A retried alarm that
+   * finds the delivery settled but not listed lists it again.
    */
   async alarm() {
     const record = (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
     if (!record) return;
-    if (settled(record)) {
+    if (!settled(record)) {
+      const wake = await advance(record, await routerStore(this.env));
+      await this.ctx.storage.put(RECORD, record);
+      if (wake !== undefined) {
+        await this.ctx.storage.setAlarm(wake);
+        return;
+      }
+    } else if (await this.ctx.storage.get(LISTED)) {
       await this.ctx.storage.deleteAll();
-      return;
-    }
-    const wake = await advance(record, await routerStore(this.env));
-    await this.ctx.storage.put(RECORD, record);
-    if (wake !== undefined) {
-      await this.ctx.storage.setAlarm(wake);
       return;
     }
     const failed = failedDelivery(record, Date.now());
@@ -61,6 +67,7 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
         expirationTtl: KEEP_DELIVERY_MS / 1000,
       });
     }
+    await this.ctx.storage.put(LISTED, true);
     await this.ctx.storage.setAlarm(Date.now() + KEEP_DELIVERY_MS);
   }
 }

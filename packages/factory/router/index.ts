@@ -14,6 +14,7 @@ export type {
   ThreadMessage,
 } from "./channel.ts";
 export type {
+  ContainerBuild,
   DeliveriesResult,
   DeployLog,
   ReplayResult,

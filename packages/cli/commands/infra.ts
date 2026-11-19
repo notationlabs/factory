@@ -66,14 +66,12 @@ export const infraStatus = async () => {
   const repos = await admin<ReposResult>(router, "GET", "/admin/repos");
   const deliveries = await admin<DeliveriesResult>(router, "GET", "/admin/deliveries");
   if (!repos.repos.length) console.log("The hub has deployed no repos.");
-  for (const { repo, status, builds = {}, containers } of repos.repos) {
+  for (const { repo, status, builds } of repos.repos) {
     const from = status.ref ? ` from ${short(status.ref)}` : "";
     console.log(`${repo}: ${status.state}${from} at ${status.at}`);
     if (status.error) console.log(`  ${status.error.split("\n").join("\n  ")}`);
-    for (const container of containers) {
-      const build = builds[container];
-      const state = build ? `build ${build.state} at ${short(build.ref)}${build.url ? ` ${build.url}` : ""}` : "no build since the hub started keeping them";
-      console.log(`  ${container}: ${state}`);
+    for (const [container, build] of Object.entries(builds)) {
+      console.log(`  ${container}: build ${build.state} at ${short(build.ref)}${build.url ? ` ${build.url}` : ""}`);
     }
   }
   if (!deliveries.failed.length) {

@@ -32,9 +32,10 @@ const routerSyncSchema = routerSync.defineSchema({
 } as const);
 
 const sync = async (url: string, syncKey: string) => {
-  const response = await fetch(new URL("/sync", url), {
+  const target = new URL("/sync", url);
+  const response = await fetch(target, {
     method: "POST",
-    headers: { [SYNC_HEADER]: await signSync(syncKey) },
+    headers: { [SYNC_HEADER]: await signSync(syncKey, target.origin) },
   });
   if (!response.ok) {
     throw new Error(

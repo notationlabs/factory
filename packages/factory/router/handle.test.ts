@@ -10,6 +10,7 @@ import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
 const SYNC_KEY = "sync";
+const ORIGIN = "https://router.test";
 
 type FakeEvent = { allow: boolean };
 
@@ -160,7 +161,7 @@ test("sync gives each channel its connection's webhook URL, and reports failures
     }),
     syncKey: async () => SYNC_KEY,
   };
-  const { status, body } = await syncCall(s, await signSync(SYNC_KEY));
+  const { status, body } = await syncCall(s, await signSync(SYNC_KEY, ORIGIN));
   assert.equal(status, 502);
   assert.deepEqual(urls, ["https://router.test/webhook/fake/main"]);
   assert.deepEqual(body.connections, { "fake/main": "ok", "fake/second": "no access" });
@@ -170,10 +171,11 @@ test("sync takes only a recent request signed with the sync key", async () => {
   const urls: string[] = [];
   const s: RouterStore = { ...store({ main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)) }), syncKey: async () => SYNC_KEY };
   assert.equal((await syncCall(s)).status, 401);
-  assert.equal((await syncCall(s, await signSync("other"))).status, 401);
-  assert.equal((await syncCall(s, await signSync(SYNC_KEY, Date.now() - 10 * 60 * 1000))).status, 401);
-  assert.equal((await syncCall(s, (await signSync(SYNC_KEY)).replace(/^\d+/, (at) => String(Number(at) + 1)))).status, 401);
-  assert.equal((await syncCall({ ...s, syncKey: undefined }, await signSync(SYNC_KEY))).status, 501);
+  assert.equal((await syncCall(s, await signSync("other", ORIGIN))).status, 401);
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, "https://other-router.test"))).status, 401);
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, ORIGIN, Date.now() - 10 * 60 * 1000))).status, 401);
+  assert.equal((await syncCall(s, (await signSync(SYNC_KEY, ORIGIN)).replace(/^\d+/, (at) => String(Number(at) + 1)))).status, 401);
+  assert.equal((await syncCall({ ...s, syncKey: undefined }, await signSync(SYNC_KEY, ORIGIN))).status, 501);
   assert.deepEqual(urls, []);
 });
 
@@ -612,7 +614,12 @@ const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<str
       const deploy = saved.get(repo.toLowerCase()) ?? { repo, status: { state: "deployed", at: "" }, builds: {} };
       saved.set(repo.toLowerCase(), { ...deploy, builds: { ...deploy.builds, [container]: build } });
     },
+    pruneBuilds: async (repo, containers) => {
+      const deploy = saved.get(repo.toLowerCase());
+      if (deploy) deploy.builds = Object.fromEntries(Object.entries(deploy.builds).filter(([c]) => containers.includes(c)));
+    },
     list: async () => structuredClone([...saved.values()]),
+    repos: async () => [...saved.keys()],
   };
 };
 
@@ -755,6 +762,20 @@ test("each failed trigger of a delivery replaces its own waiting message", async
   assert.deepEqual(notices, waiting);
 });
 
+test("a failed dispatch posts its notice without waiting for a sibling that waits for a build", async () => {
+  const replies: string[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => void replies.push(text) };
+  const twoTriggers: OutpostConfig = {
+    ...runOutpost,
+    triggers: { mention: runOutpost.triggers.mention!, other: { ...runOutpost.triggers.mention!, container: "missing" } },
+  };
+  const s: RouterStore = { ...runStore(channel, { run: async () => "building" }), outpost: async () => twoTriggers };
+  const { record, store } = await savedRecord(s);
+  assert.equal(await advance(record, store, 0), BUILD_POLL_MS);
+  assert.deepEqual(record.dispatches.map((d) => d.state).sort(), ["failed", "pending"]);
+  assert.ok(replies.some((text) => text.includes("`other`")));
+});
+
 test("a replay dispatches the failed triggers again as new runs, against the outpost config the repo has now", async () => {
   const runs: Run[] = [];
   let ok = false;
@@ -856,6 +877,14 @@ test("an operator listed by account id signs in under any login, and a login of 
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 200);
 });
 
+test("a session keeps a login with dots in it", async () => {
+  const session = await signSession(ROOT_KEY, { login: "a.b", id: "1.5", expires: Date.now() + 60_000 });
+  assert.equal(session.split(".").length, 4);
+  const found = await verifySession(ROOT_KEY, session);
+  assert.equal(found?.login, "a.b");
+  assert.equal(found?.id, "1.5");
+});
+
 test("a session stops working when it expires, or when its operator leaves the operator auth", async () => {
   const s = adminStore(adminChannel());
   const expired = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() - 1 });
@@ -888,6 +917,31 @@ test("a deploy is logged with a queued build for each container it builds, and b
   assert.equal(build.url, "https://dash.test/b");
 });
 
+test("a late report of an older commit's build doesn't replace the newer build in the log", async () => {
+  const deploys = memoryDeploys();
+  const s: RouterStore = { ...sourceStore(sourceChannel([], []), []), deploys };
+  await deploys.putBuild("acme/api", "dev", { state: "queued", ref: "new", at: "now" });
+  const old = { repo: "acme/api", ref: "old", container: "dev", state: "failure" as const, expires: Date.now() + 60_000 };
+  assert.equal((await buildReport(s, { report: old, signature: await signBuildReport(ROOT_KEY, old) })).status, 200);
+  assert.deepEqual(await deploys.build("acme/api", "dev"), { state: "queued", ref: "new", at: "now" });
+
+  const current = { ...old, ref: "new", state: "success" as const };
+  await buildReport(s, { report: current, signature: await signBuildReport(ROOT_KEY, current) });
+  assert.equal((await deploys.build("acme/api", "dev"))?.state, "success");
+  await buildReport(s, { report: old, signature: await signBuildReport(ROOT_KEY, old) });
+  assert.equal((await deploys.build("acme/api", "dev"))?.state, "success");
+});
+
+test("a deploy drops the logged builds of containers that the outpost no longer has", async () => {
+  const deploys = memoryDeploys();
+  await deploys.putBuild("acme/api", "ci", { state: "success", ref: "old", at: "then" });
+  await deploys.putBuild("acme/api", "gone", { state: "success", ref: "old", at: "then" });
+  const s: RouterStore = { ...sourceStore(sourceChannel([{ repo: "acme/api", ref: "abc" }], []), []), deploys };
+  s.outpost = async () => ({ ...runOutpost, containers: { ci: runOutpost.containers.dev! } });
+  await call(s);
+  assert.deepEqual(Object.keys((await deploys.list())[0]!.builds), ["ci"]);
+});
+
 test("repos lists each repo's last deploy with its builds", async () => {
   const deploys = memoryDeploys();
   await deploys.put("acme/web", { state: "failed", error: "bad", at: "then" });
@@ -910,10 +964,21 @@ test("sync deploys every repo that the code host can read and allows, one at a t
   const channel = sourceChannel([], calls);
   channel.repos = async () => ["acme/api", "other/api"];
   const s: RouterStore = { ...sourceStore(channel, calls), deploys, syncKey: async () => SYNC_KEY };
-  const { status } = await syncCall(s, await signSync(SYNC_KEY));
+  const { status } = await syncCall(s, await signSync(SYNC_KEY, ORIGIN));
   assert.equal(status, 200);
   assert.deepEqual(calls.sort(), ["deploy acme/api head", "read acme/api .factory undefined", "remove acme/gone", "status acme/api deployed"]);
   assert.deepEqual([...deploys.saved.keys()], ["acme/api"]);
+});
+
+test("sync hands the repos' deploys to the store's queue, where it has one", async () => {
+  const calls: string[] = [];
+  const queued: unknown[] = [];
+  const channel = sourceChannel([], calls);
+  channel.repos = async () => ["acme/api"];
+  const s: RouterStore = { ...sourceStore(channel, calls), syncKey: async () => SYNC_KEY, queueDeploys: async (changes) => void queued.push(changes) };
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, ORIGIN))).status, 200);
+  assert.deepEqual(queued, [[{ repo: "acme/api" }]]);
+  assert.deepEqual(calls, []);
 });
 
 test("sync answers before the repos' deploys finish, where the platform allows it", async () => {
@@ -922,7 +987,7 @@ test("sync answers before the repos' deploys finish, where the platform allows i
   const channel = sourceChannel([], calls);
   channel.repos = async () => ["acme/api"];
   const s: RouterStore = { ...sourceStore(channel, calls), syncKey: async () => SYNC_KEY, background: (task) => void tasks.push(task) };
-  assert.equal((await syncCall(s, await signSync(SYNC_KEY))).status, 200);
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, ORIGIN))).status, 200);
   assert.equal(tasks.length, 1);
   await tasks[0];
   assert.ok(calls.includes("deploy acme/api head"));

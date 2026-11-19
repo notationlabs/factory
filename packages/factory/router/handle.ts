@@ -33,7 +33,6 @@ import {
   type DeliveryRecord,
   failureNotice,
   type Inbox,
-  settled,
   type TriggerDispatch,
   waitingNotice,
 } from "./deliveries.ts";
@@ -79,6 +78,13 @@ export type RouterStore = {
   inbox: Inbox;
   /** Where the router keeps each repo's last deploy. Without it, operators can't list deploys. */
   deploys?: DeployLog;
+  /**
+   * Deploys each change with `redeployRepo`, one at a time, until all are
+   * done, without the time limit of a request. A new call replaces the
+   * changes that are left. Without it, a sync deploys the repos in the
+   * background.
+   */
+  queueDeploys?(changes: SourceChange[]): Promise<void>;
 };
 
 /** The deployer, as the router calls it. */
@@ -205,8 +211,8 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  *    for it. See `waitForBuild`. It isn't tried again while the deploy log
  *    says the build is queued or in progress, so it doesn't mint tokens
  *    for nothing.
- * 4. When the last dispatch settles, posts a notice to the thread of each
- *    failed one.
+ * 4. Posts a notice to the thread of each dispatch that fails, if the
+ *    dispatch got as far as naming the conversation.
  */
 export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<number | undefined> => {
   const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
@@ -241,20 +247,13 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
         } catch (error) {
           Object.assign(d, { state: "failed", error: message(error) });
           console.error(JSON.stringify({ run: d.run, trigger: d.trigger, error: d.error }));
+          if (d.thread === undefined) return;
+          await channel
+            .reply(d.thread, failureNotice(d), d.waiting)
+            .catch((error) => console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) })));
         }
       }),
     );
-    // Only a call that dispatched something can settle the record, so each notice is posted once.
-    if (settled(record)) {
-      const failed = record.dispatches.filter((d) => d.state === "failed" && d.thread !== undefined);
-      await Promise.all(
-        failed.map((d) =>
-          channel
-            .reply(d.thread, failureNotice(d), d.waiting)
-            .catch((error) => console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) }))),
-        ),
-      );
-    }
   }
   const pending = record.dispatches.filter((d) => d.state === "pending");
   return pending.length ? Math.min(...pending.map((d) => d.next ?? now)) : undefined;
@@ -505,7 +504,11 @@ const tokens = async (request: Request, store: RouterStore) => {
   }
 };
 
-/** Shows a container image's build on the commit it was built from, through the code host's channel. */
+/**
+ * Shows a container image's build on the commit it was built from, through
+ * the code host's channel, and logs it as the container's latest build
+ * unless the log has a build of another commit.
+ */
 const builds = async (request: Request, store: RouterStore) => {
   let body: BuildReportRequest;
   try {
@@ -522,7 +525,7 @@ const builds = async (request: Request, store: RouterStore) => {
   if (!channel) return json(404, { error: "the hub has no code host" });
   const { repo, ref, container, state, url, summary } = report;
   const build: ContainerBuild = { state, ref, ...(url && { url }), ...(summary && { summary }), at: new Date().toISOString() };
-  await store.deploys?.putBuild(repo, container, build).catch((error) =>
+  await logBuild(store, repo, container, build).catch((error) =>
     console.error(JSON.stringify({ repo, container, state: "build log failed", error: message(error) })),
   );
   try {
@@ -531,6 +534,14 @@ const builds = async (request: Request, store: RouterStore) => {
     return json(502, { error: message(error) });
   }
   return json(200, { ok: true });
+};
+
+const logBuild = async (store: RouterStore, repo: string, container: string, build: ContainerBuild) => {
+  const latest = await store.deploys?.build(repo, container);
+  // A deploy logs each build it starts as queued, after the builds before it.
+  // So a report for another commit is a late report of an older build.
+  if (latest && latest.ref !== build.ref) return;
+  await store.deploys?.putBuild(repo, container, build);
 };
 
 /** Writes a check, and logs a failure instead of throwing it. The App may not have the checks permission yet. */
@@ -553,15 +564,18 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  * 3. The channel shows the outcome on the repo, and a queued check on the
  *    commit for each container whose image started building. The deployer
  *    reports each build's progress to `/builds`.
+ * 4. After a deploy that succeeds, the log drops the builds of containers
+ *    that the outpost no longer has.
  */
 const redeploy = async (
   change: SourceChange,
   allow: RepoPattern[],
   channel: RemoteChannel,
   deployer: RemoteDeployer,
-  log?: DeployLog,
+  store: RouterStore,
 ) => {
   const { repo, ref } = change;
+  const log = store.deploys;
   if (change.removed) {
     await deployer.remove(repo);
     await log?.remove(repo);
@@ -585,6 +599,10 @@ const redeploy = async (
     if (!status.ref) continue;
     await log?.putBuild(repo, container, { state: "queued", ref: status.ref, at: status.at });
     await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
+  }
+  if (log && status.state === "deployed") {
+    const outpost = await store.outpost(repo);
+    if (outpost) await log.pruneBuilds(repo, Object.keys(outpost.containers));
   }
   console.log(JSON.stringify({ repo, ...status }));
 };
@@ -622,18 +640,28 @@ const redeployEach = async (
 ) => {
   for (const change of changes) {
     try {
-      await redeploy(change, allow, channel, deployer, store.deploys);
+      await redeploy(change, allow, channel, deployer, store);
     } catch (error) {
       console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
     }
   }
 };
 
+/** Deploys one repo's outpost again, as a source change through the code host's channel would. Logs an error instead of throwing it. */
+export const redeployRepo = async (change: SourceChange, store: RouterStore) => {
+  const codeHost = store.config.codeHost;
+  const channel = codeHostChannel(store)?.channel;
+  const { deployer } = store;
+  if (!codeHost || !channel || !deployer) return;
+  await redeployEach([change], codeHost.allow ?? [], channel, deployer, store);
+};
+
 /**
  * Deploys every repo again:
  * 1. Has the code host's channel list the repos that the hub can read, and
  *    keeps those that the code host's allow list includes.
- * 2. Deploys each of them again from its default branch, one at a time.
+ * 2. Deploys each of them again from its default branch, one at a time,
+ *    through `queueDeploys` if the store has it.
  * 3. Removes the outposts of the other deployed repos.
  */
 const syncRepos = async (store: RouterStore) => {
@@ -644,11 +672,12 @@ const syncRepos = async (store: RouterStore) => {
   const allow = codeHost.allow ?? [];
   const deploying = (await channel.repos()).filter((repo) => allowsRepo(allow, repo));
   const kept = new Set(deploying.map((repo) => repo.toLowerCase()));
-  const deployed = (await store.deploys?.list()) ?? [];
-  const removing = deployed.map((d) => d.repo).filter((repo) => !kept.has(repo.toLowerCase()));
+  const deployed = (await store.deploys?.repos()) ?? [];
+  const removing = deployed.filter((repo) => !kept.has(repo.toLowerCase()));
   console.log(JSON.stringify({ sync: { deploying, removing } }));
   const changes: SourceChange[] = [...deploying.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
-  await redeployEach(changes, allow, channel, deployer, store);
+  if (store.queueDeploys) await store.queueDeploys(changes);
+  else await redeployEach(changes, allow, channel, deployer, store);
 };
 
 /**
@@ -661,10 +690,10 @@ const syncRepos = async (store: RouterStore) => {
 const sync = async (request: Request, store: RouterStore) => {
   const syncKey = await store.syncKey?.();
   if (!syncKey) return json(501, { error: "the router has no sync key" });
-  if (!(await verifySync(syncKey, request.headers.get(SYNC_HEADER) ?? ""))) {
+  const { origin } = new URL(request.url);
+  if (!(await verifySync(syncKey, request.headers.get(SYNC_HEADER) ?? "", origin))) {
     return json(401, { error: "the sync request isn't signed with the sync key" });
   }
-  const { origin } = new URL(request.url);
   const results: Record<string, string> = {};
   for (const { key, channel } of channels(store)) {
     try {

@@ -38,6 +38,11 @@ test("the deploy log keeps each build under its own key, and lists them with the
     { repo: "acme/web", status: { state: "failed", at: "now" }, builds: {} },
   ]);
 
+  assert.deepEqual(await log.repos(), ["acme/api", "acme/web"]);
+
+  await log.pruneBuilds("Acme/API", ["dev"]);
+  assert.deepEqual(kv.keys(), ["builds/acme/api/dev", "deploys/acme/api", "deploys/acme/web"]);
+
   await log.remove("acme/api");
   assert.deepEqual(kv.keys(), ["deploys/acme/web"]);
 });

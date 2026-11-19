@@ -10,3 +10,4 @@ export default {
 };
 
 export { DeliveryInbox } from "./inbox.ts";
+export { RepoSync } from "./repo-sync.ts";

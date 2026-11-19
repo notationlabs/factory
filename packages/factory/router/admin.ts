@@ -28,7 +28,11 @@ export type DeployLog = {
   remove(repo: string): Promise<void>;
   build(repo: string, container: string): Promise<ContainerBuild | undefined>;
   putBuild(repo: string, container: string, build: ContainerBuild): Promise<void>;
+  /** Removes the repo's builds of containers other than `containers`. */
+  pruneBuilds(repo: string, containers: string[]): Promise<void>;
   list(): Promise<RepoDeploy[]>;
+  /** The repos that have a deploy, in lowercase, without reading their deploys. */
+  repos(): Promise<string[]>;
 };
 
 /** `POST /admin/sign-in`: `state` comes back to the operator's browser with the code. */
@@ -58,13 +62,17 @@ const sessionKey = (rootKey: string) => deriveKey(rootKey, "operator:session");
 
 type Session = Operator & { expires: number };
 
+// encodeURIComponent leaves dots as they are.
+const encodePart = (part: string) => encodeURIComponent(part).replaceAll(".", "%2E");
+
 /**
- * A session token for an operator: `<login>.<id>.<expires>.<signature>`. A
- * GitHub login has no dot, and its id is a number. The token carries both,
- * so that each request can check them against the operator auth again.
+ * A session token for an operator: `<login>.<id>.<expires>.<signature>`,
+ * with the login and id URI-encoded so that neither can hold a dot. The
+ * token carries both, so that each request can check them against the
+ * operator auth again.
  */
 export const signSession = async (rootKey: string, { login, id, expires }: Session) => {
-  const body = `${login}.${id}.${expires}`;
+  const body = `${encodePart(login)}.${encodePart(id)}.${expires}`;
   return `${body}.${await hmacHex(await sessionKey(rootKey), body)}`;
 };
 
@@ -73,7 +81,7 @@ export const verifySession = async (rootKey: string, token: string, now = Date.n
   const [login, id, expires, signature, ...rest] = token.split(".");
   if (!login || !id || !expires || !signature || rest.length) return undefined;
   if (!timingSafeEqual(signature, await hmacHex(await sessionKey(rootKey), `${login}.${id}.${expires}`))) return undefined;
-  const session = { login, id, expires: Number(expires) };
+  const session = { login: decodeURIComponent(login), id: decodeURIComponent(id), expires: Number(expires) };
   return session.expires > now ? session : undefined;
 };
 

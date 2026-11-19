@@ -453,7 +453,6 @@ const relay = async (request: Request, store: RouterStore) => {
 const messages = async (request: Request, store: RouterStore) => {
   const found = await ticketed<MessagesRequest>(request, store);
   if (found instanceof Response) return found;
-  if (!found.channel.messages) return json(404, { error: "this connection's channel can't read threads" });
   try {
     const result: MessagesResult = { messages: await found.channel.messages(found.body.ticket.thread) };
     return json(200, result);

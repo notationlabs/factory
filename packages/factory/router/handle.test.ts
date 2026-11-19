@@ -480,15 +480,6 @@ test("messages reports a channel that can't read the thread", async () => {
   assert.deepEqual(await response.json(), { error: "GitHub is down" });
 });
 
-test("messages answers 404 for a channel that can't read threads", async () => {
-  const { conversation: _, messages: __, ...rest } = accepted();
-  const channel = rest as unknown as RemoteChannel<FakeEvent>;
-  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
-  const response = await readMessages(runStore(channel, {}), { ticket, signature: await signTicket(ROOT_KEY, ticket) });
-  assert.equal(response.status, 404);
-  assert.deepEqual(await response.json(), { error: "this connection's channel can't read threads" });
-});
-
 const refresh = (s: RouterStore, body: unknown) =>
   handle(new Request("https://router.test/tokens", { method: "POST", body: JSON.stringify(body) }), s);
 

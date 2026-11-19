@@ -38,6 +38,8 @@ export const openBrowser = (url: string) => {
 export type HubConfig = {
   /** A command prefix that sets credentials in the environment, such as `op run --env-file .env --`. */
   loadEnv?: string;
+  /** The URL of the hub's router, which the commands that talk to the running hub call. */
+  router?: string;
 };
 
 /** An outpost's `.factory/config.ts`. */

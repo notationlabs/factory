@@ -4,6 +4,7 @@ A temporary list of the work that's left. Delete it once the list is empty, or o
 
 ## Done
 
+- [x] **Keep and retry deliveries.** The router saves each delivery that starts a run before it answers the webhook, in a `DeliveryInbox` Durable Object named by the delivery's connection and id, so a second delivery with the same id starts nothing. The object's alarm dispatches the delivery, and dispatches it again after the router restarts. When the outpost Worker doesn't answer within 30 seconds, answers with a 5xx, or the container's first image build hasn't finished, the router retries the run with new tokens, waiting from 2 to 60 seconds between tries, for about 5 minutes. The thread shows `Booting container dev...` meanwhile, and the run's first reply replaces it. The deployer's `run` resolves to whether a failure is retryable, since errors over RPC lose their status. A delivery that still fails gets one post on the thread, which says the event was kept and names `factory infra replay`. Failed deliveries are kept for 7 days and listed in KV, and the inbox's `replay` starts their failed runs again against the current outpost config. Not yet tested live.
 - [x] **Give each agent its own config directory.** A runtime's runner module names its CLI's config directory, such as `.claude`, and the variable that moves it. Each agent's directory is `/data/agents/<agent>/`: Claude runs with `CLAUDE_CONFIG_DIR`, Cursor with `CURSOR_CONFIG_DIR`, and Droid with `FACTORY_HOME_OVERRIDE`, which Droid doesn't document. The runner writes the container's `files`, then the agent's. A file under the config directory goes to the agent's directory, and any other to the shared home. Sessions are saved from and restored to the agent's directory. Not yet tested live.
 - [x] **Build the prompt from the thread's history.** The runner builds a run's prompt when the run starts, since runs wait in a queue behind each worktree's lock. It reads the thread's messages from the router's `/messages` route with the run's reply ticket, and the channel contract's `messages` reads them from the platform. A resumed session sees only the messages it hasn't seen, and those edited since, labelled `edited`. The runner saves a hash of each message's body with the session. A run with nothing new is skipped, with nothing posted, and a lost session gets the whole thread. Each message shows its author's role and whether they can trigger the agent. Not yet tested live.
 - [x] **Share the Secrets Store between hubs.** The hubs on one Cloudflare account share its one Secrets Store, since Cloudflare allows one per account: `prod` uses the store that `test` created. Notation names each hub's secrets `<app>--<stage>--…`, and `factory infra down` deletes only those, by name, and leaves the store. [Secrets](docs/manual/secrets.md#losing-the-vault) says so.
@@ -38,12 +39,7 @@ In priority order.
 - [ ] **Found while deploying the `notationlabs` hub:**
   - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
 
-- [ ] **Deliveries:** the old prototype had these, and Factory doesn't yet:
-  - An inbox that saves each delivery before answering, and replays saved deliveries when the router starts.
-  - De-duplication by delivery id.
-  - Retries when a target is asleep. Retry each forward to the deployer or a container on a 5xx or a timeout, backing off from 2 to 60 seconds, for about 5 minutes.
-  - A queue of failed deliveries, with replay, and `factory infra replay` to replay them.
-  - A single post on the thread when a delivery fails, saying the event was kept and how to replay it.
+- [ ] **Deliveries:** add `factory infra replay`, and list failed deliveries in `factory infra status`, through the admin routes below. The router's inbox already keeps failed deliveries and can replay them.
 - [ ] **Operators:**
   - Give the router admin routes behind `OperatorAuth`, which the router doesn't read yet. They list repos, deploys and failed deliveries, and pass sync and status requests to the deployer.
   - Add `factory infra status`, which shows each repo's deploys and the failed deliveries, as `docs/manual/cli.md` already describes.

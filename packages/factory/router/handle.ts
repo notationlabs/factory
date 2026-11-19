@@ -1,4 +1,4 @@
-import type { OutpostConfig } from "../contracts/outpost.ts";
+import type { OutpostConfig, TriggerEntry } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import { allowsRepo } from "../lib/repos.ts";
 import type {
@@ -11,6 +11,16 @@ import type {
   SourceFiles,
 } from "./channel.ts";
 import {
+  type DeliveryRecord,
+  failureNotice,
+  type Inbox,
+  RETRY_FOR_MS,
+  retryDelay,
+  settled,
+  type TriggerDispatch,
+  waitingNotice,
+} from "./deliveries.ts";
+import {
   type BuildReportRequest,
   isBranchName,
   type MessagesRequest,
@@ -19,6 +29,7 @@ import {
   type RelayResult,
   REPLY_TTL_MS,
   type Run,
+  type RunResult,
   signMessage,
   signTicket,
   signTokenTicket,
@@ -44,6 +55,12 @@ export type RouterStore = {
   rootKey(): Promise<string>;
   /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
   background?(task: Promise<unknown>): void;
+  /**
+   * Where the router saves deliveries, which retries their dispatch and
+   * keeps the failed ones. Without it, the router tries each dispatch once,
+   * and keeps nothing.
+   */
+  inbox?: Inbox;
 };
 
 /** The deployer, as the router calls it. */
@@ -55,7 +72,7 @@ export type RemoteDeployer = {
   /** Calls the worktree function of the repo's trigger with `payload`, in the isolate that evaluates configs. */
   worktree(repo: string, trigger: string, payload: unknown): Promise<string | undefined>;
   /** Hands `run` to its container, which queues it. */
-  run(run: Run): Promise<void>;
+  run(run: Run): Promise<RunResult>;
 };
 
 /** The name of the check that shows the build of a container's image, such as `factory/build dev`. */
@@ -89,8 +106,10 @@ const channels = (store: RouterStore) =>
  * 2. Has the channel verify and parse the delivery.
  * 3. Reads the outpost of the delivery's repo, and matches the triggers on
  *    channels of the delivery's connection and scope.
- * 4. Has the channel show on the delivery's post that a run is starting,
- *    then starts a run for each match whose author may start one.
+ * 4. If any match's author may start a run, saves the delivery to the
+ *    inbox before it answers, and the inbox dispatches it with `advance`.
+ *    A delivery whose connection and id the inbox has seen is a duplicate,
+ *    and starts nothing. Without an inbox, the router dispatches it at once.
  */
 const webhook = async (request: Request, key: string, store: RouterStore) => {
   const found = channels(store).find((c) => c.key === key);
@@ -111,18 +130,9 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   if (!outpost) return json(202, { ...summary, ignored: "no outpost" });
 
   const matches: TriggerMatch[] = [];
-  const runs: (() => Promise<void>)[] = [];
-  const origin = new URL(request.url).origin;
+  const dispatches: TriggerDispatch[] = [];
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
-    const target = outpost.channels?.[trigger.channel];
-    if (
-      trigger.event !== delivery.event ||
-      target?.provider !== entry.provider ||
-      target.connection !== name ||
-      target.scope !== delivery.scope
-    ) {
-      continue;
-    }
+    if (!listens(outpost, trigger, entry.provider, name, delivery)) continue;
     const author = await channel.match(trigger.match, delivery);
     if (!author) continue;
     // Team checks need a call to the platform, which the router doesn't make yet.
@@ -132,35 +142,148 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
     }
     const run = crypto.randomUUID();
     matches.push({ trigger: id, author, run });
-    runs.push(() =>
-      dispatch({ run, trigger: id, key, channel, delivery, outpost, origin }, store).catch((error) =>
-        console.error(JSON.stringify({ run, trigger: id, error: message(error) })),
-      ),
-    );
+    dispatches.push({ trigger: id, run, state: "pending", attempts: 0 });
   }
-  if (runs.length) {
-    const task = (async () => {
-      await channel.acknowledge(delivery).catch((error) =>
-        console.error(JSON.stringify({ delivery: delivery.id, state: "acknowledge failed", error: message(error) })),
+  if (dispatches.length) {
+    const record: DeliveryRecord = {
+      id: delivery.id || crypto.randomUUID(),
+      connection: key,
+      delivery,
+      origin: new URL(request.url).origin,
+      received: Date.now(),
+      dispatches,
+    };
+    if (store.inbox) {
+      if (!(await store.inbox.receive(record))) {
+        const result = { ...summary, duplicate: true };
+        console.log(JSON.stringify(result));
+        return json(200, result);
+      }
+    } else {
+      const task = advance(record, store).catch((error) =>
+        console.error(JSON.stringify({ delivery: delivery.id, error: message(error) })),
       );
-      await Promise.all(runs.map((start) => start()));
-    })();
-    if (store.background) store.background(task);
-    else await task;
+      if (store.background) store.background(task);
+      else await task;
+    }
   }
   const result = { ...summary, matches };
   console.log(JSON.stringify(result));
   return json(202, result);
 };
 
+/** Whether `trigger` listens on a channel of the delivery's connection and scope, for the delivery's event. `name` is the connection's name. */
+const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string, name: string, delivery: Delivery<unknown>) => {
+  const target = outpost.channels?.[trigger.channel];
+  return (
+    trigger.event === delivery.event &&
+    target?.provider === provider &&
+    target.connection === name &&
+    target.scope === delivery.scope
+  );
+};
+
+/**
+ * Tries a saved delivery's dispatches that are due, and resolves to when
+ * to call it again, if any dispatch is left to try. It changes `record`,
+ * which the caller saves:
+ * 1. Has the channel show on the delivery's post that a run is starting,
+ *    once.
+ * 2. Reads the repo's outpost config as it is now, and dispatches each due
+ *    trigger with new tokens.
+ * 3. With an inbox, a dispatch whose container didn't take the run, or
+ *    whose image is still building, is tried again after a wait, for
+ *    `RETRY_FOR_MS`. The thread shows that the run is waiting.
+ * 4. Once no dispatch is left, posts one message to the thread if any
+ *    failed. With an inbox, it says that the event was kept for replay.
+ */
+export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<{ wake?: number }> => {
+  const kept = Boolean(store.inbox);
+  const found = channels(store).find((c) => c.key === record.connection);
+  const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
+  if (!found) {
+    for (const d of due) Object.assign(d, { state: "failed", error: `The hub has no channel for connection ${record.connection}.` });
+  } else if (due.length) {
+    const { entry, channel } = found;
+    if (!record.acknowledged) {
+      await channel.acknowledge(record.delivery).catch((error) =>
+        console.error(JSON.stringify({ delivery: record.id, state: "acknowledge failed", error: message(error) })),
+      );
+      record.acknowledged = true;
+    }
+    const outpost = await store.outpost(record.delivery.repo);
+    const name = record.connection.slice(entry.provider.length + 1);
+    await Promise.all(
+      due.map(async (d) => {
+        const attempt = await dispatch(
+          { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
+          store,
+        ).catch((error): Attempt => ({ ok: false, retryable: false, error: message(error) }));
+        await settle(d, attempt, channel, kept, now);
+      }),
+    );
+  }
+  if (!settled(record)) {
+    return { wake: Math.min(...record.dispatches.filter((d) => d.state === "pending").map((d) => d.next ?? now)) };
+  }
+  const failed = record.dispatches.filter((d) => d.state === "failed");
+  if (failed.length && !record.noticed && found) {
+    const target = failed.find((d) => d.waiting?.message) ?? failed.find((d) => d.thread !== undefined);
+    if (target) {
+      await found.channel
+        .reply(target.thread, failureNotice(failed, kept), target.waiting?.message)
+        .catch((error) => console.error(JSON.stringify({ delivery: record.id, state: "notice failed", error: message(error) })));
+    }
+  }
+  record.noticed = true;
+  return {};
+};
+
+/** Records the outcome of one attempt of a dispatch, and has the thread show that a retried run is waiting. */
+const settle = async (d: TriggerDispatch, attempt: Attempt, channel: RemoteChannel, kept: boolean, now: number) => {
+  if (attempt.thread !== undefined) d.thread = attempt.thread;
+  if (attempt.ok) {
+    d.state = "dispatched";
+    delete d.next;
+    delete d.error;
+    return;
+  }
+  d.error = attempt.error;
+  d.attempts += 1;
+  d.since ??= now;
+  console.error(JSON.stringify({ run: d.run, trigger: d.trigger, attempt: d.attempts, retryable: attempt.retryable, error: attempt.error }));
+  if (kept && attempt.retryable && now - d.since < RETRY_FOR_MS) {
+    d.next = now + retryDelay(d.attempts);
+    if (!d.waiting && d.thread !== undefined && attempt.container) {
+      try {
+        const id = await channel.reply(d.thread, waitingNotice(attempt.container, Boolean(attempt.building)));
+        d.waiting = typeof id === "string" ? { message: id } : {};
+      } catch (error) {
+        console.error(JSON.stringify({ run: d.run, state: "waiting notice failed", error: message(error) }));
+      }
+    }
+    return;
+  }
+  d.state = "failed";
+  delete d.next;
+};
+
+/** The outcome of one attempt of a dispatch. A failure names the thread and container, if the attempt got that far. */
+type Attempt = ({ ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean }) & {
+  thread?: unknown;
+  container?: string;
+};
+
 type Dispatch = {
-  run: string;
-  trigger: string;
-  /** The delivery's connection. */
+  dispatch: TriggerDispatch;
+  /** The delivery's connection, and its provider and name. */
   key: string;
+  provider: string;
+  name: string;
   channel: RemoteChannel;
   delivery: Delivery<unknown>;
-  outpost: OutpostConfig;
+  /** The repo's outpost config as it is now. */
+  outpost: OutpostConfig | undefined;
   /** The router's origin, which the runner replies to. */
   origin: string;
 };
@@ -194,23 +317,39 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
 
 /**
  * Starts one run of a matched trigger:
- * 1. Has the delivery's channel name the conversation, and signs a ticket
- *    for reading and replying to its thread.
+ * 1. Checks that the outpost still has the trigger, and that it still
+ *    matches the delivery and its author. Has the delivery's channel name
+ *    the conversation, and signs a ticket for reading and replying to its
+ *    thread. The run's first reply replaces the thread's waiting message,
+ *    if there is one.
  * 2. Has the deployer call the trigger's worktree function, if it has one.
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
  *    for new tokens.
- * 4. Hands the run to the deployer. If a step fails, the channel replies
- *    with the error.
+ * 4. Hands the run to the deployer. An error thrown over RPC means the
+ *    deployer couldn't be reached, which is worth retrying.
  */
-const dispatch = async (d: Dispatch, store: RouterStore) => {
+const dispatch = async (d: Dispatch, store: RouterStore): Promise<Attempt> => {
   const { delivery, outpost } = d;
+  const { trigger: triggerId, run: runId, waiting } = d.dispatch;
   const repo = delivery.repo;
-  const trigger = outpost.triggers[d.trigger]!;
+  const trigger = outpost?.triggers?.[triggerId];
+  if (!outpost || !trigger) {
+    return { ok: false, retryable: false, error: `The outpost of ${repo} no longer has the trigger \`${triggerId}\`.` };
+  }
+  if (
+    !listens(outpost, trigger, d.provider, d.name, delivery) ||
+    (await d.channel.match(trigger.match, delivery))?.result !== "allowed"
+  ) {
+    return { ok: false, retryable: false, error: `The trigger \`${triggerId}\` no longer matches the event.` };
+  }
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
   const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
-  const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
+  const signature = await signTicket(rootKey, ticket);
+  const reply: Run["reply"] = { url: `${d.origin}/relay`, ticket, signature };
+  if (waiting?.message) reply.message = { id: waiting.message, signature: await signMessage(rootKey, signature, waiting.message) };
+  const failed = { thread: conversation.thread, container: trigger.container };
   try {
     const { deployer } = store;
     if (!deployer) throw new Error("The hub has no deployer.");
@@ -223,10 +362,10 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
 
     let worktree: Run["worktree"];
     if (trigger.worktree) {
-      const branch = await deployer.worktree(repo, d.trigger, delivery.payload);
+      const branch = await deployer.worktree(repo, triggerId, delivery.payload);
       if (branch !== undefined) {
         if (typeof branch !== "string" || !isBranchName(branch)) {
-          throw new Error(`The worktree function of ${d.trigger} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
+          throw new Error(`The worktree function of ${triggerId} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
         }
         worktree = { branch, ...(trigger.worktree.base && { base: trigger.worktree.base }) };
       }
@@ -236,10 +375,10 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
     const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
     const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
 
-    await deployer.run({
-      id: d.run,
+    const result = await deployer.run({
+      id: runId,
       repo,
-      trigger: d.trigger,
+      trigger: triggerId,
       container: trigger.container,
       runtimes: container.runtimes,
       files: container.files ?? {},
@@ -256,11 +395,12 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       tokens,
       refresh,
       reply,
-    });
-    console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
+    }).catch((error): RunResult => ({ ok: false, retryable: true, error: message(error) }));
+    if (!result.ok) return { ...result, ...failed };
+    console.log(JSON.stringify({ run: runId, repo, trigger: triggerId, container: trigger.container, worktree }));
+    return { ok: true, thread: conversation.thread };
   } catch (error) {
-    await d.channel.reply(conversation.thread, `Couldn't start the run of trigger \`${d.trigger}\`: ${message(error)}`);
-    throw error;
+    return { ok: false, retryable: false, error: message(error), ...failed };
   }
 };
 

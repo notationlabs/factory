@@ -128,4 +128,17 @@ The relay lets a container read a conversation's messages and reply to it. The r
 
 A reply can replace a message that an earlier reply of the same run posted. The router answers each reply with the message's id, signed together with the run's reply ticket, and replaces a message only when the container sends that signature back. A run can't edit any other message.
 
+## Deliveries
+
+The router saves each delivery that starts a run before it answers the platform, and dispatches the runs from there:
+
+1. A delivery whose connection and id the router saw in the last 7 days is a duplicate, and starts nothing. On GitHub, the id is the `X-GitHub-Delivery` header, which a redelivery keeps.
+2. The router hands each run to the deployer, which posts it to the container's outpost Worker. If the Worker doesn't answer within 30 seconds, answers with a 5xx, or the container's first image build hasn't finished, the router tries again. It waits 2 seconds, then 4, 8 and so on up to a minute between tries, for about 5 minutes. While it waits, the thread shows `Booting container dev...`, and the run's first reply replaces that message.
+3. If a run still can't start, or fails for another reason, the router posts one message on the thread with the error. With retries, the message replaces `Booting container dev...`. It says that the router kept the event, and that an operator can replay it with `factory infra replay`. The router keeps failed deliveries for 7 days.
+4. A replay starts the runs that failed again, as new runs, against the outpost config that the repo has at that time.
+
+The router never saves a run, since a run's tokens expire. Each try mints new tokens. Deliveries in one thread aren't ordered: a retried run can start after a later one. That does no harm, since a run that finds no new messages is skipped.
+
+A saved delivery outlives a restart of the router. On Cloudflare, each delivery is a Durable Object, whose alarm dispatches and retries it.
+
 Code is different: containers call the code host directly, with credentials limited to one repo and the policy's permissions, and short-lived. See [Containers & Policies](./containers.md#policies).

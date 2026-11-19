@@ -635,10 +635,11 @@ const PROGRESS_NOTE = "> The agent is still running. Its final reply will replac
  * `PROGRESS_INTERVAL_MS`, and each post replaces the last. A message that
  * repeats the one already shown isn't posted again, such as a runtime's
  * "Thinking..." for each part of a thought. `finish` posts the final reply
- * in their place.
+ * in their place. The first post replaces the message that the router
+ * posted while the run waited for the container, if there is one.
  */
 const replies = (run: Run) => {
-  let posted: ReplyMessage | undefined;
+  let posted: ReplyMessage | undefined = run.reply.message;
   let pending: string | undefined;
   let shown: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;

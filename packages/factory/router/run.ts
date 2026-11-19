@@ -71,9 +71,22 @@ export type Run = {
   tokens: Tokens;
   /** The runner posts a `TokenRequest` with this ticket and signature to `url` for new tokens, before the old ones expire. */
   refresh: { url: string; ticket: TokenTicket; signature: string };
-  /** The runner posts a `Relay` with this ticket and signature to `url`. */
-  reply: { url: string; ticket: ReplyTicket; signature: string };
+  /**
+   * The runner posts a `Relay` with this ticket and signature to `url`.
+   * `message` is a message that the router posted while the run waited for
+   * its container, which the run's first reply replaces.
+   */
+  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage };
 };
+
+/**
+ * Whether the deployer handed a run to its container. A failure is
+ * `retryable` if the container may take the run later, such as when it
+ * didn't answer in time, or its first image build hasn't finished, which
+ * `building` marks. Errors thrown over RPC lose their status code, so the
+ * deployer reports them as a result.
+ */
+export type RunResult = { ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean };
 
 /** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */
 export const REPLY_TTL_MS = 24 * 60 * 60 * 1000;

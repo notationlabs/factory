@@ -13,6 +13,7 @@ import {
 import { kvJson, type KVJsonGroup } from "@notation/cloudflare/kv";
 import { kv, r2 } from "@notation/cloudflare/resources";
 import {
+  $durableObject,
   addBindings,
   type Bindings,
   type Worker,
@@ -96,6 +97,10 @@ export class Router extends ResourceGroup implements RouterContract {
       bindings: () => ({
         [KV_BINDING]: this.kv,
         [R2_BINDING]: this.bucket,
+        // Saves each delivery, and retries its dispatch. The class is a
+        // stand-in: Notation reads only its name, and the router's bundle
+        // exports the real one.
+        INBOX: $durableObject({ id: `${id}-inbox`, class: class DeliveryInbox {} }),
         FACTORY_ROOT_KEY: this.rootKey.secret,
       }),
     });

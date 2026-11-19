@@ -24,6 +24,20 @@ export type {
   ThreadMessage,
 } from "./channel.ts";
 export {
+  type DeliveryRecord,
+  type FailedDelivery,
+  failedDelivery,
+  type Inbox,
+  KEEP_DELIVERY_MS,
+  REPLAY_COMMAND,
+  replayRecord,
+  RETRY_FOR_MS,
+  retryDelay,
+  settled,
+  type TriggerDispatch,
+} from "./deliveries.ts";
+export {
+  advance,
   buildCheckName,
   FACTORY_DIR,
   handle,
@@ -47,6 +61,7 @@ export {
   type MessagesResult,
   type ReplyTicket,
   type Run,
+  type RunResult,
   signBuildReport,
   signMessage,
   signTicket,

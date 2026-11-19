@@ -1,5 +1,5 @@
 import type { RepoPattern } from "@notation/factory";
-import { deriveKey, hmacHex, type OutpostConfig, type Run, timingSafeEqual } from "@notation/factory/router";
+import { deriveKey, hmacHex, type OutpostConfig, type Run, type RunResult, timingSafeEqual } from "@notation/factory/router";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import * as v from "valibot";
@@ -294,23 +294,49 @@ const subdomain = async (env: OutpostsEnv, settings: OutpostSettings) => {
   return subdomain;
 };
 
-/** Posts `run` to the outpost Worker of its repo's container, signed with the Worker's key. */
-export const postRun = async (env: OutpostsEnv, run: Run) => {
+/** How long the deployer waits for an outpost Worker to take a run. The Worker queues the run, and answers before the container starts. */
+const POST_RUN_TIMEOUT_MS = 30_000;
+
+/**
+ * Posts `run` to the outpost Worker of its repo's container, signed with
+ * the Worker's key. A timeout, a 5xx, or an image whose first build hasn't
+ * finished is worth retrying.
+ */
+export const postRun = async (env: OutpostsEnv, run: Run): Promise<RunResult> => {
   const settings = await settingsOf(env);
   const worker = await outpostWorkerName(settings, run.repo, run.container);
   const body = JSON.stringify(run);
   const timestamp = String(Date.now());
   const signature = await signed(await runKey(await env.FACTORY_ROOT_KEY.get(), worker), timestamp, body);
-  const response = await fetch(`https://${worker}.${await subdomain(env, settings)}.workers.dev/runs`, {
-    method: "POST",
-    headers: { "content-type": "application/json", [RUN_HEADERS.timestamp]: timestamp, [RUN_HEADERS.signature]: signature },
-    body,
-  });
-  const text = await response.text();
+  const url = `https://${worker}.${await subdomain(env, settings)}.workers.dev/runs`;
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", [RUN_HEADERS.timestamp]: timestamp, [RUN_HEADERS.signature]: signature },
+      body,
+      signal: AbortSignal.timeout(POST_RUN_TIMEOUT_MS),
+    });
+    text = await response.text();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, retryable: true, error: `The container \`${run.container}\`'s Worker ${worker} didn't answer: ${reason}` };
+  }
   if (response.status === 503 && text === "building") {
-    throw new Error(`The container \`${run.container}\` has no image yet. Its first build hasn't finished.`);
+    return {
+      ok: false,
+      retryable: true,
+      building: true,
+      error: `The container \`${run.container}\` has no image yet. Its first build hasn't finished.`,
+    };
   }
   if (!response.ok) {
-    throw new Error(`The container \`${run.container}\`'s Worker ${worker} refused the run with status ${response.status}: ${text.slice(0, 500)}`);
+    return {
+      ok: false,
+      retryable: response.status >= 500,
+      error: `The container \`${run.container}\`'s Worker ${worker} refused the run with status ${response.status}: ${text.slice(0, 500)}`,
+    };
   }
+  return { ok: true };
 };

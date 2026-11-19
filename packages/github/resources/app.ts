@@ -28,7 +28,7 @@ type AppApi = {
     events?: GithubEvent[];
     permissions?: Permissions;
   };
-  ReadResult: { id: string };
+  ReadResult: { id: string; clientId: string };
 };
 
 const githubEvent = v.picklist([
@@ -96,6 +96,8 @@ export const App = defineResource<AppApi>({
       primaryKey: true,
       value: v.string(),
     },
+    /** The App's client id, which GitHub's sign-in page names the App by. */
+    clientId: { propertyType: "computed", presence: "required", value: v.string() },
     /**
      * The App's private key, which GitHub returns once, when the manifest
      * flow creates the App. GitHub has no API that makes another.

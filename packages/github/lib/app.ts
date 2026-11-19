@@ -2,18 +2,14 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { OPERATOR_CALLBACK_URL } from "../router/operators.ts";
 import type { GithubEvent, Permissions } from "./permissions.ts";
+
+export { OPERATOR_CALLBACK_URL };
 
 const GITHUB_WEB = "https://github.com";
 const GITHUB_API = "https://api.github.com";
 const HOMEPAGE = "https://github.com/notationlabs/factory";
-
-/**
- * Where GitHub sends an operator's browser after they sign in to the hub.
- * GitHub only redirects to an App's callback URLs, port included, so the
- * CLI listens on this fixed port.
- */
-export const OPERATOR_CALLBACK_URL = "http://127.0.0.1:47219/callback";
 
 const github = async <T>(
   method: string,
@@ -74,9 +70,9 @@ export const createApp = async (params: {
   hookUrl: string;
   events?: GithubEvent[];
   permissions?: Permissions;
-}): Promise<{ id: string; privateKey: string; clientSecret: string }> => {
+}): Promise<{ id: string; clientId: string; privateKey: string; clientSecret: string }> => {
   const state = randomBytes(16).toString("hex");
-  type Created = { id: string; privateKey: string; clientSecret: string };
+  type Created = { id: string; clientId: string; privateKey: string; clientSecret: string };
   let resolve!: (app: Created) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<Created>((res, rej) => {
@@ -123,12 +119,12 @@ export const createApp = async (params: {
       return send(404, "not found");
     }
     try {
-      const app = await github<{ id: number; slug: string; pem: string; client_secret: string }>(
+      const app = await github<{ id: number; slug: string; client_id: string; pem: string; client_secret: string }>(
         "POST",
         `/app-manifests/${encodeURIComponent(code)}/conversions`,
       );
       console.error(`Created the GitHub App ${app.slug}, with the ID ${app.id}. Outposts name the App by this ID in .factory/config.ts.`);
-      resolve({ id: String(app.id), privateKey: app.pem, clientSecret: app.client_secret });
+      resolve({ id: String(app.id), clientId: app.client_id, privateKey: app.pem, clientSecret: app.client_secret });
       send(200, "App created. You can close this tab.");
     } catch (error) {
       reject(error);
@@ -177,9 +173,10 @@ export const appSlug = async (id: string): Promise<string> => {
 };
 
 /** Reads the App by its id, which fails if the App is gone. The lookup needs your gh login or GH_TOKEN. */
-export const readApp = async (key: { id: string }): Promise<{ id: string }> => {
-  await appSlug(key.id);
-  return { id: key.id };
+export const readApp = async (key: { id: string }): Promise<{ id: string; clientId: string }> => {
+  const slug = await appSlug(key.id);
+  const app = await github<{ client_id: string }>("GET", `/apps/${encodeURIComponent(slug)}`, await ghToken());
+  return { id: key.id, clientId: app.client_id };
 };
 
 /** Opens the App's advanced settings, where its owner must delete it. */

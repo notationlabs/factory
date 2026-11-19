@@ -125,12 +125,12 @@ interface ChannelBase<E> {
   repos?(): Promise<string[]>;
   /**
    * For operator sign-in through the channel's platform: the page that
-   * signs the operator in, and then sends the browser to `redirect` with a
-   * code and `state`.
+   * signs the operator in, and then sends the browser to the CLI's callback
+   * with a code and `state`.
    */
-  signInUrl?(redirect: string, state: string): Promise<string>;
-  /** For operator sign-in: exchanges the code that `redirect` got for the operator's identity, such as a GitHub login. */
-  signIn?(code: string, redirect: string): Promise<string>;
+  signInUrl?(state: string): Promise<string>;
+  /** For operator sign-in: exchanges the code that the callback got for the operator's identity, such as a GitHub login. */
+  signIn?(code: string): Promise<string>;
 }
 
 /** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */

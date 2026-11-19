@@ -1,6 +1,3 @@
-import { appJwt } from "./app-jwt.ts";
-import type { AppAuth } from "./repos.ts";
-
 const GITHUB_WEB = "https://github.com";
 const GITHUB_API = "https://api.github.com";
 
@@ -11,18 +8,18 @@ const headers = (token: string) => ({
   "X-GitHub-Api-Version": "2022-11-28",
 });
 
-/** The App's client id, which GitHub's sign-in page names the App by. */
-export const clientId = async ({ appId, privateKey }: AppAuth) => {
-  const response = await fetch(`${GITHUB_API}/app`, { headers: headers(await appJwt(appId, privateKey)) });
-  if (!response.ok) throw new Error(`GitHub GET /app failed with status ${response.status}: ${await response.text()}`);
-  return ((await response.json()) as { client_id: string }).client_id;
-};
+/**
+ * Where GitHub sends an operator's browser after they sign in to the hub.
+ * GitHub only redirects to an App's callback URLs, port included, so the
+ * CLI listens on this fixed port.
+ */
+export const OPERATOR_CALLBACK_URL = "http://127.0.0.1:47219/callback";
 
-/** GitHub's page that signs a user in to the App, and sends their browser to `redirect`. */
-export const signInUrl = (client: string, redirect: string, state: string) => {
+/** GitHub's page that signs a user in to the App, and sends their browser to `OPERATOR_CALLBACK_URL`. */
+export const signInUrl = (client: string, state: string) => {
   const url = new URL("/login/oauth/authorize", GITHUB_WEB);
   url.searchParams.set("client_id", client);
-  url.searchParams.set("redirect_uri", redirect);
+  url.searchParams.set("redirect_uri", OPERATOR_CALLBACK_URL);
   url.searchParams.set("state", state);
   return url.toString();
 };
@@ -33,11 +30,11 @@ export const signInUrl = (client: string, redirect: string, state: string) => {
  * 2. Asks GitHub whose token it is.
  * 3. Revokes the token, which the router has no other use for.
  */
-export const signIn = async (app: { clientId: string; clientSecret: string }, code: string, redirect: string) => {
+export const signIn = async (app: { clientId: string; clientSecret: string }, code: string) => {
   const exchanged = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": "notation-factory-router" },
-    body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code, redirect_uri: redirect }),
+    body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code, redirect_uri: OPERATOR_CALLBACK_URL }),
   });
   // GitHub answers a bad code with a 200 and an `error`.
   const result = (await exchanged.json().catch(() => ({}))) as { access_token?: string; error?: string; error_description?: string };

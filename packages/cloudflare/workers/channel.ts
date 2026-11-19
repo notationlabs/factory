@@ -98,15 +98,15 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return repos();
   }
 
-  signInUrl(redirect: string, state: string) {
+  signInUrl(state: string) {
     const { signInUrl } = channel(context(this.env));
     if (!signInUrl) throw new Error("This connection's channel can't sign operators in.");
-    return signInUrl(redirect, state);
+    return signInUrl(state);
   }
 
-  signIn(code: string, redirect: string) {
+  signIn(code: string) {
     const { signIn } = channel(context(this.env));
     if (!signIn) throw new Error("This connection's channel can't sign operators in.");
-    return signIn(code, redirect);
+    return signIn(code);
   }
 }

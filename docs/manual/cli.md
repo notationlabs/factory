@@ -12,15 +12,18 @@ The `infra` commands use two kinds of credential. Your local provider credential
 
 The CLI reads a config file beside each kind of declaration file: `factory.config.ts` beside the hub's `factory.infra.ts`, and `.factory/config.ts` beside an outpost's `.factory/infra.ts`.
 
-In the hub's repo, an optional `factory.config.ts` loads local credentials before every command:
+In the hub's repo, an optional `factory.config.ts` loads local credentials before every command, and names the hub's router:
 
 ```ts [factory.config.ts]
 export default {
   loadEnv: "./with-env.sh", // <-- command prefix run once at startup
+  router: "https://acme--prod--router-1a2b3c4d.acme.workers.dev", // <-- the router's URL
 };
 ```
 
-`factory` runs the command once when it starts and adopts the environment it sets.
+`factory` runs the `loadEnv` command once when it starts and adopts the environment it sets.
+
+The commands that talk to the running hub call the router at `router`: `factory infra status`, `factory infra replay`, and the repo sync at the end of `factory infra up`. `factory infra up` prints the router's URL when it creates the router, and again when the URL changes.
 
 In a subscriber repo, `.factory/config.ts` names the hub's GitHub App for each GitHub connection that `.factory/infra.ts` uses, by the App's ID. `factory repo install` looks up each App's current slug from its ID, so it still finds an App that was renamed on GitHub. The App's ID is on its settings page, and `factory infra up` prints it when it creates the App. The config can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
 
@@ -40,22 +43,23 @@ The deployer reads only `.factory/infra.ts`, and ignores `.factory/config.ts`.
 Deploy infrastructure changes and reconcile subscribed outposts:
 
 ```sh
-factory infra up [--dry-run] [--prune]
+factory infra up [--dry-run] [--prune] [--credential <id>.<credential>@<hash>=<var>]
 ```
 
-Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and syncs all subscribed repositories. Each secret is written when its credential has a new version: a `sources.Env` without `track` on every deploy, with `track` when its value changes, and a key that a resource issues once, when the resource is created. See [Secrets](./secrets.md#when-a-value-is-written).
+Plans and applies `factory.infra.ts`, writes secrets to the vault, then signs you in as an operator and asks the router to deploy every repository again. The router deploys each repository that the code host's App can read from its default branch, and removes the outposts of the repositories that it can no longer read. `factory infra up` doesn't wait for the deploys. Run `factory infra status` to see how they went. Without `router` in `factory.config.ts`, it skips this step and says so. Each secret is written when its credential has a new version: a `sources.Env` without `track` on every deploy, with `track` when its value changes, and a key that a resource issues once, when the resource is created. See [Secrets](./secrets.md#when-a-value-is-written).
 
 | Step | Authenticates with |
 | --- | --- |
 | Create and deploy the hub | The container provider's sign-in: Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN` |
 | Create GitHub Apps and Slack apps | Your `gh` login and your browser |
 | Write secrets to the vault | Each source, e.g. `CLAUDE_CODE_OAUTH_TOKEN` in your environment for `sources.Env` |
-| Read and set App webhooks, sync repos | Operator auth; the router does the work with the connection's credentials |
+| Deploy every repo again | Operator auth; the router does the work with the connection's credentials |
 
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | Prints planned infra and outpost diffs without modifying resources |
 | `--prune` | Deletes sleeping outpost containers and `/data` disks for unsubscribed repos or removed containers |
+| `--credential <id>.<credential>@<hash>=<var>` | Passed to Notation, to supply a credential that deploy can't get again, such as an App's client secret. See [Secrets](./secrets.md#a-credential-that-deploy-cant-get-again). Can be given more than once |
 
 ### `factory infra status`
 
@@ -65,17 +69,25 @@ Inspect the health of subscribed outposts and webhook queues:
 factory infra status
 ```
 
-Signs you in as an operator, then lists every subscribed repository (deploy state, timestamp, containers) and any deliveries in the `failed` queue. Needs no provider credentials.
+Signs you in as an operator, then lists every repository that the hub has deployed, and the deliveries that failed in the last 7 days. Needs no provider credentials.
+
+For each repository, it shows the state of its last deploy, the commit it deployed, and when. For each container of the outpost, it shows the latest build of the container's image and a link to its log. For each failed delivery, it shows its name, such as `github/gh/<id>`, its event and repository, and why each trigger's run couldn't start.
+
+The router keeps each repository's last deploy in its own storage, so `status` makes no calls to GitHub. A repository appears once the hub deploys it after this version of the router.
 
 ### `factory infra replay`
 
 Retry deliveries that failed while an outpost was unreachable:
 
 ```sh
-factory infra replay
+factory infra replay [<delivery>]
 ```
 
-Signs you in as an operator and re-queues failed deliveries against each outpost container's current URL and configuration. Needs no provider credentials.
+Signs you in as an operator and starts the failed runs of every failed delivery again, as new runs, against the outpost config that each repository has now. With `<delivery>`, such as `github/gh/<id>` as `factory infra status` names it, it replays only that delivery. A replayed delivery that fails again gets a new message on its thread, and is kept for another 7 days. Needs no provider credentials. See [Deliveries](./connections.md#deliveries).
+
+### Operator sign-in
+
+`status`, `replay` and the sync at the end of `up` sign you in to the hub in your browser. The CLI asks the router for the sign-in page, opens it, and listens on `http://127.0.0.1:47219/callback` for the browser to come back. The router checks who signed in against the operator auth, and returns an admin session that lasts 4 hours. The CLI keeps the session in `~/.config/notation-factory/sessions.json`, by the router's URL, and signs you in again when it's about to expire or the router refuses it. See [Operator auth](./secrets.md#operator-auth).
 
 ### `factory infra down`
 

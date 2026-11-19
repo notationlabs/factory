@@ -35,18 +35,23 @@ const sync = async (url: string) => {
   }
 };
 
+const announce = (url: string) =>
+  console.error(`The router is at ${url}. Set router in factory.config.ts to this URL, so that factory can reach the hub.`);
+
 /**
  * Calls the router's `/sync` when the router's URL or config changes, so
  * each connection's platform (for GitHub, the App's webhook URL and secret)
- * matches the router.
+ * matches the router. Prints the router's URL when it's new.
  */
 export const RouterSync = routerSyncSchema.defineOperations({
   create: async (params) => {
     await sync(params.Url);
+    announce(params.Url);
     return { SyncId: randomUUID() };
   },
-  update: async (_key, _patch, params) => {
+  update: async (_key, patch, params) => {
     await sync(params.Url);
+    if (patch.Url !== undefined) announce(params.Url);
   },
   read: async (key) => key,
   delete: async () => {},

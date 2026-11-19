@@ -35,7 +35,7 @@ A Notation Factory instance has secrets in three places: your machine, the hub (
 | Place | Holds | Who reads it |
 | --- | --- | --- |
 | **Local** | Your container provider sign-in, your `gh` login, account secrets such as `CLAUDE_CODE_OAUTH_TOKEN` | `factory` on your machine |
-| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Who binds each secret](#who-binds-each-secret) |
+| **Hub vault** | `FACTORY_ROOT_KEY`, each connection's credentials (GitHub App private keys and client secrets, Slack bot tokens and signing secrets), account secrets | The `Router`, the `Deployer`, or both, depending on the secret. See [Who binds each secret](#who-binds-each-secret) |
 | **Outpost** | Its `FACTORY_CONTAINER_KEY`, the secrets of the accounts whose runtimes it lists, the outpost secrets that allow its repo, short-lived code host tokens the router mints | That container; agents get the minted tokens, account secrets and outpost secrets |
 
 **The hub vault is write-only from outside the hub.** `factory infra up` writes a secret's value to the vault's store, and never reads one back. Holding the container provider's credentials lets you replace the hub's secrets, not read them.
@@ -49,6 +49,7 @@ FACTORY_ROOT_KEY
  ├─ container key   HMAC(root, repo + container)               container ⇄ router, both directions
  ├─ webhook secret  HMAC(root, "github:webhook:" + App id)     GitHub ─▶ router
  ├─ admin key       HMAC(root, "admin")                        router ⇄ deployer
+ ├─ session key     HMAC(root, "operator:session")             signs operators' admin sessions
  └─ internal key    HMAC(root, "cloudflare:…")                 Cloudflare Workers' private routing (*.factory.internal)
 ```
 
@@ -111,7 +112,7 @@ Deploy writes a secret when it creates it, and again when the credential has a n
 | `sources.Env` or `sources.Dotenv` without `track` | On every deploy. The variable must be set on every machine that deploys |
 | `sources.Env` or `sources.Dotenv` with `track: "scrypt"` | When the value changes. State holds a salted hash of the value |
 | The router's `RandomKey` | Once, when it creates the key |
-| A GitHub App's private key, a Slack app's tokens | Once, when it creates the App |
+| A GitHub App's private key and client secret, a Slack app's tokens | Once, when it creates the App |
 | The deployer's API token | Once, when it creates the token |
 
 The example at the top of this page sets `track: "scrypt"` on the Claude token, because the token is generated and can't be guessed from its hash. For a value that a person chose, use `track: "hmac"` with `NOTATION_TRACK_KEY`. See Notation's [Secrets](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md#tracking-a-value) page.
@@ -124,7 +125,7 @@ Deploy holds a value only in the process that received it. When a secret needs a
 | --- | --- |
 | A source | Reads the value from the source again |
 | The router's `RandomKey` | Rotates it: makes a new value, and writes every secret that holds it |
-| A GitHub App's private key, a Slack app's tokens, the Railway deployer's token | Fails, because the provider has no API that issues another value |
+| A GitHub App's private key or client secret, a Slack app's tokens, the Railway deployer's token | Fails, because the provider has no API that issues another value |
 
 **For the last row, plan and deploy fail and print two commands.** One command passes a value that you issue at the provider, such as a private key that you generate on the GitHub App's settings page:
 
@@ -132,7 +133,7 @@ Deploy holds a value only in the process that received it. When a secret needs a
 notation deploy --stage prod --credential gh-app.privateKey@<version>=GH_PRIVATE_KEY
 ```
 
-The other command replaces the resource, which creates a new App. See [notation deploy](https://github.com/notationlabs/notation/blob/main/docs/cli/deploy.md#a-credential-that-you-rotate-by-hand).
+The other command replaces the resource, which creates a new App. See [notation deploy](https://github.com/notationlabs/notation/blob/main/docs/cli/deploy.md#a-credential-that-you-rotate-by-hand). `factory infra up` passes `--credential` on to Notation, so you can run `factory infra up --credential …` instead.
 
 ### The secrets in the vault
 
@@ -141,7 +142,8 @@ For the example at the top of this page, the vault holds these secrets:
 | Secret `id` | Binding name | Declared by | Bound by | Value from |
 | --- | --- | --- | --- | --- |
 | `router-root-key` | `FACTORY_ROOT_KEY` | `Router`, as `router.rootKey` | Router and deployer | The router's `RandomKey` |
-| `gh-private-key` | `GH_PRIVATE_KEY` | `github.Connection` | Router | The App, `app.credentials.privateKey` |
+| `gh-private-key` | `PRIVATE_KEY` | `github.Connection` | The connection's channel | The App, `app.credentials.privateKey` |
+| `gh-client-secret` | `CLIENT_SECRET` | `github.Connection` | The connection's channel | The App, `app.credentials.clientSecret` |
 | `slack-bot-token`, `slack-signing-secret` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` | `slack.Connection`, if the hub has one | Router | The Slack app, `botToken` and `signingSecret` |
 | `deployer-builds-token` | `CLOUDFLARE_BUILDS_TOKEN` | `Deployer` | Deployer | The builds token, which you paste on a local page during the first `factory infra up` |
 | `claude-oauth-token` | `CLAUDE_CODE_OAUTH_TOKEN` | You, in the account's `auth` | Deployer | `sources.Env` |
@@ -177,10 +179,10 @@ The deployer has a provider token of its own, which it owns as a resource and ke
 
 ### Losing the vault
 
-The vault's secrets belong to the hub's Notation stage, so `factory infra down` deletes them along with the router and deployer. When you bring the hub up again, or move it to another provider:
+The vault's secrets belong to the hub's Notation stage, so `factory infra down` deletes them along with the router and deployer. On Cloudflare, every hub on the account shares the account's one Secrets Store. The first hub creates the store, and each later hub uses it. `factory infra down` deletes only the hub's own secrets, by their `<app>--<stage>--` names, and leaves the store and the other hubs' secrets. When you bring the hub up again, or move it to another provider:
 
 - `factory infra up` generates a new root key, and the router re-derives every webhook secret and container key.
-- The GitHub Apps survive, but deploy doesn't hold their private keys. Generate a new private key on each App's page, and pass it with `--credential`.
+- The GitHub Apps survive, but deploy doesn't hold their private keys or client secrets. Generate a new private key and a new client secret on each App's page, and pass them with `--credential`.
 - For a Slack app, pass its bot token and signing secret with `--credential`.
 - Account secrets are written again from their sources.
 
@@ -211,7 +213,7 @@ export default {
 
 ## Operator auth
 
-Commands that talk to a running hub sign you in as an operator instead of using the root key: `factory infra status`, `factory infra replay`, the sync at the end of `factory infra up`, and the router calls `factory infra down` makes. The router checks who you are and returns a short-lived admin session. `factory infra status` and `factory infra replay` need no provider credentials at all.
+Commands that talk to a running hub sign you in as an operator instead of using the root key: `factory infra status`, `factory infra replay`, and the repo sync at the end of `factory infra up`. The router checks who you are and returns an admin session, signed with a key derived from the root key, that lasts 4 hours. The router also checks that the session's operator is still in the operator auth on each request, so removing an operator ends their session. `factory infra status` and `factory infra replay` need no provider credentials at all. See [Operator sign-in](./cli.md#operator-sign-in).
 
 **Operators are not the code host's `allow` list.** `allow` on `CodeHost` decides whose repos get outposts. Operators are the people allowed to run the CLI against the hub.
 
@@ -219,8 +221,34 @@ Each `OperatorAuth` decides who you are differently:
 
 | `OperatorAuth` | You sign in with | Who decides access |
 | --- | --- | --- |
-| `github.OperatorAuth` | GitHub, through the connection's App | The router, against `logins` |
-| `cloudflare.OperatorAuth` | Cloudflare Access, in your browser | Cloudflare Access, against `emails`; the router verifies Access's token |
+| `github.OperatorAuth` | GitHub, through the connection's App, in your browser | The router, against `logins` |
+| `cloudflare.OperatorAuth` | Cloudflare Access, in your browser | Cloudflare Access, against `emails`; the router verifies Access's token. The router can't sign operators in this way yet |
+
+### Signing in with GitHub
+
+`github.OperatorAuth` uses GitHub's web flow for the connection's App:
+
+1. The CLI asks the router for GitHub's sign-in page, and opens it in your browser.
+2. You authorize the App. GitHub sends your browser to `http://127.0.0.1:47219/callback` with a code, where the CLI listens.
+3. The CLI sends the code to the router. The connection's channel exchanges it for a user token with the App's client secret, reads your login with the token, and revokes the token.
+4. The router checks your login against `logins`, without case, and returns the admin session.
+
+The App needs two things for this, which Factory sets up when it creates the App:
+
+- The client secret, in the vault as `<connection>-client-secret`, which only the connection's channel binds.
+- The callback URL `http://127.0.0.1:47219/callback`. GitHub only sends the browser to an App's callback URLs, port included.
+
+An App that an earlier version of Factory created, such as `notation-factory`, has neither, and the next deploy fails because it can't get the client secret. Set them up on the App's settings page:
+
+1. Under **Identifying and authorizing users**, add the callback URL `http://127.0.0.1:47219/callback`, and save.
+2. Under **Client secrets**, generate a new client secret, and copy it.
+3. Put it in an environment variable, and pass it to the deploy that the error message names, such as:
+
+```sh
+GH_CLIENT_SECRET=… factory infra up --credential gh-app.clientSecret@<version>=GH_CLIENT_SECRET
+```
+
+The error prints the command with its `<version>`.
 
 To use Cloudflare Access instead of GitHub:
 

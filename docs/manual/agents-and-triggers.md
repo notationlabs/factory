@@ -59,7 +59,7 @@ When `actions` includes `"edited"`, the trigger fires only if the edit newly add
 | `slack.group("eng")` | Members of a Slack user group |
 | `slack.user("dan@acme.dev")` | One Slack user |
 
-Pass an array to accept several. Bot accounts never match. The agent also gets the conversation's other messages since its last reply, with each author's role and whether they match `from`. See [Connections & Channels](./connections.md#trust).
+Pass an array to accept several. Bot accounts never match. The agent also gets the conversation's other messages since its last run, with each author's role and whether they match `from`. See [Connections & Channels](./connections.md#trust).
 
 ## Multiple agents on one conversation
 
@@ -102,4 +102,7 @@ Both `triage` and `coder` run inside the same `issue-42` git worktree while keep
 | Path | Scope | Holds |
 | --- | --- | --- |
 | `/data/worktrees/<branch>` | Shared per branch | Git checkout where agents read and write repo files |
-| `/data/agents/<agent>/` | Isolated per `Agent` | Agent settings, prompts, and session transcripts |
+| `/data/agents/<agent>/` | Isolated per `Agent` | The runtime's config directory, such as `.claude/`, with the agent's settings, files and session transcripts |
+| `/data/home/` | Shared per container | The `files` outside the runtime's config directory, such as `~/.npmrc` |
+
+The runner writes the container's `files` first and then the agent's, so an agent's file replaces the container's file at the same path. A file under the runtime's config directory, such as `~/.claude/CLAUDE.md`, goes to each agent's directory. Any other file goes to the shared home.

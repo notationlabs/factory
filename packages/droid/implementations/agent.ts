@@ -16,7 +16,7 @@ const agentConfig = v.object({
   systemPrompt: v.optional(v.string()),
   /** Written to `/data/agents/<id>/settings.json`, and merged for each run. */
   settings: v.optional(v.record(v.string(), v.unknown())),
-  /** `~/.factory/*` is written to `/data/agents/<id>/`, other `~/*` to `/data/home/`. */
+  /** `~/.factory/*` is written to `/data/agents/<id>/.factory/`, other `~/*` to `/data/home/`. Relative to `.factory/`. */
   files: v.optional(v.record(v.string(), v.string())),
 });
 export type AgentConfig = v.InferInput<typeof agentConfig>;

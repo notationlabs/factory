@@ -19,7 +19,7 @@ const dev = new Container("dev", {
 });
 ```
 
-`Container` declares an outpost machine: its image, its size, the runtimes the image has, the `Policy` objects it can request tokens for, and startup files written into `/data/home`.
+`Container` declares an outpost machine: its image, its size, the runtimes the image has, the `Policy` objects it can request tokens for, and startup files written into `/data/home`. A file under a runtime's config directory, such as `~/.claude/settings.json`, is written to each agent's own directory instead, under `/data/agents/<agent>/`, where the agent's `files` replace it. See [Agents & Triggers](./agents-and-triggers.md#multiple-agents-on-one-conversation).
 
 ## Image
 
@@ -73,7 +73,7 @@ A runtime is an id, such as `claude` for `claude.runtime`. Listing a runtime in 
 
 Each runtime's plugin ships two files:
 - `setup.sh`, which installs its CLI. The deployer adds it to the container's build context as `factory-runtimes/<id>.sh`, and Factory's layers run it. A container with no `image` fails its deploy if the hub has no setup for one of its runtimes. A repo's own Dockerfile can install the CLI itself instead.
-- A runner module, which says how the runner runs the CLI: its arguments, how it resumes a session, and where it keeps transcripts. The hub serves it to containers, and the runner imports it for each run of the runtime's agents. A run fails if the hub has no runner module for its agent's runtime.
+- A runner module, which says how the runner runs the CLI: its arguments, how it resumes a session, its config directory and the variable that moves it, and where it keeps transcripts. The hub serves it to containers, and the runner imports it for each run of the runtime's agents. A run fails if the hub has no runner module for its agent's runtime.
 
 The code host's plugin ships a runner module too, which clones the repo, and sets up git and `gh` to push with the run's token. Listing the same runtime twice in one container is a config error.
 
@@ -120,10 +120,11 @@ The runner keeps its state under `/data`:
 ```text
 /data/
 ├── home/                          # $HOME for the image's user
+├── agents/<agent>/                # each agent's config directory, such as .claude/
 ├── repos/<repo>.git               # bare clone of each repo
 ├── worktrees/<repo>/<branch>/     # git checkout per branch a worktree function returns
 ├── scratch/<conversation>/        # detached checkout per conversation without a branch
-├── sessions/<conversation>/<agent>.json  # each agent's session in the conversation
+├── sessions/<conversation>/<agent>.json  # each agent's session in the conversation, and the messages it has seen
 ├── github/                        # short-lived code host tokens
 └── bin/                           # the `gh` that uses the run's token
 ```

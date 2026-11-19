@@ -1,6 +1,23 @@
-import type { OutpostConfig } from "../contracts/outpost.ts";
+import type { OutpostConfig, TriggerEntry } from "../contracts/outpost.ts";
 import type { RepoPattern, RouterConfig } from "../contracts/router.ts";
 import { allowsRepo } from "../lib/repos.ts";
+import {
+  type ContainerBuild,
+  type DeliveriesResult,
+  type DeployLog,
+  isOperator,
+  type ReplayRequest,
+  type ReplayResult,
+  type ReposResult,
+  SESSION_TTL_MS,
+  type SessionRequest,
+  type SessionResult,
+  type SignInRequest,
+  type SignInResult,
+  signSession,
+  type SyncResult,
+  verifySession,
+} from "./admin.ts";
 import type {
   AuthorCheck,
   BuildCheck,
@@ -11,12 +28,25 @@ import type {
   SourceFiles,
 } from "./channel.ts";
 import {
+  type DeliveryRecord,
+  failureNotice,
+  type Inbox,
+  RETRY_FOR_MS,
+  retryDelay,
+  settled,
+  type TriggerDispatch,
+  waitingNotice,
+} from "./deliveries.ts";
+import {
   type BuildReportRequest,
   isBranchName,
+  type MessagesRequest,
+  type MessagesResult,
   type Relay,
   type RelayResult,
   REPLY_TTL_MS,
   type Run,
+  type RunResult,
   signMessage,
   signTicket,
   signTokenTicket,
@@ -42,6 +72,14 @@ export type RouterStore = {
   rootKey(): Promise<string>;
   /** Keeps `task` running after the response, where the platform allows it. Without it, the router waits for the task. */
   background?(task: Promise<unknown>): void;
+  /**
+   * Where the router saves deliveries, which retries their dispatch and
+   * keeps the failed ones. Without it, the router tries each dispatch once,
+   * and keeps nothing.
+   */
+  inbox?: Inbox;
+  /** Where the router keeps each repo's last deploy. Without it, operators can't list deploys. */
+  deploys?: DeployLog;
 };
 
 /** The deployer, as the router calls it. */
@@ -53,7 +91,7 @@ export type RemoteDeployer = {
   /** Calls the worktree function of the repo's trigger with `payload`, in the isolate that evaluates configs. */
   worktree(repo: string, trigger: string, payload: unknown): Promise<string | undefined>;
   /** Hands `run` to its container, which queues it. */
-  run(run: Run): Promise<void>;
+  run(run: Run): Promise<RunResult>;
 };
 
 /** The name of the check that shows the build of a container's image, such as `factory/build dev`. */
@@ -87,8 +125,10 @@ const channels = (store: RouterStore) =>
  * 2. Has the channel verify and parse the delivery.
  * 3. Reads the outpost of the delivery's repo, and matches the triggers on
  *    channels of the delivery's connection and scope.
- * 4. Has the channel show on the delivery's post that a run is starting,
- *    then starts a run for each match whose author may start one.
+ * 4. If any match's author may start a run, saves the delivery to the
+ *    inbox before it answers, and the inbox dispatches it with `advance`.
+ *    A delivery whose connection and id the inbox has seen is a duplicate,
+ *    and starts nothing. Without an inbox, the router dispatches it at once.
  */
 const webhook = async (request: Request, key: string, store: RouterStore) => {
   const found = channels(store).find((c) => c.key === key);
@@ -109,18 +149,9 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
   if (!outpost) return json(202, { ...summary, ignored: "no outpost" });
 
   const matches: TriggerMatch[] = [];
-  const runs: (() => Promise<void>)[] = [];
-  const origin = new URL(request.url).origin;
+  const dispatches: TriggerDispatch[] = [];
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
-    const target = outpost.channels?.[trigger.channel];
-    if (
-      trigger.event !== delivery.event ||
-      target?.provider !== entry.provider ||
-      target.connection !== name ||
-      target.scope !== delivery.scope
-    ) {
-      continue;
-    }
+    if (!listens(outpost, trigger, entry.provider, name, delivery)) continue;
     const author = await channel.match(trigger.match, delivery);
     if (!author) continue;
     // Team checks need a call to the platform, which the router doesn't make yet.
@@ -130,35 +161,148 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
     }
     const run = crypto.randomUUID();
     matches.push({ trigger: id, author, run });
-    runs.push(() =>
-      dispatch({ run, trigger: id, key, channel, delivery, outpost, origin }, store).catch((error) =>
-        console.error(JSON.stringify({ run, trigger: id, error: message(error) })),
-      ),
-    );
+    dispatches.push({ trigger: id, run, state: "pending", attempts: 0 });
   }
-  if (runs.length) {
-    const task = (async () => {
-      await channel.acknowledge(delivery).catch((error) =>
-        console.error(JSON.stringify({ delivery: delivery.id, state: "acknowledge failed", error: message(error) })),
+  if (dispatches.length) {
+    const record: DeliveryRecord = {
+      id: delivery.id || crypto.randomUUID(),
+      connection: key,
+      delivery,
+      origin: new URL(request.url).origin,
+      received: Date.now(),
+      dispatches,
+    };
+    if (store.inbox) {
+      if (!(await store.inbox.receive(record))) {
+        const result = { ...summary, duplicate: true };
+        console.log(JSON.stringify(result));
+        return json(200, result);
+      }
+    } else {
+      const task = advance(record, store).catch((error) =>
+        console.error(JSON.stringify({ delivery: delivery.id, error: message(error) })),
       );
-      await Promise.all(runs.map((start) => start()));
-    })();
-    if (store.background) store.background(task);
-    else await task;
+      if (store.background) store.background(task);
+      else await task;
+    }
   }
   const result = { ...summary, matches };
   console.log(JSON.stringify(result));
   return json(202, result);
 };
 
+/** Whether `trigger` listens on a channel of the delivery's connection and scope, for the delivery's event. `name` is the connection's name. */
+const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string, name: string, delivery: Delivery<unknown>) => {
+  const target = outpost.channels?.[trigger.channel];
+  return (
+    trigger.event === delivery.event &&
+    target?.provider === provider &&
+    target.connection === name &&
+    target.scope === delivery.scope
+  );
+};
+
+/**
+ * Tries a saved delivery's dispatches that are due, and resolves to when
+ * to call it again, if any dispatch is left to try. It changes `record`,
+ * which the caller saves:
+ * 1. Has the channel show on the delivery's post that a run is starting,
+ *    once.
+ * 2. Reads the repo's outpost config as it is now, and dispatches each due
+ *    trigger with new tokens.
+ * 3. With an inbox, a dispatch whose container didn't take the run, or
+ *    whose image is still building, is tried again after a wait, for
+ *    `RETRY_FOR_MS`. The thread shows that the run is waiting.
+ * 4. Once no dispatch is left, posts one message to the thread if any
+ *    failed. With an inbox, it says that the event was kept for replay.
+ */
+export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<{ wake?: number }> => {
+  const kept = Boolean(store.inbox);
+  const found = channels(store).find((c) => c.key === record.connection);
+  const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
+  if (!found) {
+    for (const d of due) Object.assign(d, { state: "failed", error: `The hub has no channel for connection ${record.connection}.` });
+  } else if (due.length) {
+    const { entry, channel } = found;
+    if (!record.acknowledged) {
+      await channel.acknowledge(record.delivery).catch((error) =>
+        console.error(JSON.stringify({ delivery: record.id, state: "acknowledge failed", error: message(error) })),
+      );
+      record.acknowledged = true;
+    }
+    const outpost = await store.outpost(record.delivery.repo);
+    const name = record.connection.slice(entry.provider.length + 1);
+    await Promise.all(
+      due.map(async (d) => {
+        const attempt = await dispatch(
+          { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
+          store,
+        ).catch((error): Attempt => ({ ok: false, retryable: false, error: message(error) }));
+        await settle(d, attempt, channel, kept, now);
+      }),
+    );
+  }
+  if (!settled(record)) {
+    return { wake: Math.min(...record.dispatches.filter((d) => d.state === "pending").map((d) => d.next ?? now)) };
+  }
+  const failed = record.dispatches.filter((d) => d.state === "failed");
+  if (failed.length && !record.noticed && found) {
+    const target = failed.find((d) => d.waiting?.message) ?? failed.find((d) => d.thread !== undefined);
+    if (target) {
+      await found.channel
+        .reply(target.thread, failureNotice(failed, kept), target.waiting?.message)
+        .catch((error) => console.error(JSON.stringify({ delivery: record.id, state: "notice failed", error: message(error) })));
+    }
+  }
+  record.noticed = true;
+  return {};
+};
+
+/** Records the outcome of one attempt of a dispatch, and has the thread show that a retried run is waiting. */
+const settle = async (d: TriggerDispatch, attempt: Attempt, channel: RemoteChannel, kept: boolean, now: number) => {
+  if (attempt.thread !== undefined) d.thread = attempt.thread;
+  if (attempt.ok) {
+    d.state = "dispatched";
+    delete d.next;
+    delete d.error;
+    return;
+  }
+  d.error = attempt.error;
+  d.attempts += 1;
+  d.since ??= now;
+  console.error(JSON.stringify({ run: d.run, trigger: d.trigger, attempt: d.attempts, retryable: attempt.retryable, error: attempt.error }));
+  if (kept && attempt.retryable && now - d.since < RETRY_FOR_MS) {
+    d.next = now + retryDelay(d.attempts);
+    if (!d.waiting && d.thread !== undefined && attempt.container) {
+      try {
+        const id = await channel.reply(d.thread, waitingNotice(attempt.container, Boolean(attempt.building)));
+        d.waiting = typeof id === "string" ? { message: id } : {};
+      } catch (error) {
+        console.error(JSON.stringify({ run: d.run, state: "waiting notice failed", error: message(error) }));
+      }
+    }
+    return;
+  }
+  d.state = "failed";
+  delete d.next;
+};
+
+/** The outcome of one attempt of a dispatch. A failure names the thread and container, if the attempt got that far. */
+type Attempt = ({ ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean }) & {
+  thread?: unknown;
+  container?: string;
+};
+
 type Dispatch = {
-  run: string;
-  trigger: string;
-  /** The delivery's connection. */
+  dispatch: TriggerDispatch;
+  /** The delivery's connection, and its provider and name. */
   key: string;
+  provider: string;
+  name: string;
   channel: RemoteChannel;
   delivery: Delivery<unknown>;
-  outpost: OutpostConfig;
+  /** The repo's outpost config as it is now. */
+  outpost: OutpostConfig | undefined;
   /** The router's origin, which the runner replies to. */
   origin: string;
 };
@@ -192,23 +336,39 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
 
 /**
  * Starts one run of a matched trigger:
- * 1. Has the delivery's channel name the conversation, and signs a ticket
- *    for replies to its thread.
+ * 1. Checks that the outpost still has the trigger, and that it still
+ *    matches the delivery and its author. Has the delivery's channel name
+ *    the conversation, and signs a ticket for reading and replying to its
+ *    thread. The run's first reply replaces the thread's waiting message,
+ *    if there is one.
  * 2. Has the deployer call the trigger's worktree function, if it has one.
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
  *    for new tokens.
- * 4. Hands the run to the deployer. If a step fails, the channel replies
- *    with the error.
+ * 4. Hands the run to the deployer. An error thrown over RPC means the
+ *    deployer couldn't be reached, which is worth retrying.
  */
-const dispatch = async (d: Dispatch, store: RouterStore) => {
+const dispatch = async (d: Dispatch, store: RouterStore): Promise<Attempt> => {
   const { delivery, outpost } = d;
+  const { trigger: triggerId, run: runId, waiting } = d.dispatch;
   const repo = delivery.repo;
-  const trigger = outpost.triggers[d.trigger]!;
+  const trigger = outpost?.triggers?.[triggerId];
+  if (!outpost || !trigger) {
+    return { ok: false, retryable: false, error: `The outpost of ${repo} no longer has the trigger \`${triggerId}\`.` };
+  }
+  if (
+    !listens(outpost, trigger, d.provider, d.name, delivery) ||
+    (await d.channel.match(trigger.match, delivery))?.result !== "allowed"
+  ) {
+    return { ok: false, retryable: false, error: `The trigger \`${triggerId}\` no longer matches the event.` };
+  }
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
   const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
-  const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
+  const signature = await signTicket(rootKey, ticket);
+  const reply: Run["reply"] = { url: `${d.origin}/relay`, ticket, signature };
+  if (waiting?.message) reply.message = { id: waiting.message, signature: await signMessage(rootKey, signature, waiting.message) };
+  const failed = { thread: conversation.thread, container: trigger.container };
   try {
     const { deployer } = store;
     if (!deployer) throw new Error("The hub has no deployer.");
@@ -221,10 +381,10 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
 
     let worktree: Run["worktree"];
     if (trigger.worktree) {
-      const branch = await deployer.worktree(repo, d.trigger, delivery.payload);
+      const branch = await deployer.worktree(repo, triggerId, delivery.payload);
       if (branch !== undefined) {
         if (typeof branch !== "string" || !isBranchName(branch)) {
-          throw new Error(`The worktree function of ${d.trigger} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
+          throw new Error(`The worktree function of ${triggerId} returned ${JSON.stringify(branch)}, which isn't a branch name the runner can check out.`);
         }
         worktree = { branch, ...(trigger.worktree.base && { base: trigger.worktree.base }) };
       }
@@ -234,17 +394,18 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
     const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
     const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
 
-    await deployer.run({
-      id: d.run,
+    const result = await deployer.run({
+      id: runId,
       repo,
-      trigger: d.trigger,
+      trigger: triggerId,
       container: trigger.container,
       runtimes: container.runtimes,
       files: container.files ?? {},
       agent: { id: trigger.agent, ...agent },
       conversation: {
         id: conversation.id,
-        prompt: conversation.prompt,
+        ...(conversation.message && { message: conversation.message }),
+        ...(conversation.event && { event: conversation.event }),
         ...(conversation.channel && { channel: conversation.channel }),
         ...(conversation.context && { context: conversation.context }),
       },
@@ -253,42 +414,70 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       tokens,
       refresh,
       reply,
-    });
-    console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
+    }).catch((error): RunResult => ({ ok: false, retryable: false, error: message(error) }));
+    if (!result.ok) return { ...result, ...failed };
+    console.log(JSON.stringify({ run: runId, repo, trigger: triggerId, container: trigger.container, worktree }));
+    return { ok: true, thread: conversation.thread };
   } catch (error) {
-    await d.channel.reply(conversation.thread, `Couldn't start the run of trigger \`${d.trigger}\`: ${message(error)}`);
-    throw error;
+    return { ok: false, retryable: false, error: message(error), ...failed };
   }
 };
 
-/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
-const relay = async (request: Request, store: RouterStore) => {
-  let body: Relay;
+/**
+ * Reads a body that carries a reply ticket, checks the ticket's signature,
+ * and finds the channel of the ticket's connection. Returns a response
+ * instead if any step fails.
+ */
+const ticketed = async <T extends MessagesRequest>(request: Request, store: RouterStore) => {
+  let body: T;
   try {
-    body = (await request.json()) as Relay;
+    body = (await request.json()) as T;
   } catch {
     return json(400, { error: "the body isn't JSON" });
   }
-  const { ticket, signature, text, message } = body ?? {};
-  if (!ticket || typeof signature !== "string" || typeof text !== "string") {
-    return json(400, { error: "the body needs ticket, signature and text" });
-  }
-  if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
-    return json(400, { error: "the message needs id and signature" });
-  }
+  const { ticket, signature } = body ?? {};
+  if (!ticket || typeof signature !== "string") return json(400, { error: "the body needs ticket and signature" });
   const rootKey = await store.rootKey();
   if (!(await verifyTicket(rootKey, ticket, signature))) {
     return json(401, { error: "bad or expired ticket" });
   }
+  const found = channels(store).find((c) => c.key === ticket.connection);
+  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
+  return { body, rootKey, channel: found.channel };
+};
+
+/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
+const relay = async (request: Request, store: RouterStore) => {
+  const found = await ticketed<Relay>(request, store);
+  if (found instanceof Response) return found;
+  const { body, rootKey, channel } = found;
+  const { ticket, signature, text, message } = body;
+  if (typeof text !== "string") return json(400, { error: "the body needs text" });
+  if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
+    return json(400, { error: "the message needs id and signature" });
+  }
   if (message && !(await verifyMessage(rootKey, signature, message))) {
     return json(401, { error: "bad message signature" });
   }
-  const found = channels(store).find((c) => c.key === ticket.connection);
-  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
-  const id = await found.channel.reply(ticket.thread, text, message?.id);
+  const id = await channel.reply(ticket.thread, text, message?.id);
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
   return json(200, result);
+};
+
+/**
+ * Answers a run's thread's messages, if the router signed its reply ticket.
+ * The runner builds the agent's prompt from them when the run starts.
+ */
+const messages = async (request: Request, store: RouterStore) => {
+  const found = await ticketed<MessagesRequest>(request, store);
+  if (found instanceof Response) return found;
+  try {
+    const result: MessagesResult = { messages: await found.channel.messages(found.body.ticket.thread) };
+    return json(200, result);
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
 };
 
 /**
@@ -333,12 +522,24 @@ const builds = async (request: Request, store: RouterStore) => {
   const channel = codeHostChannel(store)?.channel;
   if (!channel) return json(404, { error: "the hub has no code host" });
   const { repo, ref, container, state, url, summary } = report;
+  await logBuild(store, repo, container, { state, ref, ...(url && { url }), at: new Date().toISOString() }).catch((error) =>
+    console.error(JSON.stringify({ repo, container, state: "build log failed", error: message(error) })),
+  );
   try {
     await channel.writeCheck(repo, ref, { name: buildCheckName(container), state, ...(url && { url }), ...(summary && { summary }) });
   } catch (error) {
     return json(502, { error: message(error) });
   }
   return json(200, { ok: true });
+};
+
+/** Records a container's build in the repo's last deploy, unless a later deploy started another build of it. */
+const logBuild = async (store: RouterStore, repo: string, container: string, build: ContainerBuild) => {
+  const deploy = await store.deploys?.get(repo);
+  if (!deploy) return;
+  const known = deploy.builds?.[container];
+  if (known && known.ref !== build.ref && deploy.status.ref !== build.ref) return;
+  await store.deploys!.put({ ...deploy, builds: { ...deploy.builds, [container]: build } });
 };
 
 /** Writes a check, and logs a failure instead of throwing it. The App may not have the checks permission yet. */
@@ -367,9 +568,14 @@ const redeploy = async (
   allow: RepoPattern[],
   channel: RemoteChannel,
   deployer: RemoteDeployer,
+  log?: DeployLog,
 ) => {
   const { repo, ref } = change;
-  if (change.removed) return deployer.remove(repo);
+  if (change.removed) {
+    await deployer.remove(repo);
+    await log?.remove(repo);
+    return;
+  }
   const at = () => new Date().toISOString();
   let status: FactoryStatus;
   if (!allowsRepo(allow, repo)) {
@@ -382,6 +588,13 @@ const redeploy = async (
       status = { state: "failed", ref, error: message(error), at: at() };
     }
   }
+  await log?.put({
+    repo,
+    status,
+    ...(status.ref && status.builds?.length && {
+      builds: Object.fromEntries(status.builds.map((c) => [c, { state: "queued" as const, ref: status.ref!, at: status.at }])),
+    }),
+  });
   await channel.writeStatus(repo, status);
   for (const container of status.builds ?? []) {
     if (status.ref) await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
@@ -405,7 +618,7 @@ const source = async (
   const task = (async () => {
     for (const change of changes) {
       try {
-        await redeploy(change, codeHost.allow ?? [], channel, deployer);
+        await redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys);
       } catch (error) {
         console.error(JSON.stringify({ repo: change.repo, error: message(error) }));
       }
@@ -432,11 +645,185 @@ const sync = async (request: Request, store: RouterStore) => {
   return json(failed ? 502 : 200, { connections: results });
 };
 
+/** Reads a JSON body, or answers 400. An empty body reads as `{}`. */
+const readJson = async <T>(request: Request): Promise<T | Response> => {
+  const text = await request.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+};
+
+/** The channel that signs operators in, for an operator auth that signs in through a connection's platform. */
+const signInChannel = (store: RouterStore) => {
+  const operators = store.config.operators;
+  if (!operators) return json(404, { error: "the hub has no operator auth" });
+  if (operators.provider !== "github") {
+    return json(501, { error: `the router can't sign operators in with ${operators.provider} yet` });
+  }
+  const key = `${operators.provider}/${operators.connection}`;
+  const channel = channels(store).find((c) => c.key === key)?.channel;
+  if (!channel) return json(404, { error: `no channel for connection ${key}` });
+  return channel;
+};
+
+/** Answers the page that signs an operator in, which sends their browser back to `redirect`. */
+const signIn = async (request: Request, store: RouterStore) => {
+  const body = await readJson<SignInRequest>(request);
+  if (body instanceof Response) return body;
+  if (typeof body.redirect !== "string" || typeof body.state !== "string") {
+    return json(400, { error: "the body needs redirect and state" });
+  }
+  const channel = signInChannel(store);
+  if (channel instanceof Response) return channel;
+  try {
+    const result: SignInResult = { url: await channel.signInUrl(body.redirect, body.state) };
+    return json(200, result);
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
+};
+
+/** Exchanges a sign-in code for an admin session, if the operator auth lets the operator in. */
+const session = async (request: Request, store: RouterStore) => {
+  const body = await readJson<SessionRequest>(request);
+  if (body instanceof Response) return body;
+  if (typeof body.code !== "string" || typeof body.redirect !== "string") {
+    return json(400, { error: "the body needs code and redirect" });
+  }
+  const channel = signInChannel(store);
+  if (channel instanceof Response) return channel;
+  let operator: string;
+  try {
+    operator = await channel.signIn(body.code, body.redirect);
+  } catch (error) {
+    return json(401, { error: message(error) });
+  }
+  if (!isOperator(store.config.operators, operator)) {
+    return json(403, { error: `${operator} isn't one of the hub's operators` });
+  }
+  const expires = Date.now() + SESSION_TTL_MS;
+  const result: SessionResult = { session: await signSession(await store.rootKey(), { operator, expires }), operator, expires };
+  console.log(JSON.stringify({ operator, state: "signed in" }));
+  return json(200, result);
+};
+
+/** The operator of the request's admin session, or a 401. The operator must still be in the operator auth. */
+const operatorOf = async (request: Request, store: RouterStore) => {
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  const found = token ? await verifySession(await store.rootKey(), token) : undefined;
+  if (!found || !isOperator(store.config.operators, found.operator)) {
+    return json(401, { error: "sign in as an operator" });
+  }
+  return found.operator;
+};
+
+/** Lists each repo's last deploy, with the containers that its outpost declares now. */
+const listRepos = async (store: RouterStore) => {
+  if (!store.deploys) return json(501, { error: "the router keeps no deploys" });
+  const deploys = await store.deploys.list();
+  const result: ReposResult = {
+    repos: await Promise.all(
+      deploys.map(async (deploy) => ({
+        ...deploy,
+        containers: Object.keys((await store.outpost(deploy.repo))?.containers ?? {}),
+      })),
+    ),
+  };
+  result.repos.sort((a, b) => a.repo.localeCompare(b.repo));
+  return json(200, result);
+};
+
+const listDeliveries = async (store: RouterStore) => {
+  const failed = (await store.inbox?.failed()) ?? [];
+  failed.sort((a, b) => a.received - b.received);
+  const result: DeliveriesResult = { failed };
+  return json(200, result);
+};
+
+/** Replays one failed delivery, or every one. Runs reply to this router's origin. */
+const replay = async (request: Request, store: RouterStore, operator: string) => {
+  const body = await readJson<ReplayRequest>(request);
+  if (body instanceof Response) return body;
+  const { inbox } = store;
+  if (!inbox) return json(501, { error: "the router keeps no deliveries" });
+  if ((body.connection === undefined) !== (body.id === undefined)) {
+    return json(400, { error: "name both connection and id, or neither" });
+  }
+  const targets =
+    body.connection !== undefined && body.id !== undefined
+      ? [{ connection: body.connection, id: body.id }]
+      : (await inbox.failed()).map(({ connection, id }) => ({ connection, id }));
+  const { origin } = new URL(request.url);
+  const result: ReplayResult = { replayed: [], skipped: [] };
+  for (const target of targets) {
+    const replayed = await inbox.replay(target.connection, target.id, origin);
+    result[replayed ? "replayed" : "skipped"].push(target);
+  }
+  console.log(JSON.stringify({ operator, ...result }));
+  return json(200, result);
+};
+
+/**
+ * Deploys every repo again, and answers before the deploys finish:
+ * 1. Has the code host's channel list the repos that the hub can read.
+ * 2. Deploys each of them again from its default branch.
+ * 3. Removes the outposts of the deployed repos that the hub can no longer
+ *    read.
+ */
+const syncRepos = async (store: RouterStore, operator: string) => {
+  const codeHost = store.config.codeHost;
+  const channel = codeHostChannel(store)?.channel;
+  if (!codeHost || !channel) return json(404, { error: "the hub has no code host" });
+  const { deployer } = store;
+  if (!deployer) return json(404, { error: "the hub has no deployer" });
+  let readable: string[];
+  try {
+    readable = await channel.repos();
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
+  const known = new Set(readable.map((repo) => repo.toLowerCase()));
+  const deployed = (await store.deploys?.list()) ?? [];
+  const removing = deployed.map((d) => d.repo).filter((repo) => !known.has(repo.toLowerCase()));
+  const changes: SourceChange[] = [...readable.map((repo) => ({ repo })), ...removing.map((repo) => ({ repo, removed: true }))];
+  const task = Promise.all(
+    changes.map((change) =>
+      redeploy(change, codeHost.allow ?? [], channel, deployer, store.deploys).catch((error) =>
+        console.error(JSON.stringify({ repo: change.repo, error: message(error) })),
+      ),
+    ),
+  );
+  if (store.background) store.background(task);
+  else await task;
+  const result: SyncResult = { deploying: readable, removing };
+  console.log(JSON.stringify({ operator, sync: result }));
+  return json(202, result);
+};
+
+/** The routes under `/admin/`. Signing in needs no session. The others need an operator's admin session. */
+const admin = async (request: Request, route: string, store: RouterStore) => {
+  const { method } = request;
+  if (method === "POST" && route === "sign-in") return signIn(request, store);
+  if (method === "POST" && route === "session") return session(request, store);
+  const operator = await operatorOf(request, store);
+  if (operator instanceof Response) return operator;
+  if (method === "GET" && route === "repos") return listRepos(store);
+  if (method === "GET" && route === "deliveries") return listDeliveries(store);
+  if (method === "POST" && route === "replay") return replay(request, store, operator);
+  if (method === "POST" && route === "sync") return syncRepos(store, operator);
+  return json(404, { error: "not found" });
+};
+
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
- * only sets the values the router derives. `POST /relay` and `POST /tokens`
- * take tickets that the router signed when it started a run. `POST /builds`
- * takes reports that the deployer signed.
+ * only sets the values the router derives. `POST /relay`, `POST /messages`
+ * and `POST /tokens` take tickets that the router signed when it started a
+ * run. `POST /builds` takes reports that the deployer signed. The routes
+ * under `/admin/` are for operators.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -446,6 +833,9 @@ export const handle = (request: Request, store: RouterStore) => {
   if (request.method === "POST" && pathname === "/relay") {
     return relay(request, store);
   }
+  if (request.method === "POST" && pathname === "/messages") {
+    return messages(request, store);
+  }
   if (request.method === "POST" && pathname === "/tokens") {
     return tokens(request, store);
   }
@@ -454,6 +844,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);
+  }
+  if (pathname.startsWith("/admin/")) {
+    return admin(request, pathname.slice("/admin/".length), store);
   }
   return Promise.resolve(json(404, { error: "not found" }));
 };

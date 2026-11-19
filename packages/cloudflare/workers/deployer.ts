@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { deploy, evaluateOutpost, worktree } from "@notation/factory/deployer";
-import { allowsRepo, type OutpostConfig, outpostKey, type Run, type SourceFiles } from "@notation/factory/router";
+import { allowsRepo, type OutpostConfig, outpostKey, type Run, type RunResult, type SourceFiles } from "@notation/factory/router";
 import type { BuildWatch } from "./build-watch.ts";
 import { loaderContext } from "./loader.ts";
 import type { DeployerService } from "./outpost-api.ts";
@@ -75,9 +75,17 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     return worktree(repo, trigger, payload, this.#context());
   }
 
-  /** Hands `run` to the outpost Worker of its repo and container id. */
-  run(run: Run) {
-    return postRun(this.env, run);
+  /**
+   * Hands `run` to the outpost Worker of its repo and container id. The
+   * router retries only the failures that `postRun` marks retryable, so any
+   * other error is not.
+   */
+  async run(run: Run): Promise<RunResult> {
+    try {
+      return await postRun(this.env, run);
+    } catch (error) {
+      return { ok: false, retryable: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   verifyRun(worker: string, timestamp: string, body: string, signature: string) {

@@ -70,6 +70,12 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return conversation(delivery, trigger);
   }
 
+  messages(thread: unknown) {
+    const { messages } = channel(context(this.env));
+    if (!messages) throw new Error("This connection's channel can't read threads.");
+    return messages(thread);
+  }
+
   async acknowledge(delivery: Delivery<unknown>) {
     await channel(context(this.env)).acknowledge?.(delivery);
   }
@@ -84,5 +90,23 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     const { token } = channel(context(this.env));
     if (!token) throw new Error("This connection's channel can't mint tokens.");
     return token(repo, permissions);
+  }
+
+  repos() {
+    const { repos } = channel(context(this.env));
+    if (!repos) throw new Error("This connection's channel can't list repos.");
+    return repos();
+  }
+
+  signInUrl(redirect: string, state: string) {
+    const { signInUrl } = channel(context(this.env));
+    if (!signInUrl) throw new Error("This connection's channel can't sign operators in.");
+    return signInUrl(redirect, state);
+  }
+
+  signIn(code: string, redirect: string) {
+    const { signIn } = channel(context(this.env));
+    if (!signIn) throw new Error("This connection's channel can't sign operators in.");
+    return signIn(code, redirect);
   }
 }

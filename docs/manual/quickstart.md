@@ -52,7 +52,15 @@ factory infra up
 - to create the GitHub App, which it names `<app>--<stage>--gh`, with its webhook set to `<Url>/webhook/github/gh`, where `Url` is the router's `Url` output;
 - on Cloudflare, to take the deployer's builds token, a user API token that Workers Builds needs. See [Providers](./providers.md#cloudflare).
 
-GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
+GitHub returns the App's private key and client secret when it creates the App, and deploy writes them to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
+
+Deploy also prints the router's URL. Name it in `factory.config.ts`, beside `factory.infra.ts`, so that `factory infra status` can reach the hub:
+
+```ts [factory.config.ts]
+export default {
+  router: "https://<router's URL>",
+};
+```
 
 ## 2. Declare an outpost (`.factory/`)
 

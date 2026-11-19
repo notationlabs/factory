@@ -1,4 +1,5 @@
 import type { AgentEntry, ContainerEntry } from "../contracts/outpost.ts";
+import type { ThreadMessage } from "./channel.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
 /** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
@@ -16,6 +17,12 @@ export type Relay = { ticket: ReplyTicket; signature: string; text: string; mess
 
 /** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
 export type RelayResult = { ok: true; message?: ReplyMessage };
+
+/** What the runner posts to the router's `/messages` route, next to `reply.url`. The router answers with `MessagesResult`. */
+export type MessagesRequest = { ticket: ReplyTicket; signature: string };
+
+/** The messages in a run's thread, oldest first. */
+export type MessagesResult = { messages: ThreadMessage[] };
 
 /** Which container's policy tokens the router mints again: a container of the repo's outpost. `expires` is in ms since the epoch. */
 export type TokenTicket = { repo: string; container: string; expires: number };
@@ -51,7 +58,11 @@ export type Run = {
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
   agent: { id: string } & AgentEntry;
-  conversation: { id: string; prompt: string; channel?: string; context?: string };
+  /**
+   * The conversation. `message` is the id of the thread's message that
+   * started the run, and `event` says what happened when no message did.
+   */
+  conversation: { id: string; message?: string; event?: string; channel?: string; context?: string };
   /** The branch to run on, cut from `base` if it doesn't exist. Without it, the run gets a scratch checkout of the default branch. */
   worktree?: { branch: string; base?: string };
   /** A read-only token for cloning the repo. */
@@ -60,9 +71,22 @@ export type Run = {
   tokens: Tokens;
   /** The runner posts a `TokenRequest` with this ticket and signature to `url` for new tokens, before the old ones expire. */
   refresh: { url: string; ticket: TokenTicket; signature: string };
-  /** The runner posts a `Relay` with this ticket and signature to `url`. */
-  reply: { url: string; ticket: ReplyTicket; signature: string };
+  /**
+   * The runner posts a `Relay` with this ticket and signature to `url`.
+   * `message` is a message that the router posted while the run waited for
+   * its container, which the run's first reply replaces.
+   */
+  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage };
 };
+
+/**
+ * Whether the deployer handed a run to its container. A failure is
+ * `retryable` if the container may take the run later, such as when it
+ * didn't answer in time, or its first image build hasn't finished, which
+ * `building` marks. Errors thrown over RPC lose their status code, so the
+ * deployer reports them as a result.
+ */
+export type RunResult = { ok: true } | { ok: false; error: string; retryable: boolean; building?: boolean };
 
 /** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */
 export const REPLY_TTL_MS = 24 * 60 * 60 * 1000;

@@ -52,4 +52,4 @@ Worktree and session state on `/data` survive errors and restarts:
 | --- | --- | --- |
 | **Agent exits with error** | `⚠️ The run failed.` + last 40 lines of `stderr` | Mention `@claude <prompt>` to retry, or `@claude /new <prompt>` |
 | **Container restarts mid-run** | Interrupted-run notice + session ID on boot | Mention `@claude <prompt>` or run `factory container resume 42` |
-| **Container unreachable** | Delivery moved to `failed` queue + notice | Run `factory infra status`, then `factory infra replay` |
+| **Container unreachable or still building** | `Booting container dev...` while the router retries for about 5 minutes, then the error and a notice that the event was kept | Run `factory infra status`, then `factory infra replay`. See [Deliveries](./connections.md#deliveries) |

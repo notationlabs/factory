@@ -5,8 +5,14 @@
 export type KVNamespace = {
   get(key: string, type: "json"): Promise<unknown>;
   get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
+  /** `expirationTtl` is in seconds, and at least 60. */
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<void>;
+  list(options: { prefix: string; cursor?: string }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
 };
 
 /** A Durable Object namespace, whose stubs have the class's methods. */

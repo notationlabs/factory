@@ -71,6 +71,10 @@ export class Connection
           id: `${id}-private-key`,
           value: this.app.credentials.privateKey,
         }),
+        [CHANNEL_SECRETS.clientSecret]: router.vault.secret({
+          id: `${id}-client-secret`,
+          value: this.app.credentials.clientSecret,
+        }),
       },
       values: { [CHANNEL_VALUES.appId]: this.app.outputRef("id") },
     });

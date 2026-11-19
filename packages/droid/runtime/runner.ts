@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RuntimeRunner } from "@notation/factory";
 
@@ -30,8 +29,8 @@ const parseLine = (line: string): StreamEvent | undefined => {
  * setting only from the user's settings, not from `--settings`, and only when
  * it creates a session.
  */
-const hideThinking = async () => {
-  const path = join(homedir(), ".factory", "settings.json");
+const hideThinking = async (configDir: string) => {
+  const path = join(configDir, "settings.json");
   let current: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -48,13 +47,17 @@ const hideThinking = async () => {
 const droid: RuntimeRunner = {
   command: "droid",
   name: "Droid",
-  transcripts: join(homedir(), ".factory", "sessions"),
-  args: async (run, { systemPrompt, dataDir }) => {
+  configDir: ".factory",
+  // Droid has no variable for its config directory, but reads it from
+  // `.factory` under FACTORY_HOME_OVERRIDE in place of the home.
+  configEnv: (dir) => ({ FACTORY_HOME_OVERRIDE: dirname(dir) }),
+  transcripts: "sessions",
+  args: async (run, { systemPrompt, dataDir, configDir }) => {
     const { agent } = run;
-    await hideThinking();
-    // stream-json writes a line for each event, so the runner can post the
-    // agent's messages as it writes them.
-    const args = ["exec", run.conversation.prompt, "--output-format", "stream-json"];
+    await hideThinking(configDir);
+    // exec reads the prompt from stdin. stream-json writes a line for each
+    // event, so the runner can post the agent's messages as it writes them.
+    const args = ["exec", "--output-format", "stream-json"];
     // A container is disposable, so a run skips every permission prompt
     // unless the agent sets an autonomy level.
     if (typeof agent.autonomy === "string") args.push("--auto", agent.autonomy);

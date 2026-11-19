@@ -8,6 +8,13 @@ const GITHUB_WEB = "https://github.com";
 const GITHUB_API = "https://api.github.com";
 const HOMEPAGE = "https://github.com/notationlabs/factory";
 
+/**
+ * Where GitHub sends an operator's browser after they sign in to the hub.
+ * GitHub only redirects to an App's callback URLs, port included, so the
+ * CLI listens on this fixed port.
+ */
+export const OPERATOR_CALLBACK_URL = "http://127.0.0.1:47219/callback";
+
 const github = async <T>(
   method: string,
   path: string,
@@ -58,7 +65,8 @@ const openBrowser = (url: string) => {
  *    App form, under `org` if there is one, otherwise under your account.
  * 2. You confirm the App in the browser, and GitHub redirects to the local
  *    server with a one-time code.
- * 3. The code is exchanged for the App, which includes its private key.
+ * 3. The code is exchanged for the App, which includes its private key and
+ *    its client secret.
  */
 export const createApp = async (params: {
   name: string;
@@ -66,9 +74,9 @@ export const createApp = async (params: {
   hookUrl: string;
   events?: GithubEvent[];
   permissions?: Permissions;
-}): Promise<{ id: string; privateKey: string }> => {
+}): Promise<{ id: string; privateKey: string; clientSecret: string }> => {
   const state = randomBytes(16).toString("hex");
-  type Created = { id: string; privateKey: string };
+  type Created = { id: string; privateKey: string; clientSecret: string };
   let resolve!: (app: Created) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<Created>((res, rej) => {
@@ -89,6 +97,7 @@ export const createApp = async (params: {
         url: HOMEPAGE,
         hook_attributes: { url: params.hookUrl, active: true },
         redirect_url: `http://localhost:${port}/callback`,
+        callback_urls: [OPERATOR_CALLBACK_URL],
         // An App on a personal account is public, so that orgs can install it.
         public: !params.org,
         default_events: params.events ?? [],
@@ -114,12 +123,12 @@ export const createApp = async (params: {
       return send(404, "not found");
     }
     try {
-      const app = await github<{ id: number; slug: string; pem: string }>(
+      const app = await github<{ id: number; slug: string; pem: string; client_secret: string }>(
         "POST",
         `/app-manifests/${encodeURIComponent(code)}/conversions`,
       );
       console.error(`Created the GitHub App ${app.slug}, with the ID ${app.id}. Outposts name the App by this ID in .factory/config.ts.`);
-      resolve({ id: String(app.id), privateKey: app.pem });
+      resolve({ id: String(app.id), privateKey: app.pem, clientSecret: app.client_secret });
       send(200, "App created. You can close this tab.");
     } catch (error) {
       reject(error);

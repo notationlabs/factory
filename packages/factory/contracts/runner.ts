@@ -11,10 +11,18 @@ import type { Run } from "../router/run.ts";
 export type RunContext = {
   /** The run's worktree. */
   cwd: string;
+  /**
+   * The conversation's messages that the agent hasn't seen, which the
+   * runner reads when the run starts. The runner writes it to the CLI's
+   * stdin, since a whole thread can be longer than one argument may be.
+   */
+  prompt: string;
   /** The runner's system prompt, followed by the agent's own. */
   systemPrompt: string;
   /** The runner's state directory, `/data`. */
   dataDir: string;
+  /** The agent's config directory, which the CLI reads in place of `~/<configDir>`. */
+  configDir: string;
 };
 
 /** What a runtime's CLI said at the end of a run. */
@@ -26,10 +34,26 @@ export type RuntimeRunner = {
   command: string;
   /** The CLI's name, for errors. */
   name: string;
-  /** Where the CLI keeps its sessions' transcripts, in a directory per working directory. */
+  /** The CLI's config directory, relative to the home, such as `.claude`. */
+  configDir: string;
+  /**
+   * The environment that has the CLI read `dir` as its config directory.
+   * The runner gives each agent a directory of its own. Without it, the
+   * agents of the runtime share `~/<configDir>`.
+   */
+  configEnv?(dir: string): Record<string, string>;
+  /**
+   * Files that the CLI reads from the home, but from its config directory
+   * once `configEnv` moves it, such as Claude Code's `.claude.json`. The
+   * runner writes `~/<file>` to the agent's config directory.
+   */
+  homeFiles?: string[];
+  /** Where the CLI keeps its sessions' transcripts, relative to its config directory, in a directory per working directory. */
   transcripts: string;
   /** The CLI's arguments for a run. */
   args(run: Run, context: RunContext): Promise<string[]>;
+  /** What the runner writes to the CLI's stdin. Without it, the runner writes the prompt. */
+  input?(context: RunContext): string;
   /** The arguments that resume a session. */
   resume(sessionId: string): string[];
   /** Reads the CLI's output. Returns undefined if it isn't the CLI's output. */

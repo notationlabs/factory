@@ -55,8 +55,8 @@ ops.mention("@claude", { from: slack.group("eng") })
 ops.mention("@claude", { from: [slack.group("eng"), slack.user("dan@acme.dev")] })
 ```
 
-- `from` decides who can start a run. The router checks it when it matches the event.
-- A run's prompt has the conversation's messages since the agent's last reply, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
+- `from` decides who can start a run. The router checks it when it matches the event. For an event without a message, such as a label being added on GitHub, the person who acted must match `from`, and so must the issue's author, since the prompt quotes the opening post.
+- A run's prompt has the conversation's messages that the agent's session hasn't seen, in the thread's order. The message that started the run has `trigger="true"`. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. The author of the message that started the run always shows `can_trigger_agent="true"`, since the router admitted the run. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
 
 On GitHub, a run's prompt looks like this:
 
@@ -75,16 +75,39 @@ Bumps jsonwebtoken from 9.0.0 to 9.0.2.
 @claude can you also bump the token lifetime to 30 days?
 </message>
 
-### User message
-
-<message user="@dan" role="admin" can_trigger_agent="true">
+<message user="@dan" role="admin" can_trigger_agent="true" trigger="true">
 @claude fix both and open a PR.
+</message>
+
+<message user="@alice" role="triage" can_trigger_agent="false">
+Thanks!
 </message>
 ```
 
-A body can't open or close a `<message>` tag: the router escapes `<message` and `</message` in it as `&lt;message` and `&lt;/message`.
+A body can't open or close a `<message>` tag: the runner escapes `<message` and `</message` in it as `&lt;message` and `&lt;/message`.
 
-An agent's first prompt starts at the issue's opening post. The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
+The runner builds the prompt when the run starts, not when the router dispatches it, since a run may wait in the container's queue behind others:
+
+1. It asks the router for the thread's messages, with the run's reply ticket.
+2. It leaves out the messages that the agent's session has seen, and the agent's own replies. After each run, the runner saves a hash of each message's body with the session, so a message that someone edited since shows again, in full, with `edited="true"`.
+3. If nothing is left, the run is skipped. The run posts nothing, and the 👀 reaction that the router added stays on the message. If the thread shows `Booting container dev...` for the run, the run replaces it with a note that an earlier run already read the messages. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
+4. A new session, or one that was lost, gets the whole thread, under `### Messages in thread`.
+
+A run that such an event started has no message with `trigger="true"`. Its prompt starts with what happened, which the channel describes, and then has any messages the agent hasn't seen. The agent resumes its session:
+
+```text
+### Event
+
+The issue was labelled `ready` by @dan.
+
+### Messages in thread since last turn
+
+<message user="@alice" role="triage" can_trigger_agent="false">
+This one is ready to pick up.
+</message>
+```
+
+The role is the author's role on the repo, which the router asks GitHub for. Each reply starts with a hidden marker, `<!-- factory:agent=<id> -->`, which names the agent. The router reads the marker only in the App's own comments.
 
 ## Channel relay
 
@@ -101,8 +124,21 @@ Router
 Slack thread / GitHub issue
 ```
 
-The relay lets a container read a conversation's thread and messages, reply to it, and acknowledge an event. The router refuses any call for a conversation it didn't dispatch to that container.
+The relay lets a container read a conversation's messages and reply to it. The router refuses any call for a conversation it didn't dispatch to that container: each run gets a ticket that the router signed, which names the thread, and the router reads and replies only on that thread.
 
 A reply can replace a message that an earlier reply of the same run posted. The router answers each reply with the message's id, signed together with the run's reply ticket, and replaces a message only when the container sends that signature back. A run can't edit any other message.
+
+## Deliveries
+
+The router saves each delivery that starts a run before it answers the platform, and dispatches the runs from there:
+
+1. A delivery whose connection and id the router saw in the last 7 days is a duplicate, and starts nothing. On GitHub, the id is the `X-GitHub-Delivery` header, which a redelivery keeps.
+2. The router hands each run to the deployer, which posts it to the container's outpost Worker. If the Worker doesn't answer within 30 seconds, answers with a 5xx, or the container's first image build hasn't finished, the router tries again. It waits 2 seconds, then 4, 8 and so on up to a minute between tries, for about 5 minutes. While it waits, the thread shows `Booting container dev...`, and the run's first reply replaces that message.
+3. If a run still can't start, or fails for another reason, the router posts one message on the thread with the error. With retries, the message replaces `Booting container dev...`. It says that the router kept the event, and that an operator can replay it with `factory infra replay`. The router keeps failed deliveries for 7 days.
+4. `factory infra status` lists the failed deliveries, and `factory infra replay` replays them. A replay starts the runs that failed again, as new runs, against the outpost config that the repo has at that time.
+
+The router never saves a run, since a run's tokens expire. Each try mints new tokens. Deliveries in one thread aren't ordered: a retried run can start after a later one. That does no harm, since a run that finds no new messages is skipped.
+
+A saved delivery outlives a restart of the router. On Cloudflare, each delivery is a Durable Object, whose alarm dispatches and retries it.
 
 Code is different: containers call the code host directly, with credentials limited to one repo and the policy's permissions, and short-lived. See [Containers & Policies](./containers.md#policies).

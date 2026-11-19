@@ -67,19 +67,21 @@ A trigger that runs `coder` must target a container that lists `claude.runtime`.
 
 | Option | Effect in outpost container |
 | --- | --- |
-| `model` | Written to `/data/agents/<name>/settings.json` (and passed via `--model`) |
+| `model` | Passed via `--model` |
 | `effort` | Passed as `--effort <low \| medium \| high \| xhigh \| max>` |
 | `systemPrompt` | Appended to the runner's prompt, and passed with `--append-system-prompt` |
-| `settings` | Merged into `/data/agents/<name>/settings.json` at runtime |
-| `files` | `~/.claude/*` writes to `/data/agents/<name>/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+| `settings` | Passed via `--settings`, over the agent's `settings.json` |
+| `files` | `~/.claude/*` and `~/.claude.json` write to `/data/agents/<name>/.claude/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
+
+Claude Code reads `.claude.json` from `$CLAUDE_CONFIG_DIR/.claude.json` once that variable is set, so the runner writes `~/.claude.json` to the agent's directory. The container's own `~/.claude/*` and `~/.claude.json` files are written to each Claude agent's directory too, before the agent's `files`, so an agent's file replaces the container's file at the same path.
 
 ## Runtime invocation
 
-Each agent runs with `CLAUDE_CONFIG_DIR=/data/agents/<name>`:
+Each agent runs with `CLAUDE_CONFIG_DIR=/data/agents/<name>/.claude`, so agents in one container don't share settings, files or sessions. The runner saves the session's transcripts from the agent's `projects` directory to the state store after each run, so a container that slept resumes the session.
 
 | Mode | Invocation |
 | --- | --- |
-| **Channel trigger (headless)** | `claude -p --output-format=stream-json --verbose --dangerously-skip-permissions --session-id=<uuid>` (or `--resume=<uuid>`) |
+| **Channel trigger (headless)** | `claude -p --output-format=stream-json --verbose --dangerously-skip-permissions --session-id=<uuid>` (or `--resume=<uuid>`), with the prompt on stdin |
 | **`factory container resume` (TUI)** | `claude --append-system-prompt-file=... --resume=<uuid>` inside the conversation's worktree |
 
 In a headless run, the runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. A message with only thinking is posted as "Thinking...". Subagents' messages aren't posted. The `result` event's text is the final reply, which replaces them.

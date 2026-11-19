@@ -53,6 +53,8 @@ type Repository = { full_name: string; default_branch: string };
 export type IssueEvent = {
   action: "opened" | "edited" | "reopened" | "labeled";
   issue: Issue;
+  /** The label that was added, for a `labeled` event. */
+  label?: { name: string };
   repository: Repository;
   sender: User;
 };

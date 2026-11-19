@@ -101,12 +101,19 @@ export const App = defineResource<AppApi>({
      * flow creates the App. GitHub has no API that makes another.
      */
     privateKey: { propertyType: "credential", value: v.string() },
+    /**
+     * The App's client secret, which the router uses to sign operators in.
+     * The manifest flow returns it when it creates the App.
+     */
+    clientSecret: { propertyType: "credential", value: v.string() },
   } as const)
   .defineOperations({
     create: async (params) => createApp(params),
     rotateManually: {
       privateKey:
         "Generate a private key on the App's settings page, under Private keys.",
+      clientSecret:
+        "Generate a client secret on the App's settings page, under Client secrets.",
     },
     read: async (key) => readApp(key),
     update: async (key, patch, params) => {

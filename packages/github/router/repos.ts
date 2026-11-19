@@ -69,21 +69,17 @@ export const PUSH_ROLES = new Set(["admin", "maintain", "write"]);
  */
 export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
   const token = await repoToken(auth, repo, { metadata: "read" });
-  const found = new Map<string, string>();
-  for (const login of logins) {
+  const role = async (login: string) => {
     const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
     const response = await github("GET", path, token);
-    if (response.status === 404) {
-      found.set(login, "none");
-      continue;
-    }
+    if (response.status === 404) return "none";
     const { permission, role_name } = (await (await ok(response, `GET ${path}`)).json()) as {
       permission: string;
       role_name?: string;
     };
-    found.set(login, role_name || permission);
-  }
-  return found;
+    return role_name || permission;
+  };
+  return new Map(await Promise.all(logins.map(async (login) => [login, await role(login)] as const)));
 };
 
 /**
@@ -194,6 +190,13 @@ export type IssueComment = {
   performed_via_github_app?: { id: number } | null;
 };
 
+/** An issue's or a pull request's opening post. */
+export const issuePost = async (auth: AppAuth, repo: string, issue: number) => {
+  const token = await repoToken(auth, repo, { issues: "read" });
+  const path = `/repos/${repo}/issues/${issue}`;
+  return (await (await ok(await github("GET", path, token), `GET ${path}`)).json()) as Omit<IssueComment, "id">;
+};
+
 /** The comments on an issue or a pull request, oldest first. */
 export const issueComments = async (auth: AppAuth, repo: string, issue: number) => {
   const token = await repoToken(auth, repo, { issues: "read" });
@@ -269,4 +272,34 @@ export const sourceChanges = (event: string, payload: any): SourceChange[] | und
     ];
   }
   return undefined;
+};
+
+/** Every repo of every installation of the App that isn't suspended, as `owner/name`. */
+export const installedRepos = async (auth: AppAuth) => {
+  const jwt = await appJwt(auth.appId, auth.privateKey);
+  const installations: { id: number; suspended_at?: string | null }[] = [];
+  for (let page = 1; ; page++) {
+    const path = `/app/installations?per_page=100&page=${page}`;
+    const batch = (await (await ok(await github("GET", path, jwt), `GET ${path}`)).json()) as typeof installations;
+    installations.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const repos: string[] = [];
+  for (const installation of installations.filter((i) => !i.suspended_at)) {
+    const { token } = (await (
+      await ok(
+        await github("POST", `/app/installations/${installation.id}/access_tokens`, jwt, { body: { permissions: { metadata: "read" } } }),
+        `POST /app/installations/${installation.id}/access_tokens`,
+      )
+    ).json()) as { token: string };
+    for (let page = 1; ; page++) {
+      const path = `/installation/repositories?per_page=100&page=${page}`;
+      const batch = (await (await ok(await github("GET", path, token), `GET ${path}`)).json()) as {
+        repositories: { full_name: string }[];
+      };
+      repos.push(...fullNames(batch.repositories));
+      if (batch.repositories.length < 100) break;
+    }
+  }
+  return repos;
 };

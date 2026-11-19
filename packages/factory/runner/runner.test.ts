@@ -17,13 +17,13 @@ const port = 40000 + Math.floor(Math.random() * 20000);
 
 const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
 
-// A fake Claude Code: it records how it was called, its prompt and the
-// token that gh gets, and writes a transcript for a session named after its
+// A fake Claude Code: it records how it was called, the prompt on its stdin
+// and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
 // waits for the runner to refresh its tokens, hangs, or writes messages
 // before its result, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
-prompt="$2"
+prompt="$(cat)"
 case "$prompt" in
   *"wait for it"*) sleep 1 ;;
   *hang*) sleep 5 ;;
@@ -63,12 +63,14 @@ echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$sess
 // when the prompt says so. A subagent's text is nested in the task tool's
 // result, which is where the CLI puts it.
 const FAKE_CURSOR = `#!/bin/sh
+prompt="$(cat)"
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
+printf '%s' "$prompt" > "${calls}.prompt"
 session="s-$(basename "$(pwd)")"
 chats="\${CURSOR_CONFIG_DIR:-$HOME/.cursor}/chats"
 mkdir -p "$chats/-p-$(basename "$(pwd)")"
-echo "$*" >> "$chats/-p-$(basename "$(pwd)")/$session"
-case "$*" in
+echo "$prompt" >> "$chats/-p-$(basename "$(pwd)")/$session"
+case "$prompt" in
   *fail*)
     echo '{"type":"system","subtype":"init"}'
     echo "it broke" >&2
@@ -93,8 +95,9 @@ echo "{\\"type\\":\\"result\\",\\"subtype\\":\\"success\\",\\"is_error\\":false,
 // stream-json events. It fails, or writes messages and reasoning before its
 // completion, when the prompt says so.
 const FAKE_DROID = `#!/bin/sh
-prompt="$2"
+prompt="$(cat)"
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
+printf '%s' "$prompt" > "${calls}.prompt"
 session="s-$(basename "$(pwd)")"
 sessions="\${FACTORY_HOME_OVERRIDE:-$HOME}/.factory/sessions"
 mkdir -p "$sessions/-p-$(basename "$(pwd)")"
@@ -312,6 +315,7 @@ const post = (body: Run) =>
   fetch(`http://127.0.0.1:${port}/runs`, { method: "POST", body: JSON.stringify(body) });
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
+const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
 
 test("the system prompt names the conversation's channel, then its context, then the agent's own prompt", async () => {
   const id = "github:acme/api#2";
@@ -352,7 +356,7 @@ test("a later run in the same conversation and worktree resumes its session", as
   assert.match(lastCall()[2]!, /--resume s-issue-1/);
 });
 
-test("a cursor run invokes agent in print mode, and resumes its session", async () => {
+test("a cursor run invokes agent in print mode with the system prompt before the messages on stdin, and resumes its session", async () => {
   const agent = {
     id: "coder",
     runtime: "cursor",
@@ -366,10 +370,8 @@ test("a cursor run invokes agent in print mode, and resumes its session", async 
   const [cwd, token, args] = lastCall();
   assert.equal(cwd, join(data, "worktrees", "acme-api", "issue-1"));
   assert.equal(token, "push-token");
-  assert.match(
-    args!,
-    /^-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update You're running headless, .* Be brief\.\s+### Messages in thread\s+<message [^>]+>\s+cursor it\s+<\/message> --model composer-2\.5$/,
-  );
+  assert.equal(args, "-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update --model composer-2.5");
+  assert.match(lastPrompt(), /^You're running headless, .*\sBe brief\.\s+### Messages in thread\s+<message [^>]+>\s+cursor it\s+<\/message>$/s);
   assert.equal(JSON.parse(readFileSync(join(data, "agents", "coder", ".cursor", "cli-config.json"), "utf8")).approvalMode, "unrestricted");
 
   await post(run({ id, message: say(id, "carry on") }, { runtimes: ["cursor"], agent }));
@@ -415,7 +417,7 @@ test("a cursor agent in plan mode passes --mode plan", async () => {
   assert.match(lastCall()[2]!, / --model composer-2\.5 --mode plan$/);
 });
 
-test("a droid run invokes droid exec, skipping permissions without an autonomy level", async () => {
+test("a droid run invokes droid exec with the prompt on stdin, skipping permissions without an autonomy level", async () => {
   const id = "github:acme/api#20";
   await post(
     run(
@@ -432,8 +434,9 @@ test("a droid run invokes droid exec, skipping permissions without an autonomy l
   assert.equal(token, "push-token");
   assert.match(
     args!,
-    /^exec ### Messages in thread\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
+    /^exec --output-format stream-json --skip-permissions-unsafe --model claude-opus-5-5 --reasoning-effort medium --append-system-prompt You're running headless, .* Be brief\.$/,
   );
+  assert.match(lastPrompt(), /^### Messages in thread\s+<message [^>]+>\s+droid it\s+<\/message>$/);
 });
 
 test("a droid agent with autonomy runs with --auto, and resumes its session", async () => {
@@ -443,7 +446,7 @@ test("a droid agent with autonomy runs with --auto, and resumes its session", as
   assert.equal((await nextReply()).text, "done");
   assert.match(
     lastCall()[2]!,
-    /^exec ### Messages in thread\s+<message [^>]+>\s+droid it\s+<\/message> --output-format stream-json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
+    /^exec --output-format stream-json --auto high --append-system-prompt You're running headless, .*Link the pull request in your reply\. --settings \S*agents\/coder\/settings\.json$/,
   );
 
   await post(run({ id, message: say(id, "carry on") }, { runtimes: ["droid"], agent }));
@@ -504,8 +507,6 @@ test("agents in the same conversation and worktree keep their own sessions", asy
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--session-id s-issue-1$/);
 });
-
-const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
 
 /** Waits until the runner has no runs running or queued. */
 const idle = async () => {
@@ -597,6 +598,35 @@ carry on
   );
 });
 
+test("the trigger's author can trigger the agent in the prompt, since the router admitted the run", async () => {
+  const id = "github:acme/api#43";
+  const team = { author: "@dave", role: "read", canTrigger: false };
+  say(id, "It breaks", team);
+  const message = say(id, "fix it", team);
+  await post(run({ id, message }, { worktree: { branch: "issue-43" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.equal(
+    lastPrompt(),
+    `### Messages in thread
+
+<message user="@dave" role="read" can_trigger_agent="true">
+It breaks
+</message>
+
+<message user="@dave" role="read" can_trigger_agent="true" trigger="true">
+fix it
+</message>`,
+  );
+});
+
+test("a thread longer than one argument may be reaches the agent whole", async () => {
+  const id = "github:acme/api#44";
+  const long = "x".repeat(2 * 1024 * 1024);
+  await post(run({ id, message: say(id, long) }, { worktree: { branch: "issue-44" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.ok(lastPrompt().includes(long));
+});
+
 test("a queued run whose messages an earlier run read is skipped, with nothing posted", async () => {
   const id = "github:acme/api#41";
   const first = say(id, "first");
@@ -644,7 +674,12 @@ test("a run whose thread the router can't read replies with the error", async ()
 });
 
 test("each agent has its own config directory, with its own files over the container's, and its own transcripts", async () => {
-  const files = { "~/.npmrc": "npmrc", "~/.claude/CLAUDE.md": "shared.md", "~/.claude/rules/style.md": "shared.md" };
+  const files = {
+    "~/.npmrc": "npmrc",
+    "~/.claude/CLAUDE.md": "shared.md",
+    "~/.claude/rules/style.md": "shared.md",
+    "~/.claude.json": { hasCompletedOnboarding: true },
+  };
   const reviewer = { id: "reviewer", runtime: "claude", files: { "~/.claude/CLAUDE.md": "reviewer.md", "~/.gitignore": "npmrc" } };
   const id = "github:acme/api#50";
   const conversation = { id, message: say(id, "go") };
@@ -660,6 +695,9 @@ test("each agent has its own config directory, with its own files over the conta
   assert.equal(readFileSync(join(config("coder"), "CLAUDE.md"), "utf8"), "Shared.");
   assert.equal(readFileSync(join(home, ".gitignore"), "utf8"), "registry=x");
   assert.ok(!existsSync(join(home, ".claude", "CLAUDE.md")));
+  // Claude Code reads .claude.json from CLAUDE_CONFIG_DIR once it's set.
+  assert.deepEqual(JSON.parse(readFileSync(join(config("coder"), ".claude.json"), "utf8")), { hasCompletedOnboarding: true });
+  assert.ok(!existsSync(join(home, ".claude.json")));
   for (const agent of ["reviewer", "coder"]) {
     assert.ok(existsSync(join(config(agent), "projects", "-p-issue-50", "s-issue-50.jsonl")));
   }
@@ -711,10 +749,14 @@ test("a run of a runtime that the hub has no runner module for replies with the 
   assert.match((await nextReply()).text, /The run failed: The runner can't run agents of the runtime codex: The hub has no runner module runtimes\/codex\.ts\./);
 });
 
-test("a failed run replies with the error", async () => {
+test("a failed run replies with the error, and its session has still seen the thread", async () => {
   const id = "github:acme/api#3";
-  await post(run({ id, message: say(id, "fail now") }));
+  const message = say(id, "fail now");
+  await post(run({ id, message }));
   assert.match((await nextReply()).text, /The run failed: Claude Code exited with code 1: it broke/);
+  const session = JSON.parse(readFileSync(join(data, "sessions", "github-acme-api-3", "coder.json"), "utf8"));
+  assert.equal(session.id, "s-issue-1");
+  assert.deepEqual(Object.keys(session.seen), [message]);
 });
 
 test("after the container sleeps, a run restores its worktree and its conversation's session", async () => {

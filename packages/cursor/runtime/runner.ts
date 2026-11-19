@@ -28,10 +28,8 @@ const cursor: RuntimeRunner = {
   // The CLI reads its config and keeps its chats in CURSOR_CONFIG_DIR.
   configEnv: (dir) => ({ CURSOR_CONFIG_DIR: dir }),
   transcripts: "chats",
-  args: async (run, { prompt, systemPrompt, configDir }) => {
+  args: async (run, { configDir }) => {
     const { agent } = run;
-    // The CLI has no public flag for a system prompt, so the runner's
-    // prompt, then the agent's, come before the conversation's messages.
     // stream-json writes a line for each event, so the runner can post the
     // agent's messages as it writes them.
     const args = [
@@ -43,7 +41,6 @@ const cursor: RuntimeRunner = {
       "--sandbox",
       "disabled",
       "--disable-auto-update",
-      `${systemPrompt}\n\n${prompt}`,
     ];
     if (typeof agent.model === "string") args.push("--model", agent.model);
     if (agent.mode === "plan" || agent.mode === "ask") args.push("--mode", agent.mode);
@@ -76,6 +73,10 @@ const cursor: RuntimeRunner = {
     }
     return args;
   },
+  // Print mode reads the prompt from stdin when it has no prompt argument.
+  // The CLI has no public flag for a system prompt, so the runner's prompt,
+  // then the agent's, come before the conversation's messages.
+  input: ({ prompt, systemPrompt }) => `${systemPrompt}\n\n${prompt}`,
   resume: (sessionId) => ["--resume", sessionId],
   // A run that succeeds ends with a result event. A run that fails writes
   // the error to stderr and exits non-zero, with no result event.

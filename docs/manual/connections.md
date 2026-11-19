@@ -55,8 +55,8 @@ ops.mention("@claude", { from: slack.group("eng") })
 ops.mention("@claude", { from: [slack.group("eng"), slack.user("dan@acme.dev")] })
 ```
 
-- `from` decides who can start a run. The router checks it when it matches the event.
-- A run's prompt has the conversation's messages that the agent's session hasn't seen, in the thread's order. The message that started the run has `trigger="true"`. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
+- `from` decides who can start a run. The router checks it when it matches the event. For an event without a message, such as a label being added on GitHub, the person who acted must match `from`, and so must the issue's author, since the prompt quotes the opening post.
+- A run's prompt has the conversation's messages that the agent's session hasn't seen, in the thread's order. The message that started the run has `trigger="true"`. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. The author of the message that started the run always shows `can_trigger_agent="true"`, since the router admitted the run. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
 
 On GitHub, a run's prompt looks like this:
 
@@ -90,7 +90,7 @@ The runner builds the prompt when the run starts, not when the router dispatches
 
 1. It asks the router for the thread's messages, with the run's reply ticket.
 2. It leaves out the messages that the agent's session has seen, and the agent's own replies. After each run, the runner saves a hash of each message's body with the session, so a message that someone edited since shows again, in full, with `edited="true"`.
-3. If nothing is left, the run is skipped, and nothing is posted. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
+3. If nothing is left, the run is skipped. The run posts nothing, and the 👀 reaction that the router added stays on the message. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
 4. A new session, or one that was lost, gets the whole thread, under `### Messages in thread`.
 
 A run that such an event started has no message with `trigger="true"`. Its prompt starts with what happened, which the channel describes, and then has any messages the agent hasn't seen. The agent resumes its session:
@@ -98,7 +98,7 @@ A run that such an event started has no message with `trigger="true"`. Its promp
 ```text
 ### Event
 
-The issue was labelled `ready`.
+The issue was labelled `ready` by @dan.
 
 ### Messages in thread since last turn
 

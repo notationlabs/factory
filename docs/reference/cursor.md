@@ -78,8 +78,8 @@ The container's own `~/.cursor/*` files are written to each Cursor agent's direc
 
 A channel trigger runs the agent headless in the conversation's worktree, with `CURSOR_CONFIG_DIR=/data/agents/<name>/.cursor`, so agents in one container don't share settings, files or sessions:
 
-`agent -p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update <prompt> [--model <model>] [--mode plan\|ask] [--resume <uuid>]`
+`agent -p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update [--model <model>] [--mode plan\|ask] [--resume <uuid>]`
 
-`<prompt>` is the runner's system prompt, then the agent's `systemPrompt`, then the conversation's messages. `--force` allows commands unless one is denied, `--trust` skips the workspace trust prompt, and `--sandbox disabled` lets those commands run. Without a `--resume`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from the agent's `.cursor/chats` to the state store after each run, so a container that slept resumes the session.
+The runner writes the prompt to stdin, since a whole thread can be longer than one argument may be. The prompt is the runner's system prompt, then the agent's `systemPrompt`, then the conversation's messages. `--force` allows commands unless one is denied, `--trust` skips the workspace trust prompt, and `--sandbox disabled` lets those commands run. Without a `--resume`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from the agent's `.cursor/chats` to the state store after each run, so a container that slept resumes the session.
 
 In a headless run, the runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. A thinking event is posted as "Thinking...". A subagent's messages are part of the task tool's result, so they aren't posted. The `result` event's text is the final reply, which replaces them. A failed run writes its error to stderr and exits non-zero, with no `result` event.

@@ -11,7 +11,11 @@ import type { Run } from "../router/run.ts";
 export type RunContext = {
   /** The run's worktree. */
   cwd: string;
-  /** The conversation's messages that the agent hasn't seen, which the runner reads when the run starts. */
+  /**
+   * The conversation's messages that the agent hasn't seen, which the
+   * runner reads when the run starts. The runner writes it to the CLI's
+   * stdin, since a whole thread can be longer than one argument may be.
+   */
   prompt: string;
   /** The runner's system prompt, followed by the agent's own. */
   systemPrompt: string;
@@ -38,10 +42,18 @@ export type RuntimeRunner = {
    * agents of the runtime share `~/<configDir>`.
    */
   configEnv?(dir: string): Record<string, string>;
+  /**
+   * Files that the CLI reads from the home, but from its config directory
+   * once `configEnv` moves it, such as Claude Code's `.claude.json`. The
+   * runner writes `~/<file>` to the agent's config directory.
+   */
+  homeFiles?: string[];
   /** Where the CLI keeps its sessions' transcripts, relative to its config directory, in a directory per working directory. */
   transcripts: string;
   /** The CLI's arguments for a run. */
   args(run: Run, context: RunContext): Promise<string[]>;
+  /** What the runner writes to the CLI's stdin. Without it, the runner writes the prompt. */
+  input?(context: RunContext): string;
   /** The arguments that resume a session. */
   resume(sessionId: string): string[];
   /** Reads the CLI's output. Returns undefined if it isn't the CLI's output. */

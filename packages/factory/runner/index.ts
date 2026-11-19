@@ -78,7 +78,8 @@ const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX
 
 /**
  * Runs `command`, and resolves with its exit code and output. Rejects only
- * if it can't start. `onLine` gets each line of its stdout as it's written.
+ * if it can't start. `input` is written to its stdin. `onLine` gets each
+ * line of its stdout as it's written.
  */
 const exec = (
   command: string,
@@ -87,11 +88,21 @@ const exec = (
     cwd,
     env,
     timeout,
+    input,
     onLine,
-  }: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number; onLine?: (line: string) => void } = {},
+  }: {
+    cwd?: string;
+    env?: Record<string, string | undefined>;
+    timeout?: number;
+    input?: string;
+    onLine?: (line: string) => void;
+  } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
+    // A command that exits without reading all its input closes the pipe, and its exit code says why.
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
     let stdout = "";
     let stderr = "";
     let line = "";
@@ -324,16 +335,21 @@ const agentFiles = (run: Run): Record<string, string> => {
 /**
  * Writes the container's startup files, then the agent's, so the agent's
  * win. A string is a file in `.factory/`, and an object is written as JSON.
- * A file under the runtime's `~/<configDir>/` goes to the agent's config
- * directory, and any other to the home directory.
+ * A file under the runtime's `~/<configDir>/`, or one of `moved` under `~/`,
+ * goes to the agent's config directory, and any other to the home directory.
  */
 const writeFiles = async (
   files: Record<string, string | Record<string, unknown>>[],
-  { worktree, configDir, prefix }: { worktree: string; configDir: string; prefix: string },
+  { worktree, configDir, prefix, moved }: { worktree: string; configDir: string; prefix: string; moved: string[] },
 ) => {
   for (const [target, source] of files.flatMap((set) => Object.entries(set))) {
     if (!target.startsWith("~/")) throw new Error(`The file ${target} isn't under ~/.`);
-    const path = target.startsWith(prefix) ? inside(configDir, target.slice(prefix.length)) : inside(HOME, target.slice(2));
+    const relative = target.slice(2);
+    const path = target.startsWith(prefix)
+      ? inside(configDir, target.slice(prefix.length))
+      : moved.includes(relative)
+        ? inside(configDir, relative)
+        : inside(HOME, relative);
     const content =
       typeof source === "string"
         ? await readFile(inside(join(worktree, ".factory"), source))
@@ -392,6 +408,11 @@ const readSession = async (run: Run): Promise<Session | undefined> => {
   } catch {
     return undefined;
   }
+};
+
+const writeSession = async (run: Run, session: Session) => {
+  await mkdir(dirname(sessionPath(run)), { recursive: true });
+  await writeFile(sessionPath(run), JSON.stringify(session));
 };
 
 const sessionKey = (run: Run) => `sessions/${slug(run.conversation.id)}/${slug(run.agent.id)}`;
@@ -478,10 +499,10 @@ const restoreSession = async (run: Run, transcripts: string) => {
   await writeFile(sessionPath(run), session);
 };
 
-/** Asks the router's `/messages` route, next to its `/relay` route, for the messages in the run's thread. */
+/** Asks the router's `/messages` route, on the same origin as its `/relay` route, for the messages in the run's thread. */
 const readThread = async (run: Run) => {
   const body: MessagesRequest = { ticket: run.reply.ticket, signature: run.reply.signature };
-  const response = await fetch(new URL("messages", run.reply.url), {
+  const response = await fetch(new URL("/messages", run.reply.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -519,10 +540,14 @@ const renderMessage = (m: ThreadMessage, { edited, trigger }: { edited: boolean;
  * has the messages the session hasn't seen, and those edited since, but not
  * the agent's own replies. The messages keep the thread's order, and the one
  * that started the run is marked as the trigger. An event that started the
- * run comes first.
+ * run comes first. The trigger's author can trigger the agent, since the
+ * router admitted the run, even through an author set that the channel
+ * can't check for each message, such as a team.
  */
 const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined) => {
   const { event } = run.conversation;
+  const trigger = messages.find((m) => m.id === run.conversation.message);
+  const admitted = (m: ThreadMessage) => (trigger && !m.agent && !m.bot && m.author === trigger.author ? { ...m, canTrigger: true } : m);
   const unseen = seen
     ? messages.filter((m) => m.agent !== run.agent.id && seen[m.id] !== bodyHash(m.body))
     : messages;
@@ -531,30 +556,29 @@ const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined
   if (unseen.length > 0) {
     parts.push(seen ? "### Messages in thread since last turn" : "### Messages in thread");
     for (const m of unseen) {
-      parts.push(renderMessage(m, { edited: seen?.[m.id] !== undefined, trigger: m.id === run.conversation.message }));
+      parts.push(renderMessage(admitted(m), { edited: seen?.[m.id] !== undefined, trigger: m === trigger }));
     }
   }
   return parts.join("\n\n");
 };
 
 /**
- * Runs the run's agent in `cwd` with `prompt` and the config directory
- * `configDir`, and returns its final message. It resumes `session` if it's
- * set. Once the agent has a session,
- * it saves that the session has seen `seen`. `onMessage` gets each message
- * the agent writes while it runs, if the runtime reads them.
+ * Runs the run's agent in `cwd` with `prompt` on its stdin and the config
+ * directory `configDir`, resuming the session `sessionId` if it's set.
+ * Returns the agent's final message, or `error` if the CLI failed, and the
+ * session id the CLI reported either way. `onMessage` gets each message the
+ * agent writes while it runs, if the runtime reads them.
  */
 const runAgent = async (
   adapter: RuntimeRunner,
   run: Run,
-  cwd: string,
-  configDir: string,
-  { prompt, session, seen }: { prompt: string; session: Session | undefined; seen: Seen },
+  { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
   onMessage: (text: string) => void,
-) => {
+): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
-  const args = await adapter.args(run, { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir });
-  if (session) args.push(...adapter.resume(session.id));
+  const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
+  const args = await adapter.args(run, context);
+  if (sessionId) args.push(...adapter.resume(sessionId));
 
   const result = await exec(adapter.command, args, {
     cwd,
@@ -566,6 +590,7 @@ const runAgent = async (
       ...adapter.configEnv?.(configDir),
     },
     timeout: RUN_TIMEOUT_MS,
+    input: adapter.input?.(context) ?? prompt,
     onLine:
       adapter.message &&
       ((line) => {
@@ -574,15 +599,11 @@ const runAgent = async (
       }),
   });
   const output = adapter.parse(result.stdout);
-  if (output?.sessionId) {
-    await mkdir(dirname(sessionPath(run)), { recursive: true });
-    await writeFile(sessionPath(run), JSON.stringify({ id: output.sessionId, cwd, seen } satisfies Session));
-  }
   if (result.code !== 0 || !output || output.isError) {
     const detail = output?.result ?? (result.stderr.trim() || result.stdout.trim()).slice(-4000);
-    throw new Error(`${adapter.name} exited with code ${result.code}: ${detail}`);
+    return { text: "", sessionId: output?.sessionId, error: `${adapter.name} exited with code ${result.code}: ${detail}` };
   }
-  return output.result ?? "";
+  return { text: output.result ?? "", sessionId: output.sessionId };
 };
 
 /** Throws if `command` isn't on the PATH, since the repo's image installs each runtime's CLI. */
@@ -663,7 +684,8 @@ let active = 0;
 const held = new Map<string, ReturnType<typeof replies>>();
 
 /**
- * Runs one run:
+ * Runs one run, and returns the agent's final message, or undefined if the
+ * run was skipped. Adds to `notes` what couldn't be restored or saved.
  * 1. Imports the runtime's runner module, and restores the conversation's
  *    session to the agent's config directory if this container doesn't
  *    have it.
@@ -671,8 +693,8 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    from those the session hasn't seen. The session is resumed only if it
  *    ran in the same worktree, and a new session sees the whole thread. If
  *    the session has seen every message, such as when an earlier run in the
- *    queue read them, the run ends here, with nothing posted, unless an
- *    event without a message started it.
+ *    queue read them, the run ends here, unless an event without a message
+ *    started it.
  * 3. Imports the code host's runner module, updates the repo's clone, and
  *    checks out the run's worktree.
  * 4. Writes the container's files, the agent's files, and the policies'
@@ -680,44 +702,34 @@ const held = new Map<string, ReturnType<typeof replies>>();
  * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
  *    place of the last.
- * 6. Saves the worktree and the session to the state store.
- * 7. Posts the agent's final message, or the error, to the conversation,
- *    with notes on what couldn't be restored or saved. It replaces the
- *    agent's last message from step 5.
+ * 6. Saves the session file, with the messages the agent has now seen, if
+ *    the CLI reported a session, even if it failed.
+ * 7. Saves the worktree and the session to the state store, whether or not
+ *    the agent succeeded.
  */
-const execute = async (run: Run) => {
-  const started = Date.now();
-  const reply = held.get(run.id) ?? replies(run);
-  log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
+const perform = async (run: Run, notes: string[], onMessage: (text: string) => void) => {
   const worktree = worktreeOf(run);
-  const notes: string[] = [];
-  let transcripts = "";
-  let checkedOut = false;
-  let text: string;
+  const adapter = await loadRuntime(run.agent.runtime);
+  await assertCommand(adapter.command, adapter.name);
+  const configDir = configDirOf(run, adapter);
+  const transcripts = join(configDir, adapter.transcripts);
+  await restoreSession(run, transcripts).catch((error: unknown) =>
+    notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
+  );
+  const saved = await readSession(run);
+  const session = saved?.cwd === worktree.path ? saved : undefined;
+  const messages = await readThread(run);
+  const prompt = buildPrompt(run, messages, session?.seen);
+  if (prompt === undefined) return undefined;
+  const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
+  const repo = await fetchRepo(run, await loadCodeHost());
+  await checkout(run, repo, worktree, notes);
   try {
-    const adapter = await loadRuntime(run.agent.runtime);
-    await assertCommand(adapter.command, adapter.name);
-    const configDir = configDirOf(run, adapter);
-    transcripts = join(configDir, adapter.transcripts);
-    await restoreSession(run, transcripts).catch((error: unknown) =>
-      notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
-    );
-    const saved = await readSession(run);
-    const session = saved?.cwd === worktree.path ? saved : undefined;
-    const messages = await readThread(run);
-    const prompt = buildPrompt(run, messages, session?.seen);
-    if (prompt === undefined) {
-      log({ run: run.id, state: "skipped", reason: "no new messages" });
-      return;
-    }
-    const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
-    const repo = await fetchRepo(run, await loadCodeHost());
-    await checkout(run, repo, worktree, notes);
-    checkedOut = true;
     await writeFiles([run.files, agentFiles(run)], {
       worktree: worktree.path,
       configDir,
       prefix: `~/${adapter.configDir}/`,
+      moved: adapter.configEnv ? (adapter.homeFiles ?? []) : [],
     });
     await writeTokens(run.tokens);
     const refreshing = setInterval(
@@ -731,16 +743,19 @@ const execute = async (run: Run) => {
       TOKEN_REFRESH_MS,
     );
     try {
-      text = await runAgent(adapter, run, worktree.path, configDir, { prompt, session, seen }, reply.progress);
+      const result = await runAgent(
+        adapter,
+        run,
+        { cwd: worktree.path, configDir, prompt, sessionId: session?.id },
+        onMessage,
+      );
+      if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
+      if (result.error) throw new Error(result.error);
+      return result.text;
     } finally {
       clearInterval(refreshing);
     }
-    log({ run: run.id, state: "finished", ms: Date.now() - started });
-  } catch (error) {
-    log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
-    text = `The run failed: ${message(error)}`;
-  }
-  if (checkedOut) {
+  } finally {
     try {
       await saveWorktree(worktree);
       await saveSession(run, transcripts);
@@ -748,6 +763,31 @@ const execute = async (run: Run) => {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);
     }
+  }
+};
+
+/**
+ * Runs one run, and posts the agent's final message, or the error, to the
+ * conversation, with notes on what couldn't be restored or saved. It
+ * replaces the agent's last message. A skipped run posts nothing.
+ */
+const execute = async (run: Run) => {
+  const started = Date.now();
+  const reply = held.get(run.id) ?? replies(run);
+  log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
+  const notes: string[] = [];
+  let text: string;
+  try {
+    const result = await perform(run, notes, reply.progress);
+    if (result === undefined) {
+      log({ run: run.id, state: "skipped", reason: "no new messages" });
+      return;
+    }
+    text = result;
+    log({ run: run.id, state: "finished", ms: Date.now() - started });
+  } catch (error) {
+    log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
+    text = `The run failed: ${message(error)}`;
   }
   try {
     const parts = [text || "(The agent finished with no message.)", ...notes.map((note) => `> ${note}`)];

@@ -39,14 +39,15 @@ const claude: RuntimeRunner = {
   name: "Claude Code",
   configDir: ".claude",
   configEnv: (dir) => ({ CLAUDE_CONFIG_DIR: dir }),
+  homeFiles: [".claude.json"],
   transcripts: "projects",
-  args: async (run, { prompt, systemPrompt }) => {
+  args: async (run, { systemPrompt }) => {
     const { agent } = run;
-    // stream-json writes a line for each event, so the runner can post the
-    // agent's messages as it writes them. It needs --verbose in print mode.
+    // Print mode reads the prompt from stdin. stream-json writes a line for
+    // each event, so the runner can post the agent's messages as it writes
+    // them. It needs --verbose in print mode.
     const args = [
       "-p",
-      prompt,
       "--output-format",
       "stream-json",
       "--verbose",

@@ -106,8 +106,8 @@ export type FactoryStatus = {
   error?: string;
   /** When the deploy finished, as an ISO date. */
   at: string;
-  /** The containers whose images started building. */
-  building?: string[];
+  /** The containers whose images this deploy started building. Each build's progress is in its `factory/build <container>` check, not here. */
+  builds?: string[];
 };
 
 /** A container image's build, as a check on the commit it was built from. */

@@ -371,7 +371,7 @@ const redeploy = async (
     }
   }
   await channel.writeStatus(repo, status);
-  for (const container of status.building ?? []) {
+  for (const container of status.builds ?? []) {
     if (status.ref) await writeCheck(channel, repo, status.ref, { name: buildCheckName(container), state: "queued" });
   }
   console.log(JSON.stringify({ repo, ...status }));

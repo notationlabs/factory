@@ -151,8 +151,8 @@ export const deploy = async (
     return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/infra.ts.`, at: new Date().toISOString() };
   }
   try {
-    const building = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref, executables);
-    return { state: "deployed", ref, at: new Date().toISOString(), ...(building.length && { building }) };
+    const builds = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref, executables);
+    return { state: "deployed", ref, at: new Date().toISOString(), ...(builds.length && { builds }) };
   } catch (error) {
     return { state: "failed", ref, error: message(error), at: new Date().toISOString() };
   }

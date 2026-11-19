@@ -219,7 +219,7 @@ test("a deploy that starts builds shows a queued check on the commit for each co
     writeCheck: async (repo, ref, check) => void calls.push(`check ${repo} ${ref} ${check.name} ${check.state}`),
   };
   const s = sourceStore(channel, calls);
-  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", building: ["dev", "ci"] });
+  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", builds: ["dev", "ci"] });
   await call(s);
   assert.deepEqual(calls, [
     "read acme/api .factory abc",
@@ -238,7 +238,7 @@ test("a check that the channel can't write doesn't fail the deploy", async () =>
     },
   };
   const s = sourceStore(channel, calls);
-  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", building: ["dev"] });
+  s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", builds: ["dev"] });
   const { status } = await call(s);
   assert.equal(status, 202);
   assert.deepEqual(calls, ["read acme/api .factory abc", "status acme/api deployed"]);

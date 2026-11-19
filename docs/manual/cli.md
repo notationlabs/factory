@@ -102,12 +102,12 @@ Subscribe the current repository to your hub:
 factory repo install [--dry-run] [--repo <owner/name>]
 ```
 
-Grants the code host's connection access to the repository and waits for the initial container build:
+Grants the code host's connection access to the repository and waits for the deploy. Each container's image build shows as the check `factory/build <container>` on the commit:
 
 ```text
 1. Check .factory/infra.ts against the infra's code host and accounts
 2. Open browser to install the GitHub App on the repo (if needed)
-3. Poll FACTORY_STATUS until outpost containers finish building
+3. Poll FACTORY_STATUS until the deploy finishes
 4. Open builder authorization URL (if needed) and re-trigger deploy
 ```
 

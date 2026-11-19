@@ -118,12 +118,12 @@ Grant the hub access to `acme/webapp` and build its container:
 factory repo install
 ```
 
-`factory repo install` walks through installation and waits for the initial build:
+`factory repo install` walks through installation and waits for the deploy:
 
 ```text
 1. Opens GitHub in browser ──► Install the GitHub App on `acme/webapp`
 2. Webhook wakes Deployer  ──► Checks the config, builds `dev`'s image
-3. Deploy completes        ──► `FACTORY_STATUS` reports `dev` ready
+3. Deploy completes        ──► `FACTORY_STATUS` lists `dev` in `builds`, and the check `factory/build dev` shows its build
 ```
 
 ## 4. Trigger from a GitHub issue

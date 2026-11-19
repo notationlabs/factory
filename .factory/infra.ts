@@ -30,35 +30,21 @@ const cursorCoder = new cursor.Agent("cursor-coder", {
   model: "grok-4.7-medium-fast",
 });
 
-new Trigger("claude-mention", {
-  event: gh.issueComment({
-    actions: ["created", "edited"],
-    mention: "@claude",
-    from: github.collaborators(),
-  }),
-  worktree: (event) => `issue-${event.issue.number}`,
-  agent: claudeCoder,
-  container: dev,
-});
+const agents = { claude: claudeCoder, droid: droidCoder, cursor: cursorCoder };
 
-new Trigger("droid-mention", {
-  event: gh.issueComment({
-    actions: ["created", "edited"],
-    mention: "@droid",
-    from: github.collaborators(),
-  }),
-  worktree: (event) => `issue-${event.issue.number}`,
-  agent: droidCoder,
-  container: dev,
-});
-
-new Trigger("cursor-mention", {
-  event: gh.issueComment({
-    actions: ["created", "edited"],
-    mention: "@cursor",
-    from: github.collaborators(),
-  }),
-  worktree: (event) => `issue-${event.issue.number}`,
-  agent: cursorCoder,
-  container: dev,
-});
+for (const [name, agent] of Object.entries(agents)) {
+  const mention = `@${name}`;
+  const worktree = (event: { issue: { number: number } }) => `issue-${event.issue.number}`;
+  new Trigger(`${name}-mention`, {
+    event: gh.issueComment({ actions: ["created", "edited"], mention, from: github.collaborators() }),
+    worktree,
+    agent,
+    container: dev,
+  });
+  new Trigger(`${name}-issue`, {
+    event: gh.issue({ actions: ["opened", "edited"], mention, from: github.collaborators() }),
+    worktree,
+    agent,
+    container: dev,
+  });
+}

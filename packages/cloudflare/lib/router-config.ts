@@ -16,7 +16,7 @@ const codeHostEntry = v.object({
   allow: v.array(v.object({ owner: v.string(), repo: v.optional(v.string()) })),
 });
 
-// The fields other than `provider` are the provider's own, such as GitHub's logins.
+// The fields other than `provider` are the provider's own, such as GitHub's users.
 const operatorsEntry = v.looseObject({ provider: v.string() });
 
 /** The router's config, as the router's Worker reads it from KV. */

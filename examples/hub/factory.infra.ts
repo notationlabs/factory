@@ -17,7 +17,7 @@ new github.CodeHost("github", {
 });
 
 new github.OperatorAuth("operators", {
-  logins: ["djgrant"],
+  users: ["djgrant"],
   connection: gh,
 });
 

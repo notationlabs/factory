@@ -23,7 +23,7 @@ const router = new cloudflare.Router("router", { vault });
 
 const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] }); // <-- who may run `factory infra status`
+new github.OperatorAuth("operators", { connection: gh, users: ["alice"] }); // <-- who may run `factory infra status`
 
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },

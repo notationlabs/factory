@@ -9,7 +9,7 @@ const operatorAuthConfig = v.object({
    * by numeric account id. An id keeps matching after the user renames
    * their account.
    */
-  logins: v.array(v.union([v.string(), v.pipe(v.number(), v.integer())])),
+  users: v.array(v.union([v.string(), v.pipe(v.number(), v.integer())])),
 });
 export type OperatorAuthConfig = v.InferInput<typeof operatorAuthConfig>;
 
@@ -17,7 +17,7 @@ export type OperatorAuthOptions = OperatorAuthConfig & {
   connection: Connection;
 };
 
-/** Operators sign in with GitHub, through the connection's App, and the router checks their login and id against `logins`. */
+/** Operators sign in with GitHub, through the connection's App, and the router checks their login and id against `users`. */
 export class OperatorAuth
   extends ResourceGroup<OperatorAuthConfig>
   implements OperatorAuthContract
@@ -26,14 +26,14 @@ export class OperatorAuth
   readonly connection: Connection;
 
   constructor(id: string, { connection, ...config }: OperatorAuthOptions) {
-    const { logins } = v.parse(operatorAuthConfig, config);
+    const { users } = v.parse(operatorAuthConfig, config);
     super("github/OperatorAuth", id, config);
     this.connection = connection;
     connection.router.store.contribute({
       operators: {
         provider: "github",
         connection: connection.name,
-        logins,
+        users,
       },
     });
   }

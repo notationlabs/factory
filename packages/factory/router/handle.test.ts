@@ -798,7 +798,7 @@ const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): Ro
     // Operator auth signs in through a connection of its own provider.
     connections: { "fake/main": entry("CHANNEL_MAIN"), "github/main": { ...entry("CHANNEL_MAIN"), provider: "github" } },
     codeHost: { provider: "fake", connection: "main", allow: [{ owner: "acme" }] },
-    operators: { provider: "github", connection: "main", logins: ["Alice"] },
+    operators: { provider: "github", connection: "main", users: ["Alice"] },
   },
   channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
 });
@@ -848,7 +848,7 @@ test("a sign-in by someone outside the operator auth gets no session", async () 
 
 test("an operator listed by account id signs in under any login, and a login of digits is not an id", async () => {
   const s = adminStore(adminChannel());
-  s.config.operators = { provider: "github", connection: "main", logins: [7, "8"] };
+  s.config.operators = { provider: "github", connection: "main", users: [7, "8"] };
   assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-renamed-7" } })).status, 200);
   assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory-8" } })).status, 403);
   // A session keeps working after its operator's rename, since the id still matches.
@@ -861,7 +861,7 @@ test("a session stops working when it expires, or when its operator leaves the o
   const expired = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() - 1 });
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: expired })).status, 401);
   const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
-  s.config.operators = { provider: "github", connection: "main", logins: ["bob"] };
+  s.config.operators = { provider: "github", connection: "main", users: ["bob"] };
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 401);
 });
 

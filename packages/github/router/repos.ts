@@ -90,7 +90,7 @@ export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
  * The files under `dir` in `repo` at `ref`, or at the default branch's head:
  * 1. Resolves the ref to a commit and its tree.
  * 2. Lists the tree, and keeps the files under `dir`.
- * 3. Reads each file as text.
+ * 3. Reads each file as text, and notes which are executable.
  */
 export const readDir = async (
   auth: AppAuth,
@@ -112,7 +112,7 @@ export const readDir = async (
       await github("GET", `/repos/${repo}/git/trees/${commit.commit.tree.sha}?recursive=1`, token),
       `GET /repos/${repo}/git/trees`,
     )
-  ).json()) as { truncated: boolean; tree: { path: string; type: string; sha: string; size?: number }[] };
+  ).json()) as { truncated: boolean; tree: { path: string; mode: string; type: string; sha: string; size?: number }[] };
   const prefix = `${dir}/`;
   const blobs = tree.tree.filter((e) => e.type === "blob" && e.path.startsWith(prefix));
   if (tree.truncated && blobs.length === 0) {
@@ -122,6 +122,7 @@ export const readDir = async (
     throw new Error(`${repo} has ${blobs.length} files in ${dir}/. The most the hub reads is ${MAX_FILES}.`);
   }
   const files: Record<string, string> = {};
+  const executables: string[] = [];
   for (const blob of blobs) {
     if ((blob.size ?? 0) > MAX_FILE_BYTES) {
       throw new Error(`${blob.path} is larger than ${MAX_FILE_BYTES / 1024} KB.`);
@@ -130,9 +131,11 @@ export const readDir = async (
       await github("GET", `/repos/${repo}/git/blobs/${blob.sha}`, token, { accept: "application/vnd.github.raw+json" }),
       `GET /repos/${repo}/git/blobs/${blob.sha}`,
     );
-    files[blob.path.slice(prefix.length)] = await response.text();
+    const path = blob.path.slice(prefix.length);
+    files[path] = await response.text();
+    if (blob.mode === "100755") executables.push(path);
   }
-  return { ref: commit.sha, files };
+  return { ref: commit.sha, files, ...(executables.length && { executables }) };
 };
 
 const STATUS_VARIABLE = "FACTORY_STATUS";

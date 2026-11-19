@@ -22,9 +22,16 @@ export interface DeployerContext {
   /**
    * Stores the repo's outpost config, where the router reads it, and the
    * `.factory/` files it was evaluated from. `ref` is the commit they were
-   * read at. Resolves to the containers whose images started building.
+   * read at, and `executables` are the paths of the files that are
+   * executable. Resolves to the containers whose images started building.
    */
-  putOutpost(repo: string, outpost: OutpostConfig, files: Record<string, string>, ref: string): Promise<string[]>;
+  putOutpost(
+    repo: string,
+    outpost: OutpostConfig,
+    files: Record<string, string>,
+    ref: string,
+    executables?: string[],
+  ): Promise<string[]>;
   /** The `.factory/` files of the repo's outpost. */
   getFiles(repo: string): Promise<Record<string, string> | undefined>;
   deleteOutpost(repo: string): Promise<void>;
@@ -136,7 +143,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 export const deploy = async (
   repo: string,
-  { ref, files }: SourceFiles,
+  { ref, files, executables }: SourceFiles,
   context: DeployerContext,
 ): Promise<FactoryStatus> => {
   if (!("infra.ts" in files)) {
@@ -144,7 +151,7 @@ export const deploy = async (
     return { state: "failed", ref, error: `There's no ${FACTORY_DIR}/infra.ts.`, at: new Date().toISOString() };
   }
   try {
-    const building = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref);
+    const building = await context.putOutpost(repo, await evaluateOutpost(repo, files, context), files, ref, executables);
     return { state: "deployed", ref, at: new Date().toISOString(), ...(building.length && { building }) };
   } catch (error) {
     return { state: "failed", ref, error: message(error), at: new Date().toISOString() };

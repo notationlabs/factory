@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { test } from "node:test";
-import { sourceChanges } from "./repos.ts";
+import { readDir, sourceChanges } from "./repos.ts";
 
 const repository = { full_name: "acme/api", default_branch: "main" };
 
@@ -41,4 +42,38 @@ test("repos added to and removed from an install change", () => {
 
 test("other events change nothing", () => {
   assert.equal(sourceChanges("issue_comment", { action: "created", repository }), undefined);
+});
+
+test("reading a directory notes which of its files the repo marks executable", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const tree = [
+    { path: ".factory/infra.ts", mode: "100644", type: "blob", sha: "a" },
+    { path: ".factory/bin/start", mode: "100755", type: "blob", sha: "b" },
+    { path: "README.md", mode: "100755", type: "blob", sha: "c" },
+  ];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const { pathname } = new URL(String(input instanceof Request ? input.url : input));
+    if (pathname.endsWith("/installation")) return Response.json({ id: 1 });
+    if (pathname.endsWith("/access_tokens")) return Response.json({ token: "t" });
+    if (pathname.includes("/commits/")) return Response.json({ sha: "abc", commit: { tree: { sha: "root" } } });
+    if (pathname.includes("/git/trees/")) return Response.json({ truncated: false, tree });
+    const blob = pathname.match(/\/git\/blobs\/(\w+)$/);
+    if (blob) return new Response(`content ${blob[1]}`);
+    return new Response("Not Found", { status: 404 });
+  }) as typeof fetch;
+  try {
+    const read = await readDir({ appId: "123", privateKey }, "acme/api", ".factory", "abc");
+    assert.deepEqual(read, {
+      ref: "abc",
+      files: { "infra.ts": "content a", "bin/start": "content b" },
+      executables: ["bin/start"],
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -56,7 +56,12 @@ export type Received<E> =
   | { status: "rejected"; reason: string };
 
 /** The files under a directory of a repo at one commit, by their path in the directory. */
-export type SourceFiles = { ref: string; files: Record<string, string> };
+export type SourceFiles = {
+  ref: string;
+  files: Record<string, string>;
+  /** The paths of the files that the repo marks executable. */
+  executables?: string[];
+};
 
 /**
  * Whether a selector's `from` lets the delivery start a run. `check` holds

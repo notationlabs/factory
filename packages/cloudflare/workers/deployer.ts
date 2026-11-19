@@ -32,8 +32,14 @@ export default class DeployerWorker extends WorkerEntrypoint<Env> implements Dep
     const kv = this.env.FACTORY_KV;
     return {
       ...loaderContext(this.env.LOADER),
-      putOutpost: async (repo: string, outpost: OutpostConfig, files: Record<string, string>, ref: string) => {
-        const started = await deployOutposts(this.env, repo, outpost, files);
+      putOutpost: async (
+        repo: string,
+        outpost: OutpostConfig,
+        files: Record<string, string>,
+        ref: string,
+        executables: string[] = [],
+      ) => {
+        const started = await deployOutposts(this.env, repo, outpost, files, executables);
         await kv.put(filesKey(repo), JSON.stringify(files));
         await kv.put(outpostKey(repo), JSON.stringify(outpost));
         if (started.length) {

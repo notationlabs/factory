@@ -1,7 +1,6 @@
 import { deriveKey, hmacHex, type OutpostConfig, type Run, timingSafeEqual } from "@notation/factory/router";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
-import { Volume } from "memfs";
 import * as v from "valibot";
 import defaultDockerfile from "factory:dockerfile";
 import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
@@ -11,6 +10,7 @@ import type { StartedBuild } from "./build-watch.ts";
 import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
 import { imageSource, instanceType, type RuntimeAccount } from "./outpost-source.ts";
+import { commitSource } from "./source-commit.ts";
 import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
 import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
 
@@ -113,20 +113,14 @@ const outpostSource = (
 };
 
 /** Commits `files` as a root commit, force-pushes it to `main` of `remote`, and returns the commit. */
-const pushSource = async (remote: string, token: string, files: Record<string, string>, message: string) => {
-  const fs = Volume.fromJSON({}) as unknown as Parameters<typeof git.init>[0]["fs"] & {
-    mkdirSync(path: string, options: { recursive: true }): void;
-    writeFileSync(path: string, content: string): void;
-  };
-  const dir = "/repo";
-  await git.init({ fs, dir, defaultBranch: "main" });
-  for (const [path, content] of Object.entries(files)) {
-    const full = `${dir}/${path}`;
-    fs.mkdirSync(full.slice(0, full.lastIndexOf("/")), { recursive: true });
-    fs.writeFileSync(full, content);
-    await git.add({ fs, dir, filepath: path });
-  }
-  const commit = await git.commit({ fs, dir, message, author: { name: "Notation Factory", email: "notation-factory@users.noreply.github.com" } });
+const pushSource = async (
+  remote: string,
+  token: string,
+  files: Record<string, string>,
+  executables: string[],
+  message: string,
+) => {
+  const { fs, dir, commit } = await commitSource(files, executables, message);
   const result = await git.push({
     fs,
     http,
@@ -245,6 +239,7 @@ export const deployOutposts = async (
   repo: string,
   outpost: OutpostConfig | undefined,
   files: Record<string, string>,
+  executables: string[] = [],
 ): Promise<StartedBuild[]> => {
   const settings = await settingsOf(env);
   const token = await env.CLOUDFLARE_BUILDS_TOKEN.get();
@@ -256,11 +251,14 @@ export const deployOutposts = async (
     const worker = await outpostWorkerName(settings, repo, id);
     current[id] = worker;
     const source = outpostSource(settings, worker, container, files, env.ACCOUNTS);
-    const hash = await sha256(JSON.stringify(Object.entries(source).sort(([a], [b]) => a.localeCompare(b))));
+    const sourceExecutables = executables.map((path) => `.factory/${path}`).sort();
+    const entries = Object.entries(source).sort(([a], [b]) => a.localeCompare(b));
+    // Without executables, the hash is the one earlier versions stored, so their outposts don't rebuild.
+    const hash = await sha256(JSON.stringify(sourceExecutables.length ? [entries, sourceExecutables] : entries));
     if ((await kv.get(sourceKey(worker))) === hash) continue;
     const artifact = await ensureRepo(token, settings.accountId, settings.namespace, worker);
     const write = await repoToken(token, settings.accountId, settings.namespace, worker);
-    const commit = await pushSource(artifact.remote, write, source, `${repo}: container ${id}`);
+    const commit = await pushSource(artifact.remote, write, source, sourceExecutables, `${repo}: container ${id}`);
     const tag = await ensureWorker(token, settings, worker);
     const uuid = await build(token, settings, worker, tag, artifact, await buildToken(token, settings.accountId, kv));
     await kv.put(sourceKey(worker), hash);

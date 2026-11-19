@@ -43,7 +43,7 @@ const router = new cloudflare.Router("router", {
 
 const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
-new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
+new github.OperatorAuth("operators", { users: ["alice"], connection: gh });
 
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },

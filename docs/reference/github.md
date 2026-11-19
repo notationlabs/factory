@@ -74,13 +74,13 @@ Sign operators in with GitHub:
 // …
 new github.OperatorAuth("operators", {
   connection: gh,
-  logins: ["djgrant", 583231], // <-- GitHub users allowed to run the CLI against the hub, by login or account id
+  users: ["djgrant", 583231], // <-- GitHub users allowed to run the CLI against the hub, by login or account id
 });
 ```
 
-Each entry in `logins` is a GitHub login, as a string, or a numeric account ID, as a number. A string of digits is a login, not an ID. Prefer IDs: after a user renames their account, someone else can register the old login, and a login entry then lets that person in. An ID always names the same account. To find a user's ID, open `https://api.github.com/users/<login>` and read `id`.
+Each entry in `users` is a GitHub login, as a string, or a numeric account ID, as a number. A string of digits is a login, not an ID. Prefer IDs: after a user renames their account, someone else can register the old login, and a login entry then lets that person in. An ID always names the same account. To find a user's ID, open `https://api.github.com/users/<login>` and read `id`.
 
-The CLI signs you in with GitHub's web flow for the connection's App. The connection's channel exchanges the code for a user token with the App's client secret, reads your login and ID, and revokes the token. The router checks them against `logins`, with logins compared without case, before it returns an admin session that lasts 4 hours. The session holds both your login and your ID, and the router checks them against `logins` again on each request. An App that an earlier version of Factory created needs a client secret and the callback URL `http://127.0.0.1:47219/callback`, which you add on its settings page. See [Signing in with GitHub](../manual/secrets.md#signing-in-with-github).
+The CLI signs you in with GitHub's web flow for the connection's App. The connection's channel exchanges the code for a user token with the App's client secret, reads your login and ID, and revokes the token. The router checks them against `users`, with logins compared without case, before it returns an admin session that lasts 4 hours. The session holds both your login and your ID, and the router checks them against `users` again on each request. An App that an earlier version of Factory created needs a client secret and the callback URL `http://127.0.0.1:47219/callback`, which you add on its settings page. See [Signing in with GitHub](../manual/secrets.md#signing-in-with-github).
 
 The code host's channel also lists the repos of every installation of the App that isn't suspended. `factory infra up` has the router deploy each of them again.
 

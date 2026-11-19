@@ -112,7 +112,7 @@ const vault = new cloudflare.Vault("vault");
 const router = new cloudflare.Router("router", { vault });
 const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { connection: gh, allow: [{ owner: "acme" }] });
-new github.OperatorAuth("operators", { connection: gh, logins: ["alice"] });
+new github.OperatorAuth("operators", { connection: gh, users: ["alice"] });
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
 });

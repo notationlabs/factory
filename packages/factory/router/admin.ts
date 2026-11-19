@@ -78,14 +78,14 @@ export const verifySession = async (rootKey: string, token: string, now = Date.n
 };
 
 /**
- * Whether the hub's operator auth lets `operator` in. Each of `logins` is a
+ * Whether the hub's operator auth lets `operator` in. Each of `users` is a
  * GitHub login, compared without case, or a numeric account id.
  */
 export const isOperator = (operators: OperatorsEntry | undefined, { login, id }: Operator) => {
-  const logins = operators?.logins;
+  const users = operators?.users;
   return (
-    Array.isArray(logins) &&
-    logins.some((entry) =>
+    Array.isArray(users) &&
+    users.some((entry) =>
       typeof entry === "number" ? String(entry) === id : String(entry).toLowerCase() === login.toLowerCase(),
     )
   );

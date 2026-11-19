@@ -21,7 +21,7 @@ new github.CodeHost("github", {
 
 new slack.Connection("slack", { workspace: "acme", router });
 
-new github.OperatorAuth("operators", { connection: gh, logins: ["djgrant", "alice"] });
+new github.OperatorAuth("operators", { connection: gh, users: ["djgrant", "alice"] });
 
 const claudeToken = new sources.Env("claude-oauth-token", {
   config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },

@@ -70,6 +70,12 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return conversation(delivery, trigger);
   }
 
+  messages(thread: unknown, selector: unknown) {
+    const { messages } = channel(context(this.env));
+    if (!messages) throw new Error("This connection's channel can't read threads.");
+    return messages(thread, selector);
+  }
+
   async acknowledge(delivery: Delivery<unknown>) {
     await channel(context(this.env)).acknowledge?.(delivery);
   }

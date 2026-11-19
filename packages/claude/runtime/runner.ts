@@ -38,13 +38,13 @@ const claude: RuntimeRunner = {
   command: "claude",
   name: "Claude Code",
   transcripts: join(homedir(), ".claude", "projects"),
-  args: async (run, { systemPrompt }) => {
+  args: async (run, { prompt, systemPrompt }) => {
     const { agent } = run;
     // stream-json writes a line for each event, so the runner can post the
     // agent's messages as it writes them. It needs --verbose in print mode.
     const args = [
       "-p",
-      run.conversation.prompt,
+      prompt,
       "--output-format",
       "stream-json",
       "--verbose",

@@ -22,7 +22,8 @@ const fake = (
   read: async () => ({ ref: "c0ffee", files: {} }),
   writeStatus: async () => {},
   writeCheck: async () => {},
-  conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, prompt: "do it", thread: { repo: delivery.repo } }),
+  conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, message: "p1", thread: { repo: delivery.repo } }),
+  messages: async () => [],
   acknowledge: async () => {},
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
@@ -312,7 +313,7 @@ const runStore = (channel: RemoteChannel<FakeEvent>, deployer: Partial<RemoteDep
   },
 });
 
-test("a match whose author may start a run hands the deployer a run, with its branch, tokens and a reply ticket", async () => {
+test("a match whose author may start a run hands the deployer a run, with its branch, tokens and a ticket for its thread", async () => {
   const runs: Run[] = [];
   const worktrees: unknown[] = [];
   const s = runStore(accepted(), {
@@ -331,7 +332,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
   assert.equal(run!.container, "dev");
   assert.deepEqual(run!.runtimes, ["claude"]);
   assert.deepEqual(run!.agent, { id: "coder", runtime: "claude", model: "m" });
-  assert.deepEqual(run!.conversation, { id: "fake:acme/api", prompt: "do it" });
+  assert.deepEqual(run!.conversation, { id: "fake:acme/api", message: "p1" });
   assert.equal(run!.cloneToken, 'token:acme/api:{"contents":"read"}');
   assert.deepEqual(run!.tokens, [
     { policy: "code", repo: "acme/api", token: 'token:acme/api:{"contents":"write"}' },
@@ -343,7 +344,9 @@ test("a match whose author may start a run hands the deployer a run, with its br
   assert.equal(run!.refresh.signature, await signTokenTicket(ROOT_KEY, run!.refresh.ticket));
   assert.equal(run!.reply.url, "https://router.test/relay");
   assert.deepEqual(run!.reply.ticket.thread, { repo: "acme/api" });
+  assert.deepEqual(run!.reply.ticket.selector, { pick: true });
   assert.equal(run!.reply.signature, await signTicket(ROOT_KEY, run!.reply.ticket));
+  assert.equal(run!.messages.url, "https://router.test/messages");
 });
 
 test("a worktree function that names no branch runs in a scratch worktree", async () => {
@@ -436,6 +439,47 @@ test("relay answers with the message it posted, signed, and a reply with that me
   assert.equal((await relay(s, { ticket: otherTicket, signature: otherSignature, text: "x", message: first.message })).status, 401);
   assert.equal((await relay(s, { ticket, signature, text: "x", message: { id: 1 } })).status, 400);
   assert.equal(replies.length, 2);
+});
+
+const readMessages = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/messages", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("messages answers a thread's messages for a reply ticket the router signed, through the ticket's channel", async () => {
+  const reads: unknown[] = [];
+  const message = { id: "1", author: "@alice", body: "fix it", role: "write", canTrigger: true };
+  const channel = {
+    ...accepted(),
+    messages: async (thread: unknown, selector: unknown) => {
+      reads.push([thread, selector]);
+      return [message];
+    },
+  };
+  const s = runStore(channel, {});
+  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, selector: { pick: true }, expires: Date.now() + 60_000 };
+  const signature = await signTicket(ROOT_KEY, ticket);
+
+  const response = await readMessages(s, { ticket, signature });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { messages: [message] });
+  assert.deepEqual(reads, [[{ repo: "acme/api" }, { pick: true }]]);
+
+  // A run can't read another thread, or change who can trigger the agent.
+  assert.equal((await readMessages(s, { ticket: { ...ticket, thread: { repo: "acme/other" } }, signature })).status, 401);
+  assert.equal((await readMessages(s, { ticket: { ...ticket, selector: { pick: false } }, signature })).status, 401);
+  assert.equal(reads.length, 1);
+});
+
+test("messages reports a channel that can't read the thread", async () => {
+  const channel = {
+    ...accepted(),
+    messages: async () => {
+      throw new Error("GitHub is down");
+    },
+  };
+  const ticket = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
+  const response = await readMessages(runStore(channel, {}), { ticket, signature: await signTicket(ROOT_KEY, ticket) });
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: "GitHub is down" });
 });
 
 const refresh = (s: RouterStore, body: unknown) =>

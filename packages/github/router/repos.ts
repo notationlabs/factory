@@ -194,6 +194,13 @@ export type IssueComment = {
   performed_via_github_app?: { id: number } | null;
 };
 
+/** An issue's or a pull request's opening post. */
+export const issuePost = async (auth: AppAuth, repo: string, issue: number) => {
+  const token = await repoToken(auth, repo, { issues: "read" });
+  const path = `/repos/${repo}/issues/${issue}`;
+  return (await (await ok(await github("GET", path, token), `GET ${path}`)).json()) as Omit<IssueComment, "id">;
+};
+
 /** The comments on an issue or a pull request, oldest first. */
 export const issueComments = async (auth: AppAuth, repo: string, issue: number) => {
   const token = await repoToken(auth, repo, { issues: "read" });

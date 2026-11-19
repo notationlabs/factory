@@ -49,12 +49,12 @@ const droid: RuntimeRunner = {
   command: "droid",
   name: "Droid",
   transcripts: join(homedir(), ".factory", "sessions"),
-  args: async (run, { systemPrompt, dataDir }) => {
+  args: async (run, { prompt, systemPrompt, dataDir }) => {
     const { agent } = run;
     await hideThinking();
     // stream-json writes a line for each event, so the runner can post the
     // agent's messages as it writes them.
-    const args = ["exec", run.conversation.prompt, "--output-format", "stream-json"];
+    const args = ["exec", prompt, "--output-format", "stream-json"];
     // A container is disposable, so a run skips every permission prompt
     // unless the agent sets an autonomy level.
     if (typeof agent.autonomy === "string") args.push("--auto", agent.autonomy);

@@ -1,8 +1,13 @@
 import type { AgentEntry, ContainerEntry } from "../contracts/outpost.ts";
+import type { ThreadMessage } from "./channel.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
-/** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
-export type ReplyTicket = { connection: string; thread: unknown; expires: number };
+/**
+ * Where a run's reply goes: the connection whose channel posts it, and the
+ * channel's thread. `selector` is the run's trigger's, which decides who in
+ * the thread can trigger the agent. `expires` is in ms since the epoch.
+ */
+export type ReplyTicket = { connection: string; thread: unknown; selector?: unknown; expires: number };
 
 /**
  * A message that a run's reply posted, which a later reply of the run
@@ -16,6 +21,12 @@ export type Relay = { ticket: ReplyTicket; signature: string; text: string; mess
 
 /** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
 export type RelayResult = { ok: true; message?: ReplyMessage };
+
+/** What the runner posts to a run's `messages.url`. The router answers with `MessagesResult`. */
+export type MessagesRequest = { ticket: ReplyTicket; signature: string };
+
+/** The messages in a run's thread, oldest first. */
+export type MessagesResult = { messages: ThreadMessage[] };
 
 /** Which container's policy tokens the router mints again: a container of the repo's outpost. `expires` is in ms since the epoch. */
 export type TokenTicket = { repo: string; container: string; expires: number };
@@ -51,7 +62,8 @@ export type Run = {
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
   agent: { id: string } & AgentEntry;
-  conversation: { id: string; prompt: string; channel?: string; context?: string };
+  /** The conversation. `message` is the id of the thread's message that started the run. */
+  conversation: { id: string; message?: string; channel?: string; context?: string };
   /** The branch to run on, cut from `base` if it doesn't exist. Without it, the run gets a scratch checkout of the default branch. */
   worktree?: { branch: string; base?: string };
   /** A read-only token for cloning the repo. */
@@ -62,6 +74,8 @@ export type Run = {
   refresh: { url: string; ticket: TokenTicket; signature: string };
   /** The runner posts a `Relay` with this ticket and signature to `url`. */
   reply: { url: string; ticket: ReplyTicket; signature: string };
+  /** The runner posts a `MessagesRequest` with the reply's ticket and signature to `url`, for the thread's messages. */
+  messages: { url: string };
 };
 
 /** How long a container may reply to a run, or ask for its tokens again. A run may wait in the queue behind others before it starts. */

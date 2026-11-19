@@ -26,7 +26,7 @@ const cursor: RuntimeRunner = {
   command: "agent",
   name: "Cursor Agent",
   transcripts: join(homedir(), ".cursor", "chats"),
-  args: async (run, { systemPrompt }) => {
+  args: async (run, { prompt, systemPrompt }) => {
     const { agent } = run;
     // The CLI has no public flag for a system prompt, so the runner's
     // prompt, then the agent's, come before the conversation's messages.
@@ -41,7 +41,7 @@ const cursor: RuntimeRunner = {
       "--sandbox",
       "disabled",
       "--disable-auto-update",
-      `${systemPrompt}\n\n${run.conversation.prompt}`,
+      `${systemPrompt}\n\n${prompt}`,
     ];
     if (typeof agent.model === "string") args.push("--model", agent.model);
     if (agent.mode === "plan" || agent.mode === "ask") args.push("--mode", agent.mode);

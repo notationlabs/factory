@@ -13,6 +13,8 @@ import type {
 import {
   type BuildReportRequest,
   isBranchName,
+  type MessagesRequest,
+  type MessagesResult,
   type Relay,
   type RelayResult,
   REPLY_TTL_MS,
@@ -193,7 +195,7 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
 /**
  * Starts one run of a matched trigger:
  * 1. Has the delivery's channel name the conversation, and signs a ticket
- *    for replies to its thread.
+ *    for reading and replying to its thread.
  * 2. Has the deployer call the trigger's worktree function, if it has one.
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
@@ -206,7 +208,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
   const repo = delivery.repo;
   const trigger = outpost.triggers[d.trigger]!;
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
-  const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
+  const ticket = { connection: d.key, thread: conversation.thread, selector: trigger.match, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
   const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
   try {
@@ -244,7 +246,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       agent: { id: trigger.agent, ...agent },
       conversation: {
         id: conversation.id,
-        prompt: conversation.prompt,
+        ...(conversation.message && { message: conversation.message }),
         ...(conversation.channel && { channel: conversation.channel }),
         ...(conversation.context && { context: conversation.context }),
       },
@@ -253,6 +255,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       tokens,
       refresh,
       reply,
+      messages: { url: `${d.origin}/messages` },
     });
     console.log(JSON.stringify({ run: d.run, repo, trigger: d.trigger, container: trigger.container, worktree }));
   } catch (error) {
@@ -289,6 +292,32 @@ const relay = async (request: Request, store: RouterStore) => {
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
   return json(200, result);
+};
+
+/**
+ * Answers a run's thread's messages, if the router signed its reply ticket.
+ * The runner builds the agent's prompt from them when the run starts.
+ */
+const messages = async (request: Request, store: RouterStore) => {
+  let body: MessagesRequest;
+  try {
+    body = (await request.json()) as MessagesRequest;
+  } catch {
+    return json(400, { error: "the body isn't JSON" });
+  }
+  const { ticket, signature } = body ?? {};
+  if (!ticket || typeof signature !== "string") return json(400, { error: "the body needs ticket and signature" });
+  if (!(await verifyTicket(await store.rootKey(), ticket, signature))) {
+    return json(401, { error: "bad or expired ticket" });
+  }
+  const found = channels(store).find((c) => c.key === ticket.connection);
+  if (!found) return json(404, { error: `no channel for connection ${ticket.connection}` });
+  try {
+    const result: MessagesResult = { messages: await found.channel.messages(ticket.thread, ticket.selector) };
+    return json(200, result);
+  } catch (error) {
+    return json(502, { error: message(error) });
+  }
 };
 
 /**
@@ -434,9 +463,9 @@ const sync = async (request: Request, store: RouterStore) => {
 
 /**
  * The router's routes. `POST /sync` needs no auth, because a channel's sync
- * only sets the values the router derives. `POST /relay` and `POST /tokens`
- * take tickets that the router signed when it started a run. `POST /builds`
- * takes reports that the deployer signed.
+ * only sets the values the router derives. `POST /relay`, `POST /messages`
+ * and `POST /tokens` take tickets that the router signed when it started a
+ * run. `POST /builds` takes reports that the deployer signed.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -445,6 +474,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/relay") {
     return relay(request, store);
+  }
+  if (request.method === "POST" && pathname === "/messages") {
+    return messages(request, store);
   }
   if (request.method === "POST" && pathname === "/tokens") {
     return tokens(request, store);

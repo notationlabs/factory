@@ -11,6 +11,8 @@ import type { Run } from "../router/run.ts";
 export type RunContext = {
   /** The run's worktree. */
   cwd: string;
+  /** The conversation's messages that the agent hasn't seen, which the runner reads when the run starts. */
+  prompt: string;
   /** The runner's system prompt, followed by the agent's own. */
   systemPrompt: string;
   /** The runner's state directory, `/data`. */

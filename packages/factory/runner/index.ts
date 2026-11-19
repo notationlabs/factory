@@ -7,7 +7,17 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CodeHostRunner, RuntimeRunner } from "../contracts/runner.ts";
-import type { Relay, RelayResult, ReplyMessage, Run, TokenRequest, Tokens } from "../router/run.ts";
+import type { ThreadMessage } from "../router/channel.ts";
+import type {
+  MessagesRequest,
+  MessagesResult,
+  Relay,
+  RelayResult,
+  ReplyMessage,
+  Run,
+  TokenRequest,
+  Tokens,
+} from "../router/run.ts";
 
 const PORT = Number(process.env.FACTORY_RUNNER_PORT ?? 8080);
 const DATA = process.env.FACTORY_DATA ?? "/data";
@@ -340,7 +350,11 @@ const refreshTokens = async (run: Run) => {
   await writeTokens((await response.json()) as Tokens);
 };
 
-type Session = { id: string; cwd: string };
+/** The thread's messages that a session has seen: a hash of each one's body, by its id. */
+type Seen = Record<string, string>;
+
+/** An agent's session in a conversation. `seen` is set once a run has passed it the thread's messages. */
+type Session = { id: string; cwd: string; seen?: Seen };
 
 // Each agent in a conversation has its own session, since one runtime
 // can't resume another's.
@@ -438,16 +452,78 @@ const restoreSession = async (run: Run, adapter: RuntimeRunner) => {
   await writeFile(sessionPath(run), session);
 };
 
+/** Asks the router for the messages in the run's thread, with the run's reply ticket. */
+const readThread = async (run: Run) => {
+  const body: MessagesRequest = { ticket: run.reply.ticket, signature: run.reply.signature };
+  const response = await fetch(run.messages.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`The router refused the thread's messages with status ${response.status}: ${await response.text()}`);
+  }
+  return ((await response.json()) as MessagesResult).messages;
+};
+
+const bodyHash = (body: string) => createHash("sha256").update(body).digest("hex");
+
+const attribute = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+
 /**
- * Runs the run's agent in `cwd` with the run's prompt, and returns its
- * final message. It resumes the conversation's session if the session ran
- * in the same worktree. `onMessage` gets each message the agent writes
- * while it runs, if the runtime reads them.
+ * The message as a `<message>` tag. Its body can't open or close a tag of
+ * its own, so it can't pose as another message. Bots other than the hub's
+ * agents can't trigger agents, so their tag names only the bot.
  */
-const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string, onMessage: (text: string) => void) => {
-  const args = await adapter.args(run, { cwd, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA });
-  const session = await readSession(run);
-  if (session?.cwd === cwd) args.push(...adapter.resume(session.id));
+const renderMessage = (m: ThreadMessage, edited: boolean) => {
+  const fields: [string, string][] = [["user", m.author]];
+  if (m.agent) fields.push(["agent", m.agent]);
+  else if (!m.bot) fields.push(["role", m.role ?? "unknown"], ["can_trigger_agent", String(m.canTrigger === true)]);
+  if (edited) fields.push(["edited", "true"]);
+  const attributes = fields.map(([name, value]) => `${name}="${attribute(value)}"`).join(" ");
+  const body = m.body.replace(/<(\/?message)/gi, "&lt;$1");
+  return `<message ${attributes}>\n${body}\n</message>`;
+};
+
+/**
+ * The run's prompt, from its thread's messages, or undefined if the agent
+ * has seen them all. Without `seen`, the session is new, and the prompt has
+ * the whole thread. With it, the prompt has the messages the session hasn't
+ * seen, and those edited since, but not the agent's own replies. The
+ * message that started the run comes last, as the user message.
+ */
+const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined) => {
+  const unseen = seen
+    ? messages.filter((m) => m.agent !== run.agent.id && seen[m.id] !== bodyHash(m.body))
+    : messages;
+  if (unseen.length === 0) return undefined;
+  const edited = (m: ThreadMessage) => seen?.[m.id] !== undefined;
+  const user = unseen.find((m) => m.id === run.conversation.message);
+  const others = unseen.filter((m) => m !== user);
+  const parts: string[] = [];
+  if (others.length > 0) {
+    parts.push(seen ? "### Messages in thread since last turn" : "### Messages in thread");
+    parts.push(...others.map((m) => renderMessage(m, edited(m))));
+  }
+  if (user) parts.push("### User message", renderMessage(user, edited(user)));
+  return parts.join("\n\n");
+};
+
+/**
+ * Runs the run's agent in `cwd` with `prompt`, and returns its final
+ * message. It resumes `session` if it's set. Once the agent has a session,
+ * it saves that the session has seen `seen`. `onMessage` gets each message
+ * the agent writes while it runs, if the runtime reads them.
+ */
+const runAgent = async (
+  adapter: RuntimeRunner,
+  run: Run,
+  cwd: string,
+  { prompt, session, seen }: { prompt: string; session: Session | undefined; seen: Seen },
+  onMessage: (text: string) => void,
+) => {
+  const args = await adapter.args(run, { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA });
+  if (session) args.push(...adapter.resume(session.id));
 
   const result = await exec(adapter.command, args, {
     cwd,
@@ -463,7 +539,7 @@ const runAgent = async (adapter: RuntimeRunner, run: Run, cwd: string, onMessage
   const output = adapter.parse(result.stdout);
   if (output?.sessionId) {
     await mkdir(dirname(sessionPath(run)), { recursive: true });
-    await writeFile(sessionPath(run), JSON.stringify({ id: output.sessionId, cwd } satisfies Session));
+    await writeFile(sessionPath(run), JSON.stringify({ id: output.sessionId, cwd, seen } satisfies Session));
   }
   if (result.code !== 0 || !output || output.isError) {
     const detail = output?.result ?? (result.stderr.trim() || result.stdout.trim()).slice(-4000);
@@ -551,17 +627,23 @@ const held = new Map<string, ReturnType<typeof replies>>();
 
 /**
  * Runs one run:
- * 1. Imports the runtime's and the code host's runner modules, updates the
- *    repo's clone, and checks out the run's worktree.
- * 2. Restores the conversation's session if this container doesn't have it.
- * 3. Writes the container's files and the policies' tokens.
- * 4. Runs the agent in the worktree, and has the router mint new tokens
+ * 1. Imports the runtime's runner module, and restores the conversation's
+ *    session if this container doesn't have it.
+ * 2. Reads the thread's messages from the router, and builds the prompt
+ *    from those the session hasn't seen. The session is resumed only if it
+ *    ran in the same worktree, and a new session sees the whole thread. If
+ *    the session has seen every message, such as when an earlier run in the
+ *    queue read them, the run ends here, with nothing posted.
+ * 3. Imports the code host's runner module, updates the repo's clone, and
+ *    checks out the run's worktree.
+ * 4. Writes the container's files and the policies' tokens.
+ * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
  *    place of the last.
- * 5. Saves the worktree and the session to the state store.
- * 6. Posts the agent's final message, or the error, to the conversation,
+ * 6. Saves the worktree and the session to the state store.
+ * 7. Posts the agent's final message, or the error, to the conversation,
  *    with notes on what couldn't be restored or saved. It replaces the
- *    agent's last message from step 4.
+ *    agent's last message from step 5.
  */
 const execute = async (run: Run) => {
   const started = Date.now();
@@ -575,12 +657,21 @@ const execute = async (run: Run) => {
   try {
     adapter = await loadRuntime(run.agent.runtime);
     await assertCommand(adapter.command, adapter.name);
-    const repo = await fetchRepo(run, await loadCodeHost());
-    await checkout(run, repo, worktree, notes);
-    checkedOut = true;
     await restoreSession(run, adapter).catch((error: unknown) =>
       notes.push(`Factory couldn't restore this conversation's session, so the agent started a new one: ${message(error)}`),
     );
+    const saved = await readSession(run);
+    const session = saved?.cwd === worktree.path ? saved : undefined;
+    const messages = await readThread(run);
+    const prompt = buildPrompt(run, messages, session?.seen);
+    if (prompt === undefined) {
+      log({ run: run.id, state: "skipped", reason: "no new messages" });
+      return;
+    }
+    const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
+    const repo = await fetchRepo(run, await loadCodeHost());
+    await checkout(run, repo, worktree, notes);
+    checkedOut = true;
     await writeFiles(run, worktree.path);
     await writeTokens(run.tokens);
     const refreshing = setInterval(
@@ -594,7 +685,7 @@ const execute = async (run: Run) => {
       TOKEN_REFRESH_MS,
     );
     try {
-      text = await runAgent(adapter, run, worktree.path, reply.progress);
+      text = await runAgent(adapter, run, worktree.path, { prompt, session, seen }, reply.progress);
     } finally {
       clearInterval(refreshing);
     }

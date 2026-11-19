@@ -26,16 +26,35 @@ export type Delivery<E> = {
 /**
  * Where a delivery's run reads and replies. `id` names the conversation,
  * such as an issue. `thread` is the channel's own reference to it, which
- * only its `reply` reads.
+ * only its `messages` and `reply` read.
  */
 export type Conversation = {
   id: string;
-  prompt: string;
   thread: unknown;
+  /** The id of the thread's message that started the run, as `messages` names it. */
+  message?: string;
   /** What the conversation is, such as `GitHub issue`, for the runner's system prompt. */
   channel?: string;
   /** Text that the runner adds to its system prompt, such as which repo the conversation is in. */
   context?: string;
+};
+
+/**
+ * One message in a conversation's thread, as the runner shows it to the
+ * agent. `author` is how the platform names the author, such as `@alice`.
+ * A reply from one of the hub's agents has `agent`, and another bot has
+ * `bot`. Only a person has `role`, their role where the thread is, and
+ * `canTrigger`, whether they match the trigger's `from`.
+ */
+export type ThreadMessage = {
+  /** Unique in the thread. */
+  id: string;
+  author: string;
+  body: string;
+  agent?: string;
+  bot?: boolean;
+  role?: string;
+  canTrigger?: boolean;
 };
 
 /** The trigger that a run is for: its selector, and the agent it runs. */
@@ -92,6 +111,11 @@ export interface Channel<E = unknown> {
   writeCheck?(repo: string, ref: string, check: BuildCheck): Promise<void>;
   /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
   conversation?(delivery: Delivery<E>, trigger: ConversationTrigger): Conversation | Promise<Conversation>;
+  /**
+   * The messages in a conversation's thread, oldest first. `selector` is
+   * the run's trigger's, whose `from` decides each author's `canTrigger`.
+   */
+  messages?(thread: unknown, selector: unknown): Promise<ThreadMessage[]>;
   /** Shows on the delivery's post that a run is starting for it, such as with GitHub's 👀 reaction. */
   acknowledge?(delivery: Delivery<E>): Promise<void>;
   /**

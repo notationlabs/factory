@@ -21,6 +21,7 @@ export type {
   RemoteChannel,
   SourceChange,
   SourceFiles,
+  ThreadMessage,
 } from "./channel.ts";
 export {
   buildCheckName,
@@ -42,6 +43,8 @@ export {
   type RelayResult,
   REPLY_TTL_MS,
   type ReplyMessage,
+  type MessagesRequest,
+  type MessagesResult,
   type ReplyTicket,
   type Run,
   signBuildReport,

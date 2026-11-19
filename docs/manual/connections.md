@@ -56,25 +56,25 @@ ops.mention("@claude", { from: [slack.group("eng"), slack.user("dan@acme.dev")] 
 ```
 
 - `from` decides who can start a run. The router checks it when it matches the event.
-- A run's prompt has the conversation's messages since the agent's last reply, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
+- A run's prompt has the conversation's messages since the agent's last reply, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
 
 On GitHub, a run's prompt looks like this:
 
 ```text
-Messages in thread since last turn:
+### Messages in thread since last turn
 
-[1] @notation-factory-hub[bot] (agent: claude-coder)
+<!-- user: @notation-factory-hub[bot], agent: claude-coder -->
 The handler compares `expires` in seconds against `Date.now()` in milliseconds. …
 
-[2] @dependabot[bot] (can_trigger_agent: false)
+<!-- user: @dependabot[bot] -->
 Bumps jsonwebtoken from 9.0.0 to 9.0.2.
 
-[3] @alice (role: triage, can_trigger_agent: false)
+<!-- user: @alice, role: triage, can_trigger_agent: false -->
 @claude can you also bump the token lifetime to 30 days?
 
-User message:
+### User message
 
-[4] @dan (role: admin, can_trigger_agent: true)
+<!-- user: @dan, role: admin, can_trigger_agent: true -->
 @claude fix both and open a PR.
 ```
 

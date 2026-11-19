@@ -128,14 +128,17 @@ const commentMessage = (c: IssueComment, appId: string): Message => {
   };
 };
 
-const attributes = (m: Message, from: Selector["from"]) => {
-  if (m.agent) return `agent: ${m.agent}`;
-  const canTrigger = `can_trigger_agent: ${checkAuthor(from, m.author).result === "allowed"}`;
-  return m.author.bot ? canTrigger : `role: ${m.author.role ?? "unknown"}, ${canTrigger}`;
+/** The message's header. Bots other than the hub's agents can't trigger agents, so theirs names only the bot. */
+const header = (m: Message, from: Selector["from"]) => {
+  const fields = [`user: @${m.author.login}`];
+  if (m.agent) fields.push(`agent: ${m.agent}`);
+  else if (!m.author.bot) {
+    fields.push(`role: ${m.author.role ?? "unknown"}`, `can_trigger_agent: ${checkAuthor(from, m.author).result === "allowed"}`);
+  }
+  return `<!-- ${fields.join(", ")} -->`;
 };
 
-const render = (m: Message, n: number, from: Selector["from"]) =>
-  `[${n}] @${m.author.login} (${attributes(m, from)})\n${m.body}`;
+const render = (m: Message, from: Selector["from"]) => `${header(m, from)}\n${m.body}`;
 
 /**
  * The run's prompt: the messages since the agent's last reply, then the
@@ -143,17 +146,15 @@ const render = (m: Message, n: number, from: Selector["from"]) =>
  */
 export const prompt = (recent: Message[], user: Message, from: Selector["from"]) => {
   const parts: string[] = [];
-  if (recent.length > 0) {
-    parts.push("Messages in thread since last turn:", ...recent.map((m, i) => render(m, i + 1, from)));
-  }
-  parts.push("User message:", render(user, recent.length + 1, from));
+  if (recent.length > 0) parts.push("### Messages in thread since last turn", ...recent.map((m) => render(m, from)));
+  parts.push("### User message", render(user, from));
   return parts.join("\n\n");
 };
 
 const context = (repo: string, kind: string, issue: Payload["issue"]) =>
   `The ${kind} is ${repo}#${issue.number}: ${issue.title}. The gh CLI is signed in for ${repo}.
 
-A message's role is its author's role on the repo. admin, maintain and write can push. triage can manage issues and pull requests, but can't push. read can only read. none has no access. A message with agent instead of a role is a reply from that agent on this hub.`;
+A message's role is its author's role on the repo. admin, maintain and write can push. triage can manage issues and pull requests, but can't push. read can only read. none has no access. A message with agent is a reply from that agent on this hub. A message from any other bot has neither, and bots can't trigger agents.`;
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

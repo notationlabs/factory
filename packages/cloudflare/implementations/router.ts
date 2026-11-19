@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { type OutputRef, ResourceGroup } from "@notation/resource";
 import type { CodeHost } from "@notation/factory";
 import {
   bindingName,
   RandomKey,
-  RouterSync,
   type RandomKeyInstance,
+  RecordedKey,
+  RouterSync,
   type Router as RouterContract,
   type RouterChannelOptions,
   scopedName,
@@ -27,7 +29,7 @@ import { KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import {
   assertCloudflareSecret,
-  type CloudflareSecret,
+  CloudflareSecret,
   type Vault,
 } from "./vault.ts";
 
@@ -44,13 +46,15 @@ const workerId = (...parts: string[]) =>
 /**
  * `new cloudflare.Router(...)`: a Worker, the hub's KV namespace and R2
  * bucket, and the KV entry its config is contributed to. It generates the
- * root key, and keeps it in the vault. Each connection's channel is a Worker
- * of its own, which the router binds as a service.
+ * root key and the sync key, and keeps both in the vault's store. Each
+ * connection's channel is a Worker of its own, which the router binds as a
+ * service.
  */
 export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
   readonly rootKeyValue: RandomKeyInstance;
   readonly rootKey: CloudflareSecret;
+  readonly syncKey: CloudflareSecret;
   codeHost?: CodeHost;
   readonly kv: kv.KVNamespaceInstance;
   readonly bucket: r2.R2BucketInstance;
@@ -74,6 +78,15 @@ export class Router extends ResourceGroup implements RouterContract {
       id: `${id}-root-key`,
       value: this.rootKeyValue.credentials.Value,
     });
+    // Deploy signs every sync with this key. State records it, so that
+    // deploy has it on every run without rotating the root key.
+    const syncKeyValue = this.add(
+      new RecordedKey(`${id}-sync-key`, { config: { Bytes: 32 } }),
+    );
+    this.syncKey = new CloudflareSecret(
+      { id: `${id}-sync-key`, value: syncKeyValue.outputRef("Value") },
+      vault.store,
+    );
 
     this.kv = this.add(
       new kv.KVNamespace(`${id}-kv`, {
@@ -102,6 +115,7 @@ export class Router extends ResourceGroup implements RouterContract {
         // exports the real one.
         INBOX: $durableObject({ id: `${id}-inbox`, class: class DeliveryInbox {} }),
         FACTORY_ROOT_KEY: this.rootKey.secret,
+        FACTORY_SYNC_KEY: this.syncKey.secret,
       }),
     });
     this.worker = router;
@@ -125,6 +139,8 @@ export class Router extends ResourceGroup implements RouterContract {
           Config: this.store.value
             .outputRef("Value")
             .map((value) => JSON.stringify(value)),
+          SyncKey: syncKeyValue.outputRef("Value"),
+          DeployId: randomUUID(),
         },
       }),
     );

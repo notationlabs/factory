@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
-import { type DeliveryRecord, failedDelivery, type Inbox, replayRecord, RETRY_FOR_MS } from "./deliveries.ts";
-import { signSession, verifySession } from "./admin.ts";
+import { BUILD_POLL_MS, BUILD_WAIT_MS, type DeliveryRecord, failedDelivery, type Inbox, replayRecord } from "./deliveries.ts";
+import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
 import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, type RunResult, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
+const SYNC_KEY = "sync";
 
 type FakeEvent = { allow: boolean };
 
@@ -30,8 +32,12 @@ const fake = (
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
   repos: async () => [],
-  signInUrl: async (redirect, state) => `https://sign-in.test/?redirect=${encodeURIComponent(redirect)}&state=${state}`,
-  signIn: async (code) => code.replace(/^code-/, ""),
+  signInUrl: async (state) => `https://sign-in.test/?state=${state}`,
+  // A code of `code-<login>-<id>` signs in as that user.
+  signIn: async (code) => {
+    const [login = "", id = "0"] = code.replace(/^code-/, "").split("-");
+    return { login, id };
+  },
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -68,6 +74,16 @@ const outpost: OutpostConfig = {
   },
 };
 
+/** The store of the last `call`, which `atOnce` dispatches against. */
+let calling: RouterStore;
+
+/** An inbox that dispatches each delivery once, as soon as the router saves it. */
+const atOnce: Inbox = {
+  receive: async (record) => (await advance(record, calling), true),
+  failed: async () => [],
+  replay: async () => false,
+};
+
 const entry = (channel: string) => ({ provider: "fake", source: "1", credentials: {}, channel });
 
 const store = (
@@ -85,6 +101,7 @@ const store = (
       | undefined,
   outpost: async (repo) => outposts[repo],
   rootKey: async () => ROOT_KEY,
+  inbox: atOnce,
 });
 
 /** The matches without their runs' random ids. */
@@ -93,6 +110,7 @@ const matched = (matches: { run?: string }[]) => matches.map(({ run, ...m }) => 
 const post = (path: string) => new Request(`https://router.test${path}`, { method: "POST" });
 
 const call = async (s: RouterStore, path = "/webhook/fake/main") => {
+  calling = s;
   const response = await handle(post(path), s);
   return { status: response.status, body: await response.json() };
 };
@@ -123,18 +141,40 @@ test("a delivery to a connection with no channel is a 404", async () => {
   assert.equal((await call(store({ main: accepted() }), "/webhook/fake/unknown")).status, 404);
 });
 
+const syncCall = async (s: RouterStore, header?: string) => {
+  const response = await handle(
+    new Request("https://router.test/sync", { method: "POST", ...(header && { headers: { [SYNC_HEADER]: header } }) }),
+    s,
+  );
+  return { status: response.status, body: await response.json() };
+};
+
 test("sync gives each channel its connection's webhook URL, and reports failures", async () => {
   const urls: string[] = [];
-  const s = store({
-    main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)),
-    second: fake({ status: "ignored", reason: "" }, async () => {
-      throw new Error("no access");
+  const s: RouterStore = {
+    ...store({
+      main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)),
+      second: fake({ status: "ignored", reason: "" }, async () => {
+        throw new Error("no access");
+      }),
     }),
-  });
-  const { status, body } = await call(s, "/sync");
+    syncKey: async () => SYNC_KEY,
+  };
+  const { status, body } = await syncCall(s, await signSync(SYNC_KEY));
   assert.equal(status, 502);
   assert.deepEqual(urls, ["https://router.test/webhook/fake/main"]);
   assert.deepEqual(body.connections, { "fake/main": "ok", "fake/second": "no access" });
+});
+
+test("sync takes only a recent request signed with the sync key", async () => {
+  const urls: string[] = [];
+  const s: RouterStore = { ...store({ main: fake({ status: "ignored", reason: "" }, async (url) => void urls.push(url)) }), syncKey: async () => SYNC_KEY };
+  assert.equal((await syncCall(s)).status, 401);
+  assert.equal((await syncCall(s, await signSync("other"))).status, 401);
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY, Date.now() - 10 * 60 * 1000))).status, 401);
+  assert.equal((await syncCall(s, (await signSync(SYNC_KEY)).replace(/^\d+/, (at) => String(Number(at) + 1)))).status, 401);
+  assert.equal((await syncCall({ ...s, syncKey: undefined }, await signSync(SYNC_KEY))).status, 501);
+  assert.deepEqual(urls, []);
 });
 
 const sourceStore = (
@@ -149,9 +189,10 @@ const sourceStore = (
   channel: (binding) => (binding === "CHANNEL_MAIN" ? (channel as RemoteChannel) : undefined),
   outpost: async () => undefined,
   rootKey: async () => ROOT_KEY,
+  inbox: atOnce,
   deployer: {
     worktree: async () => undefined,
-    run: async () => ({ ok: true }),
+    run: async () => "queued",
     deploy: async (repo, source) => {
       calls.push(`deploy ${repo} ${source.ref}`);
       return { state: "deployed", ref: source.ref, at: "now" };
@@ -313,7 +354,7 @@ const runStore = (channel: RemoteChannel<FakeEvent>, deployer: Partial<RemoteDep
     deploy: async () => ({ state: "deployed", at: "now" }),
     remove: async () => {},
     worktree: async () => undefined,
-    run: async () => ({ ok: true }),
+    run: async () => "queued",
     ...deployer,
   },
 });
@@ -326,7 +367,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
       worktrees.push([repo, trigger, payload]);
       return "issue-1";
     },
-    run: async (run) => (runs.push(run), { ok: true }),
+    run: async (run) => (runs.push(run), "queued" as const),
   });
   const { body } = await call(s);
   assert.equal(runs.length, 1);
@@ -354,7 +395,7 @@ test("a match whose author may start a run hands the deployer a run, with its br
 
 test("a worktree function that names no branch runs in a scratch worktree", async () => {
   const runs: Run[] = [];
-  await call(runStore(accepted(), { run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs[0]!.worktree, undefined);
 });
 
@@ -362,7 +403,7 @@ test("a run that can't start replies with the error", async () => {
   const replies: unknown[] = [];
   const runs: Run[] = [];
   const channel = { ...accepted(), reply: async (thread: unknown, text: string) => void replies.push([thread, text]) };
-  await call(runStore(channel, { worktree: async () => "../etc", run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(channel, { worktree: async () => "../etc", run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs.length, 0);
   assert.equal(replies.length, 1);
   assert.match((replies[0] as string[])[1]!, /returned "\.\.\/etc", which isn't a branch name/);
@@ -372,7 +413,7 @@ test("a denied author starts no run", async () => {
   const runs: Run[] = [];
   const acknowledged: unknown[] = [];
   const channel = { ...accepted({ data: { allow: false } }), acknowledge: async (d: Delivery<FakeEvent>) => void acknowledged.push(d.id) };
-  const { body } = await call(runStore(channel, { run: async (run) => (runs.push(run), { ok: true }) }));
+  const { body } = await call(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.deepEqual(body.matches, [{ trigger: "mention", author: { result: "denied" } }]);
   assert.equal(runs.length, 0);
   assert.deepEqual(acknowledged, []);
@@ -381,7 +422,7 @@ test("a denied author starts no run", async () => {
 test("a delivery that starts a run is acknowledged once, before the run is handed to the deployer", async () => {
   const events: string[] = [];
   const channel = { ...accepted(), acknowledge: async (d: Delivery<FakeEvent>) => void events.push(`acknowledge ${d.id}`) };
-  await call(runStore(channel, { run: async () => (events.push("run"), { ok: true }) }));
+  await call(runStore(channel, { run: async () => (events.push("run"), "queued" as const) }));
   assert.deepEqual(events, ["acknowledge d1", "run"]);
 });
 
@@ -393,7 +434,7 @@ test("a run starts even if the channel can't acknowledge its delivery", async ()
       throw new Error("no reactions");
     },
   };
-  await call(runStore(channel, { run: async (run) => (runs.push(run), { ok: true }) }));
+  await call(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
   assert.equal(runs.length, 1);
 });
 
@@ -534,12 +575,12 @@ const memoryInbox = () => {
 test("with an inbox, a delivery is saved before the router answers, and a second delivery with its id is a duplicate", async () => {
   const runs: Run[] = [];
   const { inbox, records } = memoryInbox();
-  const s = { ...runStore(accepted(), { run: async (run) => (runs.push(run), { ok: true }) }), inbox };
+  const s = { ...runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }), inbox };
   const first = await call(s);
   assert.equal(first.status, 202);
   assert.deepEqual([...records.keys()], ["fake/main/d1"]);
   const [record] = records.values();
-  assert.deepEqual(record!.dispatches, [{ trigger: "mention", run: first.body.matches[0].run, state: "pending", attempts: 0 }]);
+  assert.deepEqual(record!.dispatches, [{ trigger: "mention", run: first.body.matches[0].run, state: "pending" }]);
   assert.equal(runs.length, 0);
 
   const second = await call(s);
@@ -547,7 +588,7 @@ test("with an inbox, a delivery is saved before the router answers, and a second
   assert.equal(second.body.duplicate, true);
   assert.equal(records.size, 1);
 
-  assert.deepEqual(await advance(record!, s), {});
+  assert.equal(await advance(record!, s), undefined);
   assert.equal(runs.length, 1);
   assert.equal(record!.dispatches[0]!.state, "dispatched");
 });
@@ -560,19 +601,30 @@ test("a delivery with no id isn't taken for a duplicate", async () => {
   assert.equal(records.size, 2);
 });
 
+const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<string, unknown> } => {
+  const saved = new Map<string, RepoDeploy>();
+  return {
+    saved,
+    put: async (repo, status) => void saved.set(repo.toLowerCase(), { repo, status, builds: saved.get(repo.toLowerCase())?.builds ?? {} }),
+    remove: async (repo) => void saved.delete(repo.toLowerCase()),
+    build: async (repo, container) => saved.get(repo.toLowerCase())?.builds[container],
+    putBuild: async (repo, container, build) => {
+      const deploy = saved.get(repo.toLowerCase()) ?? { repo, status: { state: "deployed", at: "" }, builds: {} };
+      saved.set(repo.toLowerCase(), { ...deploy, builds: { ...deploy.builds, [container]: build } });
+    },
+    list: async () => structuredClone([...saved.values()]),
+  };
+};
+
 const savedRecord = async (s: RouterStore) => {
   const { inbox, records } = memoryInbox();
   await call({ ...s, inbox });
   return { record: [...records.values()][0]!, store: { ...s, inbox } };
 };
 
-test("a dispatch whose container is building is retried with backoff, and its run replaces the waiting message", async () => {
+test("a dispatch whose container's first image build hasn't finished waits for it, and its run replaces the waiting message", async () => {
   const replies: unknown[][] = [];
-  const results: RunResult[] = [
-    { ok: false, retryable: true, building: true, error: "no image yet" },
-    { ok: false, retryable: true, error: "timed out" },
-    { ok: true },
-  ];
+  const results = ["building", "building", "queued"] as const;
   const runs: Run[] = [];
   const channel = {
     ...accepted(),
@@ -581,21 +633,20 @@ test("a dispatch whose container is building is retried with backoff, and its ru
       return "w1";
     },
   };
-  const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), results.shift()!) }));
+  const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), results[runs.length - 1]!) }));
   const start = 1_000_000;
 
-  assert.deepEqual(await advance(record, store, start), { wake: start + 2_000 });
-  assert.equal(replies.length, 1);
-  assert.match(replies[0]![0] as string, /^> Booting container `dev`\.\.\. Its first image build hasn't finished/);
+  assert.equal(await advance(record, store, start), start + BUILD_POLL_MS);
+  assert.deepEqual(replies, [["> Booting container `dev`...", undefined]]);
 
   // Not due yet.
-  assert.deepEqual(await advance(record, store, start + 1_000), { wake: start + 2_000 });
+  assert.equal(await advance(record, store, start + 1_000), start + BUILD_POLL_MS);
   assert.equal(runs.length, 1);
 
-  assert.deepEqual(await advance(record, store, start + 2_000), { wake: start + 2_000 + 4_000 });
+  assert.equal(await advance(record, store, start + BUILD_POLL_MS), start + 2 * BUILD_POLL_MS);
   assert.equal(replies.length, 1);
 
-  assert.deepEqual(await advance(record, store, start + 6_000), {});
+  assert.equal(await advance(record, store, start + 2 * BUILD_POLL_MS), undefined);
   assert.equal(record.dispatches[0]!.state, "dispatched");
   const run = runs[2]!;
   assert.equal(run.id, runs[0]!.id);
@@ -603,19 +654,7 @@ test("a dispatch whose container is building is retried with backoff, and its ru
   assert.equal(replies.length, 1);
 });
 
-test("an error thrown over RPC by the deployer isn't retried, since the run may have been queued", async () => {
-  const { record, store } = await savedRecord(
-    runStore(accepted(), {
-      run: async () => {
-        throw new Error("Worker threw exception");
-      },
-    }),
-  );
-  await advance(record, store, 0);
-  assert.equal(record.dispatches[0]!.state, "failed");
-});
-
-test("a dispatch that still fails after its retries posts one notice, in place of the waiting message", async () => {
+test("a dispatch whose container's build fails replaces the waiting message with the build's error", async () => {
   const replies: unknown[][] = [];
   const channel = {
     ...accepted(),
@@ -624,40 +663,96 @@ test("a dispatch that still fails after its retries posts one notice, in place o
       return "w1";
     },
   };
-  const { record, store } = await savedRecord(
-    runStore(channel, { run: async () => ({ ok: false, retryable: true, error: "503 from the Worker" }) }),
-  );
-  let now = 0;
-  let wake: number | undefined = 0;
-  const waits: number[] = [];
-  while (wake !== undefined) {
-    now = wake;
-    wake = (await advance(record, store, now)).wake;
-    if (wake !== undefined) waits.push(wake - now);
-  }
-  assert.deepEqual(waits.slice(0, 7), [2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]);
-  assert.ok(now >= RETRY_FOR_MS && now < RETRY_FOR_MS + 60_000);
+  const deploys = memoryDeploys();
+  const { record, store } = await savedRecord({ ...runStore(channel, { run: async () => "building" }), deploys });
+  await deploys.putBuild("acme/api", "dev", { state: "in_progress", ref: "abc", url: "https://builds/1", at: "now" });
+  assert.equal(await advance(record, store, 0), BUILD_POLL_MS);
+
+  await deploys.putBuild("acme/api", "dev", { state: "failure", ref: "abc", url: "https://builds/1", summary: "Workers Builds: fail.", at: "now" });
+  assert.equal(await advance(record, store, BUILD_POLL_MS), undefined);
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.equal(replies.length, 2);
   assert.equal(replies[1]![1], "w1");
-  assert.match(replies[1]![0] as string, /Couldn't start the run of trigger `mention`: 503 from the Worker/);
+  assert.match(replies[1]![0] as string, /`mention`: The first image build of container `dev` failed\. Workers Builds: fail\. The build's log: https:\/\/builds\/1/);
   assert.match(replies[1]![0] as string, /`factory infra replay`/);
 
   // A settled delivery posts nothing more.
-  await advance(record, store, now + 1);
+  await advance(record, store, BUILD_POLL_MS + 1);
   assert.equal(replies.length, 2);
 });
 
-test("a dispatch that fails for good isn't retried", async () => {
+test("a dispatch isn't tried again while the deploy log says its container's build is queued or in progress", async () => {
+  const runs: Run[] = [];
+  const deploys = memoryDeploys();
+  const { record, store } = await savedRecord({
+    ...runStore(accepted(), { run: async (run) => (runs.push(run), runs.length === 1 ? "building" : "queued") }),
+    deploys,
+  });
+  await deploys.putBuild("acme/api", "dev", { state: "queued", ref: "abc", at: "now" });
+  assert.equal(await advance(record, store, 0), BUILD_POLL_MS);
+  await deploys.putBuild("acme/api", "dev", { state: "in_progress", ref: "abc", at: "now" });
+  assert.equal(await advance(record, store, BUILD_POLL_MS), 2 * BUILD_POLL_MS);
+  assert.equal(runs.length, 1);
+
+  await deploys.putBuild("acme/api", "dev", { state: "success", ref: "abc", at: "now" });
+  assert.equal(await advance(record, store, 2 * BUILD_POLL_MS), undefined);
+  assert.equal(runs.length, 2);
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+});
+
+test("a dispatch stops waiting for a build that never reports", async () => {
+  const { record, store } = await savedRecord(runStore(accepted(), { run: async () => "building" }));
+  let now = 0;
+  let wake: number | undefined = 0;
+  while (wake !== undefined) {
+    now = wake;
+    wake = await advance(record, store, now);
+  }
+  assert.equal(now, BUILD_WAIT_MS);
+  assert.equal(record.dispatches[0]!.state, "failed");
+  assert.match(record.dispatches[0]!.error!, /didn't finish within 3 hours/);
+});
+
+test("an error from the deployer fails the dispatch without a retry, since the run may have been queued", async () => {
   const replies: unknown[][] = [];
   const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => void replies.push([text]) };
   const { record, store } = await savedRecord(
-    runStore(channel, { run: async () => ({ ok: false, retryable: false, error: "status 401: bad signature" }) }),
+    runStore(channel, {
+      run: async () => {
+        throw new Error("status 502: bad gateway");
+      },
+    }),
   );
-  assert.deepEqual(await advance(record, store, 0), {});
+  assert.equal(await advance(record, store, 0), undefined);
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.equal(replies.length, 1);
-  assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 401: bad signature" }]);
+  assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 502: bad gateway" }]);
+});
+
+test("each failed trigger of a delivery replaces its own waiting message", async () => {
+  const replies: unknown[][] = [];
+  let posted = 0;
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => {
+      replies.push([text, message]);
+      return message ?? `w${++posted}`;
+    },
+  };
+  const twoTriggers: OutpostConfig = {
+    ...runOutpost,
+    triggers: { mention: runOutpost.triggers.mention!, again: runOutpost.triggers.mention! },
+  };
+  const s: RouterStore = { ...runStore(channel, { run: async () => "building" }), outpost: async () => twoTriggers };
+  const { record, store } = await savedRecord(s);
+  await advance(record, store, 0);
+  assert.equal(replies.length, 2);
+  const waiting = Object.fromEntries(record.dispatches.map((d) => [d.trigger, d.waiting]));
+  assert.deepEqual(Object.values(waiting).sort(), ["w1", "w2"]);
+  store.outpost = async () => ({ ...twoTriggers, triggers: {} });
+  await advance(record, store, BUILD_POLL_MS);
+  const notices = Object.fromEntries(replies.slice(2).map(([text, message]) => [(text as string).match(/`(\w+)`/)![1], message]));
+  assert.deepEqual(notices, waiting);
 });
 
 test("a replay dispatches the failed triggers again as new runs, against the outpost config the repo has now", async () => {
@@ -666,7 +761,11 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   const outposts: Record<string, OutpostConfig> = { "acme/api": runOutpost };
   const s: RouterStore = {
     ...runStore(accepted(), {
-      run: async (run): Promise<RunResult> => (runs.push(run), ok ? { ok: true } : { ok: false, retryable: false, error: "refused" }),
+      run: async (run) => {
+        runs.push(run);
+        if (!ok) throw new Error("refused");
+        return "queued";
+      },
     }),
     outpost: async (repo) => outposts[repo],
   };
@@ -692,17 +791,6 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   assert.match(record.dispatches[0]!.error!, /no longer has the trigger `mention`/);
   assert.equal(runs.length, 2);
 });
-
-const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<string, unknown> } => {
-  const saved = new Map<string, any>();
-  return {
-    saved,
-    get: async (repo) => saved.get(repo.toLowerCase()),
-    put: async (deploy) => void saved.set(deploy.repo.toLowerCase(), structuredClone(deploy)),
-    remove: async (repo) => void saved.delete(repo.toLowerCase()),
-    list: async () => [...saved.values()],
-  };
-};
 
 const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({
   ...sourceStore(channel, calls),
@@ -731,15 +819,20 @@ const adminChannel = () => sourceChannel([], []);
 
 test("an operator signs in through the operator auth's channel, and gets a session that the admin routes take", async () => {
   const s = adminStore(adminChannel());
-  const signIn = await adminCall(s, "POST", "/admin/sign-in", { body: { redirect: "http://127.0.0.1:1/callback", state: "s1" } });
+  const signIn = await adminCall(s, "POST", "/admin/sign-in", { body: { state: "s1" } });
   assert.equal(signIn.status, 200);
-  assert.equal(signIn.body.url, "https://sign-in.test/?redirect=http%3A%2F%2F127.0.0.1%3A1%2Fcallback&state=s1");
+  assert.equal(signIn.body.url, "https://sign-in.test/?state=s1");
+  assert.equal((await adminCall(s, "POST", "/admin/sign-in")).status, 400);
 
-  const signed = await adminCall(s, "POST", "/admin/session", { body: { code: "code-alice", redirect: "http://127.0.0.1:1/callback" } });
+  const signed = await adminCall(s, "POST", "/admin/session", { body: { code: "code-alice-1" } });
   assert.equal(signed.status, 200);
   assert.equal(signed.body.operator, "alice");
   assert.ok(signed.body.expires > Date.now());
-  assert.equal((await verifySession(ROOT_KEY, signed.body.session))?.operator, "alice");
+  assert.equal((await verifySession(ROOT_KEY, signed.body.session))?.login, "alice");
+  assert.equal(signed.body.session.split(".").slice(0, 3).join("."), `alice.1.${signed.body.expires}`);
+  // A token whose operator or expiry is changed fails its signature.
+  assert.equal(await verifySession(ROOT_KEY, signed.body.session.replace(/^alice\.1\.\d+/, `alice.1.${signed.body.expires + 1}`)), undefined);
+  assert.equal(await verifySession(ROOT_KEY, signed.body.session.replace(/^alice\.1\./, "alice.2.")), undefined);
 
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: signed.body.session })).status, 200);
   assert.equal((await adminCall(s, "GET", "/admin/deliveries")).status, 401);
@@ -748,71 +841,91 @@ test("an operator signs in through the operator auth's channel, and gets a sessi
 
 test("a sign-in by someone outside the operator auth gets no session", async () => {
   const s = adminStore(adminChannel());
-  const { status, body } = await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory", redirect: "r" } });
+  const { status, body } = await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory" } });
   assert.equal(status, 403);
   assert.equal(body.session, undefined);
 });
 
+test("an operator listed by account id signs in under any login, and a login of digits is not an id", async () => {
+  const s = adminStore(adminChannel());
+  s.config.operators = { provider: "github", connection: "main", logins: [7, "8"] };
+  assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-renamed-7" } })).status, 200);
+  assert.equal((await adminCall(s, "POST", "/admin/session", { body: { code: "code-mallory-8" } })).status, 403);
+  // A session keeps working after its operator's rename, since the id still matches.
+  const session = await signSession(ROOT_KEY, { login: "old-name", id: "7", expires: Date.now() + 60_000 });
+  assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 200);
+});
+
 test("a session stops working when it expires, or when its operator leaves the operator auth", async () => {
   const s = adminStore(adminChannel());
-  const expired = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() - 1 });
+  const expired = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() - 1 });
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session: expired })).status, 401);
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   s.config.operators = { provider: "github", connection: "main", logins: ["bob"] };
   assert.equal((await adminCall(s, "GET", "/admin/deliveries", { session })).status, 401);
 });
 
-test("a deploy is logged with its builds, and build reports update the log", async () => {
+test("a deploy is logged with a queued build for each container it builds, and build reports update the build", async () => {
   const calls: string[] = [];
   const deploys = memoryDeploys();
+  await deploys.putBuild("acme/api", "ci", { state: "success", ref: "old", at: "then" });
   const s: RouterStore = { ...sourceStore(sourceChannel([{ repo: "acme/api", ref: "abc" }], calls), calls), deploys };
   s.deployer!.deploy = async (_repo, source) => ({ state: "deployed", ref: source.ref, at: "now", builds: ["dev"] });
   await call(s);
-  assert.deepEqual(await deploys.get("acme/api"), {
-    repo: "acme/api",
-    status: { state: "deployed", ref: "abc", at: "now", builds: ["dev"] },
-    builds: { dev: { state: "queued", ref: "abc", at: "now" } },
-  });
+  assert.deepEqual(await deploys.list(), [
+    {
+      repo: "acme/api",
+      status: { state: "deployed", ref: "abc", at: "now", builds: ["dev"] },
+      // A container that this deploy didn't build keeps its last build.
+      builds: { ci: { state: "success", ref: "old", at: "then" }, dev: { state: "queued", ref: "abc", at: "now" } },
+    },
+  ]);
 
   const report = { repo: "acme/api", ref: "abc", container: "dev", state: "success" as const, url: "https://dash.test/b", expires: Date.now() + 60_000 };
   await buildReport(s, { report, signature: await signBuildReport(ROOT_KEY, report) });
-  const build = (await deploys.get("acme/api"))!.builds!.dev!;
+  const build = (await deploys.build("acme/api", "dev"))!;
   assert.equal(build.state, "success");
   assert.equal(build.url, "https://dash.test/b");
-
-  // A report of an older commit's build doesn't replace the newer build.
-  const older = { ...report, ref: "old", state: "failure" as const };
-  await buildReport(s, { report: older, signature: await signBuildReport(ROOT_KEY, older) });
-  assert.equal((await deploys.get("acme/api"))!.builds!.dev!.state, "success");
 });
 
-test("repos lists each repo's last deploy with its outpost's containers", async () => {
+test("repos lists each repo's last deploy with its builds", async () => {
   const deploys = memoryDeploys();
-  await deploys.put({ repo: "acme/web", status: { state: "failed", error: "bad", at: "then" } });
-  await deploys.put({ repo: "acme/api", status: { state: "deployed", ref: "abc", at: "now" } });
-  const s: RouterStore = { ...adminStore(adminChannel()), deploys, outpost: async (repo) => (repo === "acme/api" ? runOutpost : undefined) };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  await deploys.put("acme/web", { state: "failed", error: "bad", at: "then" });
+  await deploys.put("acme/api", { state: "deployed", ref: "abc", at: "now" });
+  await deploys.putBuild("acme/api", "dev", { state: "success", ref: "abc", at: "now" });
+  const s: RouterStore = { ...adminStore(adminChannel()), deploys };
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   const { status, body } = await adminCall(s, "GET", "/admin/repos", { session });
   assert.equal(status, 200);
-  assert.deepEqual(body.repos.map((r: { repo: string; containers: string[] }) => [r.repo, r.containers]), [
+  assert.deepEqual(body.repos.map((r: RepoDeploy) => [r.repo, Object.keys(r.builds)]), [
     ["acme/api", ["dev"]],
     ["acme/web", []],
   ]);
 });
 
-test("sync deploys every repo that the code host can read, and removes the outposts of the others", async () => {
+test("sync deploys every repo that the code host can read and allows, one at a time, and removes the outposts of the others", async () => {
   const calls: string[] = [];
   const deploys = memoryDeploys();
-  await deploys.put({ repo: "acme/gone", status: { state: "deployed", at: "then" } });
+  await deploys.put("acme/gone", { state: "deployed", at: "then" });
   const channel = sourceChannel([], calls);
-  channel.repos = async () => ["acme/api"];
-  const s: RouterStore = { ...adminStore(channel, calls), deploys };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
-  const { status, body } = await adminCall(s, "POST", "/admin/sync", { session });
-  assert.equal(status, 202);
-  assert.deepEqual(body, { deploying: ["acme/api"], removing: ["acme/gone"] });
+  channel.repos = async () => ["acme/api", "other/api"];
+  const s: RouterStore = { ...sourceStore(channel, calls), deploys, syncKey: async () => SYNC_KEY };
+  const { status } = await syncCall(s, await signSync(SYNC_KEY));
+  assert.equal(status, 200);
   assert.deepEqual(calls.sort(), ["deploy acme/api head", "read acme/api .factory undefined", "remove acme/gone", "status acme/api deployed"]);
   assert.deepEqual([...deploys.saved.keys()], ["acme/api"]);
+});
+
+test("sync answers before the repos' deploys finish, where the platform allows it", async () => {
+  const calls: string[] = [];
+  const tasks: Promise<unknown>[] = [];
+  const channel = sourceChannel([], calls);
+  channel.repos = async () => ["acme/api"];
+  const s: RouterStore = { ...sourceStore(channel, calls), syncKey: async () => SYNC_KEY, background: (task) => void tasks.push(task) };
+  assert.equal((await syncCall(s, await signSync(SYNC_KEY))).status, 200);
+  assert.equal(tasks.length, 1);
+  await tasks[0];
+  assert.ok(calls.includes("deploy acme/api head"));
 });
 
 test("replay replays one failed delivery, or all of them, against the router's origin", async () => {
@@ -826,10 +939,10 @@ test("replay replays one failed delivery, or all of them, against the router's o
     replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
   };
   const s: RouterStore = { ...adminStore(adminChannel()), inbox };
-  const session = await signSession(ROOT_KEY, { operator: "alice", expires: Date.now() + 60_000 });
+  const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });
   const one = await adminCall(s, "POST", "/admin/replay", { session, body: { connection: "fake/main", id: "d1" } });
   assert.deepEqual(one.body, { replayed: [{ connection: "fake/main", id: "d1" }], skipped: [] });
-  const all = await adminCall(s, "POST", "/admin/replay", { session });
+  const all = await adminCall(s, "POST", "/admin/replay", { session, body: {} });
   assert.deepEqual(all.body, { replayed: [{ connection: "fake/main", id: "d1" }], skipped: [{ connection: "fake/main", id: "d2" }] });
   assert.deepEqual(replays, ["fake/main/d1 https://router.test", "fake/main/d1 https://router.test", "fake/main/d2 https://router.test"]);
   assert.equal((await adminCall(s, "POST", "/admin/replay", { session, body: { id: "d1" } })).status, 400);

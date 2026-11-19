@@ -76,7 +76,10 @@ export class Connection
           value: this.app.credentials.clientSecret,
         }),
       },
-      values: { [CHANNEL_VALUES.appId]: this.app.outputRef("id") },
+      values: {
+        [CHANNEL_VALUES.appId]: this.app.outputRef("id"),
+        [CHANNEL_VALUES.clientId]: this.app.outputRef("clientId"),
+      },
     });
     router.store.contribute({
       connections: {

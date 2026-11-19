@@ -133,12 +133,12 @@ A reply can replace a message that an earlier reply of the same run posted. The 
 The router saves each delivery that starts a run before it answers the platform, and dispatches the runs from there:
 
 1. A delivery whose connection and id the router saw in the last 7 days is a duplicate, and starts nothing. On GitHub, the id is the `X-GitHub-Delivery` header, which a redelivery keeps.
-2. The router hands each run to the deployer, which posts it to the container's outpost Worker. If the Worker doesn't answer within 30 seconds, answers with a 5xx, or the container's first image build hasn't finished, the router tries again. It waits 2 seconds, then 4, 8 and so on up to a minute between tries, for about 5 minutes. While it waits, the thread shows `Booting container dev...`, and the run's first reply replaces that message.
-3. If a run still can't start, or fails for another reason, the router posts one message on the thread with the error. With retries, the message replaces `Booting container dev...`. It says that the router kept the event, and that an operator can replay it with `factory infra replay`. The router keeps failed deliveries for 7 days.
+2. The router hands each run to the deployer, which posts it to the container's outpost Worker. If the container's first image build hasn't finished, the router posts `Booting container dev...` on the thread, and tries the run again every 30 seconds until the build finishes. While the build is queued or in progress, it waits without trying the run. The run's first reply replaces that message. The router stops waiting if the build fails, or after 3 hours.
+3. If a run can't start, the router posts a message on its thread with the error, in place of `Booting container dev...` if the run waited. For a failed build, the error links the build's log. The message says that the router kept the event, and that an operator can replay it with `factory infra replay`. The router doesn't retry a run whose outpost Worker didn't answer or answered with an error, since the Worker may already have queued it. The router keeps failed deliveries for 7 days.
 4. `factory infra status` lists the failed deliveries, and `factory infra replay` replays them. A replay starts the runs that failed again, as new runs, against the outpost config that the repo has at that time.
 
-The router never saves a run, since a run's tokens expire. Each try mints new tokens. Deliveries in one thread aren't ordered: a retried run can start after a later one. That does no harm, since a run that finds no new messages is skipped.
+The router never saves a run, since a run's tokens expire. Each try mints new tokens. Deliveries in one thread aren't ordered: a run that waited for a build can start after a later one. That does no harm, since a run that finds no new messages is skipped.
 
-A saved delivery outlives a restart of the router. On Cloudflare, each delivery is a Durable Object, whose alarm dispatches and retries it.
+A saved delivery outlives a restart of the router. On Cloudflare, each delivery is a Durable Object, whose alarm dispatches it and tries it again while it waits for a build.
 
 Code is different: containers call the code host directly, with credentials limited to one repo and the policy's permissions, and short-lived. See [Containers & Policies](./containers.md#policies).

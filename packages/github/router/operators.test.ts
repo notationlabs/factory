@@ -19,25 +19,25 @@ const withFetch = async (answer: (url: string, init?: RequestInit) => Response, 
   }
 };
 
-test("signInUrl names the App's client, the redirect and the state", () => {
+test("signInUrl names the App's client, the CLI's callback and the state", () => {
   assert.equal(
-    signInUrl("Iv1.abc", "http://127.0.0.1:47219/callback", "s1"),
+    signInUrl("Iv1.abc", "s1"),
     "https://github.com/login/oauth/authorize?client_id=Iv1.abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A47219%2Fcallback&state=s1",
   );
 });
 
-test("signIn exchanges the code, reads the user's login, and revokes the token", async () => {
+test("signIn exchanges the code, reads the user's login and id, and revokes the token", async () => {
   await withFetch(
     (url, init) => {
       if (url.endsWith("/login/oauth/access_token")) {
-        assert.deepEqual(JSON.parse(String(init?.body)), { client_id: "Iv1.abc", client_secret: "shh", code: "c1", redirect_uri: "r" });
+        assert.deepEqual(JSON.parse(String(init?.body)), { client_id: "Iv1.abc", client_secret: "shh", code: "c1", redirect_uri: "http://127.0.0.1:47219/callback" });
         return Response.json({ access_token: "ghu_1" });
       }
-      if (url.endsWith("/user")) return Response.json({ login: "alice" });
+      if (url.endsWith("/user")) return Response.json({ login: "alice", id: 42 });
       return new Response(null, { status: 204 });
     },
     async (calls) => {
-      assert.equal(await signIn(app, "c1", "r"), "alice");
+      assert.deepEqual(await signIn(app, "c1"), { login: "alice", id: "42" });
       assert.deepEqual(calls, [
         "POST https://github.com/login/oauth/access_token",
         "GET https://api.github.com/user",
@@ -51,7 +51,7 @@ test("signIn fails with GitHub's reason when it refuses the code", async () => {
   await withFetch(
     () => Response.json({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }),
     async () => {
-      await assert.rejects(signIn(app, "c1", "r"), /The code passed is incorrect or expired/);
+      await assert.rejects(signIn(app, "c1"), /The code passed is incorrect or expired/);
     },
   );
 });

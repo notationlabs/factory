@@ -98,6 +98,9 @@ export type AuthorCheck =
   | { result: "denied" }
   | { result: "check"; sets: unknown[] };
 
+/** Who signed in: for GitHub, the user's login and numeric account id. */
+export type Operator = { login: string; id: string };
+
 interface ChannelBase<E> {
   /** Checks the delivery's signature and parses it. */
   receive(request: Request): Promise<Received<E>>;
@@ -125,12 +128,12 @@ interface ChannelBase<E> {
   repos?(): Promise<string[]>;
   /**
    * For operator sign-in through the channel's platform: the page that
-   * signs the operator in, and then sends the browser to `redirect` with a
-   * code and `state`.
+   * signs the operator in, and then sends the browser to the CLI's callback
+   * with a code and `state`.
    */
-  signInUrl?(redirect: string, state: string): Promise<string>;
-  /** For operator sign-in: exchanges the code that `redirect` got for the operator's identity, such as a GitHub login. */
-  signIn?(code: string, redirect: string): Promise<string>;
+  signInUrl?(state: string): Promise<string>;
+  /** For operator sign-in: exchanges the code that the callback got for the operator's identity. */
+  signIn?(code: string): Promise<Operator>;
 }
 
 /** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */

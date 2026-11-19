@@ -10,7 +10,7 @@ import {
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
-import { clientId, signIn, signInUrl } from "./operators.ts";
+import { signIn, signInUrl } from "./operators.ts";
 import {
   comment,
   installedRepos,
@@ -43,7 +43,7 @@ export const verifySignature = async (
 
 /** The names of what a GitHub channel reads from its context. */
 export const CHANNEL_SECRETS = { rootKey: "ROOT_KEY", privateKey: "PRIVATE_KEY", clientSecret: "CLIENT_SECRET" } as const;
-export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
+export const CHANNEL_VALUES = { appId: "APP_ID", clientId: "CLIENT_ID" } as const;
 
 /**
  * Someone who posted to a thread. `bot` is set for an App or another bot
@@ -268,7 +268,6 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
   const appId = ctx.value(CHANNEL_VALUES.appId);
   const rootKey = () => ctx.secret(CHANNEL_SECRETS.rootKey);
   const auth = async () => ({ appId, privateKey: await ctx.secret(CHANNEL_SECRETS.privateKey) });
-  const appClientId = async () => clientId(await auth());
   return {
     async receive(request) {
       const target = request.headers.get("x-github-hook-installation-target-id");
@@ -377,12 +376,12 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       return installedRepos(await auth());
     },
 
-    async signInUrl(redirect, state) {
-      return signInUrl(await appClientId(), redirect, state);
+    async signInUrl(state) {
+      return signInUrl(ctx.value(CHANNEL_VALUES.clientId), state);
     },
 
-    async signIn(code, redirect) {
-      return signIn({ clientId: await appClientId(), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code, redirect);
+    async signIn(code) {
+      return signIn({ clientId: ctx.value(CHANNEL_VALUES.clientId), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code);
     },
   };
 };

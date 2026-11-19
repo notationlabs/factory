@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { DeliveriesResult, ReplayResult, ReposResult, SyncResult } from "@notation/factory/router";
+import type { DeliveriesResult, ReplayResult, ReposResult } from "@notation/factory/router";
 import { admin } from "./operator.ts";
 import { type HubConfig, loadConfig, shell } from "./shell.ts";
 
@@ -34,24 +34,15 @@ const notation = async (args: string) => {
 };
 
 /**
- * Deploys the hub, which also syncs each connection with the router. Then
- * asks the router to deploy every repo again, and doesn't wait for the
- * deploys. Each of `credentials` is passed to Notation as `--credential`.
+ * Deploys the hub. The deploy syncs each connection with the router, and has
+ * the router deploy every repo again, without waiting for those deploys.
+ * Each of `credentials` is passed to Notation as `--credential`.
  */
 export const infraUp = async ({ dryRun, credentials = [] }: { dryRun: boolean; credentials?: string[] }) => {
   const flags = credentials.map((c) => ` --credential ${quote(c)}`).join("");
   await notation(`${dryRun ? "plan" : "deploy"}${flags}`);
   if (dryRun) return;
   console.log("\nThe hub is up. To serve a repo, run `factory repo install` in it.");
-  const { router } = await hubConfig(hubDir());
-  if (!router) {
-    console.log(`The hub's repos weren't deployed again. ${NO_ROUTER}`);
-    return;
-  }
-  const { deploying, removing } = await admin<SyncResult>(router, "POST", "/admin/sync");
-  if (deploying.length) console.log(`The hub is deploying ${deploying.join(", ")} again.`);
-  if (removing.length) console.log(`The hub is removing the outposts of ${removing.join(", ")}, which it can no longer read.`);
-  if (deploying.length || removing.length) console.log("Run `factory infra status` to see how the deploys went.");
 };
 
 export const infraDown = async () => {
@@ -66,14 +57,12 @@ export const infraStatus = async () => {
   const repos = await admin<ReposResult>(router, "GET", "/admin/repos");
   const deliveries = await admin<DeliveriesResult>(router, "GET", "/admin/deliveries");
   if (!repos.repos.length) console.log("The hub has deployed no repos.");
-  for (const { repo, status, builds = {}, containers } of repos.repos) {
+  for (const { repo, status, builds } of repos.repos) {
     const from = status.ref ? ` from ${short(status.ref)}` : "";
     console.log(`${repo}: ${status.state}${from} at ${status.at}`);
     if (status.error) console.log(`  ${status.error.split("\n").join("\n  ")}`);
-    for (const container of containers) {
-      const build = builds[container];
-      const state = build ? `build ${build.state} at ${short(build.ref)}${build.url ? ` ${build.url}` : ""}` : "no build since the hub started keeping them";
-      console.log(`  ${container}: ${state}`);
+    for (const [container, build] of Object.entries(builds)) {
+      console.log(`  ${container}: build ${build.state} at ${short(build.ref)}${build.url ? ` ${build.url}` : ""}`);
     }
   }
   if (!deliveries.failed.length) {

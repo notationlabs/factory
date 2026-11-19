@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -31,6 +31,8 @@ const saveSession = async (origin: string, session: SessionResult | undefined) =
   else delete sessions[origin];
   await mkdir(dirname(SESSIONS_FILE), { recursive: true });
   await writeFile(SESSIONS_FILE, JSON.stringify(sessions, null, 2), { mode: 0o600 });
+  // `mode` only applies when writeFile creates the file.
+  await chmod(SESSIONS_FILE, 0o600);
 };
 
 const post = async <T>(router: string, path: string, body: unknown): Promise<T> => {
@@ -62,14 +64,19 @@ const signIn = async (router: string): Promise<SessionResult> => {
   });
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", callback.origin);
+    const send = (status: number, body: string) => {
+      res.writeHead(status, { "content-type": "text/plain" });
+      res.end(body);
+    };
+    if (url.pathname !== callback.pathname || url.searchParams.get("state") !== state) return send(404, "not found");
+    const error = url.searchParams.get("error");
     const found = url.searchParams.get("code");
-    if (url.pathname !== callback.pathname || !found || url.searchParams.get("state") !== state) {
-      res.writeHead(404, { "content-type": "text/plain" });
-      res.end("not found");
+    if (error || !found) {
+      send(400, "The sign-in didn't finish. See the terminal.");
+      reject(new Error(`The sign-in didn't finish: ${url.searchParams.get("error_description") ?? error ?? "GitHub sent no code"}`));
       return;
     }
-    res.writeHead(200, { "content-type": "text/plain" });
-    res.end("Signed in. You can close this tab.");
+    send(200, "Signed in. You can close this tab.");
     resolve(found);
   });
   await new Promise<void>((listening, failed) => {
@@ -84,10 +91,10 @@ const signIn = async (router: string): Promise<SessionResult> => {
   });
   const timeout = setTimeout(() => reject(new Error("The sign-in didn't finish within 5 minutes.")), SIGN_IN_TIMEOUT_MS);
   try {
-    const { url } = await post<SignInResult>(router, "/admin/sign-in", { redirect: OPERATOR_CALLBACK_URL, state });
+    const { url } = await post<SignInResult>(router, "/admin/sign-in", { state });
     console.error(`Sign in to the hub in your browser: ${url}`);
     openBrowser(url);
-    const session = await post<SessionResult>(router, "/admin/session", { code: await code, redirect: OPERATOR_CALLBACK_URL });
+    const session = await post<SessionResult>(router, "/admin/session", { code: await code });
     console.error(`Signed in to the hub as ${session.operator}.`);
     return session;
   } finally {

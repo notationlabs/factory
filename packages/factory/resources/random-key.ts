@@ -52,3 +52,45 @@ export const RandomKey = randomKeySchema.defineOperations({
 });
 
 export type RandomKeyInstance = InstanceType<typeof RandomKey>;
+
+type RecordedKeyApi = {
+  Key: { KeyId: string };
+  CreateParams: { Bytes: number };
+  UpdateParams: undefined;
+  ReadResult: {};
+};
+
+const recordedKey = resource<RecordedKeyApi>({
+  type: "factory/keys/RecordedKey",
+  provider: "@notation/factory",
+});
+
+const recordedKeySchema = recordedKey.defineSchema({
+  Bytes: {
+    propertyType: "param",
+    presence: "required",
+    immutable: true,
+    value: v.pipe(v.number(), v.integer(), v.minValue(16)),
+  },
+  KeyId: {
+    propertyType: "computed",
+    presence: "required",
+    primaryKey: true,
+    value: v.string(),
+  },
+  /** `Bytes` random bytes, in hex. */
+  Value: { propertyType: "computed", presence: "required", value: v.string() },
+} as const);
+
+/**
+ * A random key whose value is a computed output, which state records, such
+ * as the router's sync key. Unlike a `RandomKey`, any deploy can take its
+ * value without rotating it.
+ */
+export const RecordedKey = recordedKeySchema.defineOperations({
+  create: async (params) => ({
+    KeyId: randomUUID(),
+    Value: generate(params.Bytes),
+  }),
+  delete: async () => {},
+});

@@ -1,16 +1,17 @@
 import type { Delivery } from "./channel.ts";
 
-/** How long the router retries a dispatch whose target is asleep or still building. */
-export const RETRY_FOR_MS = 5 * 60 * 1000;
+/** How often the router tries again a dispatch whose container's first image build hasn't finished. */
+export const BUILD_POLL_MS = 30_000;
 
-const FIRST_RETRY_MS = 2_000;
-const LAST_RETRY_MS = 60_000;
+/**
+ * How long a dispatch waits for its container's first image build. The
+ * deployer reports a build that hasn't finished within 2 hours as failed,
+ * so this only applies when that report never arrives.
+ */
+export const BUILD_WAIT_MS = 3 * 60 * 60 * 1000;
 
 /** How long the router keeps a delivery's id, and a failed delivery, after it settles. */
 export const KEEP_DELIVERY_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** The wait before retry `attempt`, counting from 1: 2 seconds, doubling up to a minute. */
-export const retryDelay = (attempt: number) => Math.min(LAST_RETRY_MS, FIRST_RETRY_MS * 2 ** (attempt - 1));
 
 /**
  * One matched trigger's run, as the router hands it to the deployer.
@@ -20,20 +21,17 @@ export type TriggerDispatch = {
   trigger: string;
   run: string;
   state: "pending" | "dispatched" | "failed";
-  /** The failed attempts since the dispatch was last started or replayed. */
-  attempts: number;
-  /** When the first of `attempts` failed. */
+  /** When the dispatch started to wait for its container's first image build. */
   since?: number;
   next?: number;
   error?: string;
   /** The channel's thread of the run's conversation, once an attempt has named it. */
   thread?: unknown;
   /**
-   * The message that shows on the thread while the dispatch waits for its
-   * container. The run's replies replace it. `message` is unset if the
-   * channel doesn't name the messages it posts.
+   * The id of the message that shows on the thread while the dispatch waits
+   * for the build. The run's first reply, or the failure notice, replaces it.
    */
-  waiting?: { message?: string };
+  waiting?: string;
 };
 
 /**
@@ -52,8 +50,6 @@ export type DeliveryRecord = {
   received: number;
   acknowledged?: boolean;
   dispatches: TriggerDispatch[];
-  /** Whether the thread has been told that the delivery failed, since it was last replayed. */
-  noticed?: boolean;
 };
 
 /** A delivery whose dispatch failed after its retries, as an operator lists it. */
@@ -108,29 +104,23 @@ export const replayRecord = (record: DeliveryRecord, origin: string) => {
   const failed = record.dispatches.filter((d) => d.state === "failed");
   if (!failed.length) return false;
   for (const dispatch of failed) {
-    Object.assign(dispatch, { state: "pending", run: crypto.randomUUID(), attempts: 0 });
+    Object.assign(dispatch, { state: "pending", run: crypto.randomUUID() });
     delete dispatch.since;
     delete dispatch.next;
     delete dispatch.error;
     delete dispatch.waiting;
   }
   record.origin = origin;
-  record.noticed = false;
   return true;
 };
 
 /** The command that replays failed deliveries. */
 export const REPLAY_COMMAND = "factory infra replay";
 
-/** The one message that tells the thread a delivery's dispatch failed. `kept` says whether the router kept it for replay. */
-export const failureNotice = (failed: TriggerDispatch[], kept: boolean) => {
-  const lines = failed.map((d) => `Couldn't start the run of trigger \`${d.trigger}\`: ${d.error ?? "no reason given"}`);
-  if (kept) lines.push(`Factory kept the event. An operator can run \`${REPLAY_COMMAND}\` to start the run again.`);
-  return lines.join("\n\n");
-};
+/** The message that tells the thread that a dispatch failed. */
+export const failureNotice = (failed: TriggerDispatch) =>
+  `Couldn't start the run of trigger \`${failed.trigger}\`: ${failed.error ?? "no reason given"}\n\n` +
+  `Factory kept the event. An operator can run \`${REPLAY_COMMAND}\` to start the run again.`;
 
-/** The message that shows on the thread while a dispatch waits for its container. */
-export const waitingNotice = (container: string, building: boolean) =>
-  building
-    ? `> Booting container \`${container}\`... Its first image build hasn't finished, so Factory will keep trying for a few minutes.`
-    : `> Booting container \`${container}\`...`;
+/** The message that shows on the thread while a dispatch waits for its container's first image build. */
+export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

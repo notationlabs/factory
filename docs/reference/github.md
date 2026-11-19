@@ -30,7 +30,7 @@ new github.Connection("gh", {
 });
 ```
 
-An App that doesn't exist yet is created through GitHub's manifest flow in your browser, named `<app>--<stage>--<id>` (truncated with a hash at 34 characters). The App is protected: `factory infra down` leaves it.
+An App that doesn't exist yet is created through GitHub's manifest flow in your browser, named `<app>--<stage>--<id>` (truncated with a hash at 34 characters). Deploy prints the App's ID when it creates the App. Notation keeps the App by its ID, not its name, so you can rename the App on GitHub. The App is protected: `factory infra down` leaves it.
 
 The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`. The router runs the connection's channel with `router.channel(...)`, which gets the private key as `PRIVATE_KEY`, the root key as `ROOT_KEY` and the App's id as `APP_ID`. Only the channel reads the private key: the router and the deployer don't bind it. On Cloudflare, each connection's channel is a Worker with no URL, which the router binds as a service, such as `CHANNEL_GITHUB_GH` for the connection `gh`. The secret's value is the App's credential `privateKey`. GitHub returns the key once, when the manifest flow creates the App, and deploy writes it to the vault in memory. GitHub has no API that makes another key. So when deploy needs the key again, such as after the vault secret was deleted, plan fails: generate a private key on the App's settings page, and pass it with `notation deploy --credential`. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
 

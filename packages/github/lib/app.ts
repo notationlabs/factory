@@ -12,9 +12,11 @@ const github = async <T>(
   method: string,
   path: string,
   token?: string,
+  body?: unknown,
 ): Promise<T> => {
   const response = await fetch(`${GITHUB_API}${path}`, {
     method,
+    body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "notation-factory",
@@ -116,6 +118,7 @@ export const createApp = async (params: {
         "POST",
         `/app-manifests/${encodeURIComponent(code)}/conversions`,
       );
+      console.error(`Created the GitHub App ${app.slug}, with the ID ${app.id}. Outposts name the App by this ID in .factory/config.ts.`);
       resolve({ slug: app.slug, id: String(app.id), privateKey: app.pem });
       send(200, "App created. You can close this tab.");
     } catch (error) {
@@ -138,28 +141,46 @@ export const createApp = async (params: {
   }
 };
 
-/** Reads the App by its slug. GitHub only shows a private App to its owner, so this uses your gh login when there is one. */
-export const readApp = async (key: {
-  slug: string;
-}): Promise<{ slug: string; id: string }> => {
-  const app = await github<{ id: number; slug: string }>(
-    "GET",
-    `/apps/${encodeURIComponent(key.slug)}`,
-    await ghToken(),
+/**
+ * The current slug of the App with id `id`, which changes when the App is
+ * renamed. GitHub's REST API only finds an App by its slug, so this asks
+ * GraphQL for the App's node. GitHub has deprecated this form of node ID, but
+ * still resolves it, and its newer form includes the owner's ID.
+ */
+export const appSlug = async (id: string): Promise<string> => {
+  const token = await ghToken();
+  if (!token) {
+    throw new Error(`Looking up the GitHub App ${id} needs a GitHub token. Run \`gh auth login\`, or set GH_TOKEN.`);
+  }
+  const nodeId = Buffer.from(`03:App${id}`).toString("base64");
+  const { data } = await github<{ data?: { node?: { slug?: string } | null } }>(
+    "POST",
+    "/graphql",
+    token,
+    { query: "query($id: ID!) { node(id: $id) { ... on App { slug } } }", variables: { id: nodeId } },
   );
-  return { slug: app.slug, id: String(app.id) };
+  const slug = data?.node?.slug;
+  if (!slug) throw new Error(`There's no GitHub App with the ID ${id}.`);
+  return slug;
 };
 
+/** Reads the App by its id. GitHub only shows a private App to its owner, so this uses your gh login when there is one. */
+export const readApp = async (key: { id: string }): Promise<{ slug: string; id: string }> => ({
+  slug: await appSlug(key.id),
+  id: key.id,
+});
+
 /** Opens the App's advanced settings, where its owner must delete it. */
-export const requestAppDeletion = async (key: { slug: string }): Promise<void> => {
+export const requestAppDeletion = async (key: { id: string }): Promise<void> => {
+  const slug = await appSlug(key.id);
   const app = await github<{ owner: { login: string; type: string } }>(
     "GET",
-    `/apps/${encodeURIComponent(key.slug)}`,
+    `/apps/${encodeURIComponent(slug)}`,
     await ghToken(),
   );
   const owner = app.owner.type === "Organization" ? `/organizations/${app.owner.login}` : "";
-  const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/advanced`;
-  console.error(`Delete the GitHub App ${key.slug} on its settings page: ${url}`);
+  const url = `${GITHUB_WEB}${owner}/settings/apps/${slug}/advanced`;
+  console.error(`Delete the GitHub App ${slug} on its settings page: ${url}`);
   openBrowser(url);
 };
 
@@ -192,16 +213,17 @@ const missingFromApp = async (slug: string, change: { events?: GithubEvent[]; pe
  *    App's private key.
  */
 export const requestAppChange = async (
-  key: { slug: string; org?: string },
+  key: { id: string; org?: string },
   change: { events?: GithubEvent[]; permissions?: Permissions },
 ): Promise<void> => {
-  let missing = await missingFromApp(key.slug, change);
+  const slug = await appSlug(key.id);
+  let missing = await missingFromApp(slug, change);
   if (missing.permissions.length || missing.events.length) {
     const owner = key.org ? `/organizations/${key.org}` : "";
-    const url = `${GITHUB_WEB}${owner}/settings/apps/${key.slug}/permissions`;
+    const url = `${GITHUB_WEB}${owner}/settings/apps/${slug}/permissions`;
     console.error(
       [
-        `Set the GitHub App ${key.slug}'s permissions and events on ${url}, and save:`,
+        `Set the GitHub App ${slug}'s permissions and events on ${url}, and save:`,
         `  permissions: ${missing.permissions.map(([name, level]) => `${name}: ${level}`).join(", ") || "no change"}`,
         `  events: ${missing.events.join(", ") || "no change"}`,
       ].join("\n"),
@@ -210,13 +232,13 @@ export const requestAppChange = async (
     const deadline = Date.now() + APP_CHANGE_TIMEOUT_MS;
     while (missing.permissions.length || missing.events.length) {
       if (Date.now() > deadline) {
-        throw new Error(`The GitHub App ${key.slug} didn't get its new permissions and events within 15 minutes.`);
+        throw new Error(`The GitHub App ${slug} didn't get its new permissions and events within 15 minutes.`);
       }
       await new Promise((done) => setTimeout(done, APP_CHANGE_POLL_MS));
-      missing = await missingFromApp(key.slug, change);
+      missing = await missingFromApp(slug, change);
     }
   }
-  const installations = `${GITHUB_WEB}/apps/${key.slug}/installations/new`;
-  console.error(`Accept the GitHub App ${key.slug}'s new permissions on each installation: ${installations}`);
+  const installations = `${GITHUB_WEB}/apps/${slug}/installations/new`;
+  console.error(`Accept the GitHub App ${slug}'s new permissions on each installation: ${installations}`);
   openBrowser(installations);
 };

@@ -15,7 +15,7 @@ import {
 
 /** One GitHub App, which backs a connection. Its channels' rules contribute the events and permissions they need. */
 type AppApi = {
-  Key: { slug: string };
+  Key: { id: string };
   CreateParams: {
     name: string;
     org?: string;
@@ -24,6 +24,7 @@ type AppApi = {
     permissions?: Permissions;
   };
   UpdateParams: {
+    name: string;
     hookUrl: string;
     events?: GithubEvent[];
     permissions?: Permissions;
@@ -57,10 +58,13 @@ export const App = defineResource<AppApi>({
   provider: "@notation/factory-github",
 })
   .defineSchema({
+    /**
+     * The name the manifest flow suggests for the App. GitHub owns the name
+     * after that, and the App keeps working when it's renamed.
+     */
     name: {
       propertyType: "param",
       presence: "required",
-      immutable: true,
       value: v.string(),
     },
     org: {
@@ -82,13 +86,14 @@ export const App = defineResource<AppApi>({
       value: permissions,
       collect: highestPermissions,
     },
-    slug: {
+    id: {
       propertyType: "computed",
       presence: "required",
       primaryKey: true,
       value: v.string(),
     },
-    id: { propertyType: "computed", presence: "required", value: v.string() },
+    /** The App's slug, which changes when the App is renamed. */
+    slug: { propertyType: "computed", presence: "required", value: v.string() },
     /**
      * The App's private key, which GitHub returns once, when the manifest
      * flow creates the App. GitHub has no API that makes another.
@@ -109,6 +114,7 @@ export const App = defineResource<AppApi>({
           permissions: params.permissions,
         });
       }
+      // A new name isn't applied: GitHub has no API to rename an App.
       // A new hookUrl reaches GitHub through the router's sync, which signs
       // in as the App with its private key.
     },

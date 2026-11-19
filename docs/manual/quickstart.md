@@ -49,7 +49,7 @@ factory infra up
 ```
 
 `factory infra up` deploys the hub, writes its secrets to the vault, and creates the deployer's Cloudflare API token. It opens your browser twice on its first run:
-- to create the `<app>--<stage>--gh` GitHub App with its webhook set to `<Url>/webhook/github/gh`, where `Url` is the router's `Url` output;
+- to create the GitHub App, which it names `<app>--<stage>--gh`, with its webhook set to `<Url>/webhook/github/gh`, where `Url` is the router's `Url` output;
 - on Cloudflare, to take the deployer's builds token, a user API token that Workers Builds needs. See [Providers](./providers.md#cloudflare).
 
 GitHub returns the App's private key when it creates the App, and deploy writes the key to the vault. See [Secrets](./secrets.md#the-secrets-in-the-vault).
@@ -104,11 +104,11 @@ git add .factory && git commit -m "Add factory config" && git push
 
 ## 3. Subscribe the repository
 
-Name the hub in `acme/webapp`'s `.factory/config.ts`, by the `app` in the hub's `notation.config.ts` and the stage you deployed it to. `factory repo install` finds the hub's GitHub App from them:
+Name the hub's GitHub App in `acme/webapp`'s `.factory/config.ts`, by the ID that `factory infra up` printed when it created the App. The ID is also on the App's settings page. `factory repo install` finds the App from it:
 
 ```ts [.factory/config.ts]
 export default {
-  hub: { app: "acme-factory", stage: "prod" }, // <-- the App is `acme-factory--prod--gh`
+  githubApps: { gh: 123456 }, // <-- the ID of the App of the hub's connection `gh`
 };
 ```
 

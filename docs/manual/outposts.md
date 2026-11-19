@@ -5,7 +5,7 @@ Each repository defines its own outpost in `.factory/`:
 ```text
 .factory/
 ├── infra.ts           # Channels, Containers, Policies, Agents, and Triggers
-├── config.ts          # the hub this repo subscribes to, for the CLI
+├── config.ts          # the hub's GitHub Apps, for the CLI
 ├── Dockerfile         # container image definition
 └── prompts/
     └── system.md      # prompt files referenced by Agents

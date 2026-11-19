@@ -22,11 +22,11 @@ export default {
 
 `factory` runs the command once when it starts and adopts the environment it sets.
 
-In a subscriber repo, `.factory/config.ts` names the hub it subscribes to, by the hub's Notation app and stage. `factory repo install` finds each connection's GitHub App from them: the hub `acme`/`prod` names the App of the connection `gh` `acme--prod--gh`. It can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
+In a subscriber repo, `.factory/config.ts` names the hub's GitHub App for each GitHub connection that `.factory/infra.ts` uses, by the App's ID. `factory repo install` looks up each App's current slug from its ID, so it still finds an App that was renamed on GitHub. The App's ID is on its settings page, and `factory infra up` prints it when it creates the App. The config can also name the repo, for when its `origin` remote names another one, such as an outpost inside a monorepo:
 
 ```ts [.factory/config.ts]
 export default {
-  hub: { app: "acme", stage: "prod" }, // <-- the hub's notation.config.ts `app`, and the stage it's deployed to
+  githubApps: { gh: 123456 }, // <-- the ID of the App of the hub's connection `gh`
   repo: "acme/webapp",
 };
 ```

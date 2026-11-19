@@ -44,8 +44,8 @@ export type HubConfig = {
 export type OutpostCliConfig = {
   /** The outpost's repo, as `owner/name`, when its git remote doesn't name it. */
   repo?: string;
-  /** The hub the outpost subscribes to: its Notation app and stage, which name the hub's GitHub Apps. */
-  hub?: { app: string; stage: string };
+  /** The ID of the hub's GitHub App for each GitHub connection that `.factory/infra.ts` uses, by connection name. */
+  githubApps?: Record<string, number>;
 };
 
 /** Reads the default export of the config file at `file`, if there is one. */

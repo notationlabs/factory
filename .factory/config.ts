@@ -1,3 +1,3 @@
 export default {
-  hub: { app: "factory", stage: "prod" },
+  githubApps: { gh: 5823680 },
 };

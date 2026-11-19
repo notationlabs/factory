@@ -41,7 +41,7 @@ const router = new cloudflare.Router("router", {
   vault,
 });
 
-const gh = new github.Connection("gh", { name: "acme-agents", org: "acme", router });
+const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
 new github.OperatorAuth("operators", { logins: ["alice"], connection: gh });
 

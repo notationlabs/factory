@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
-import { appName } from "@notation/factory-github/app-name";
+import { appSlug } from "@notation/factory-github/app";
 import { collectResourceGraph } from "@notation/resource";
 import { loadConfig, openBrowser, type OutpostCliConfig, output } from "./shell.ts";
 
@@ -23,13 +23,6 @@ const githubConnections = async (infra: string) => {
     .filter((group) => group.type === "github/ConnectionRef")
     .map((group) => (group.config as { name: string }).name);
 };
-
-/** The slug GitHub gives an App with this name: `factory--test--gh` becomes `factory-test-gh`. */
-const appSlug = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 
 const gh = async <T>(path: string) =>
   JSON.parse(await output("gh", ["api", path])) as T;
@@ -134,10 +127,11 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
     console.log(".factory/infra.ts uses no GitHub connection, so there's nothing to install.");
     return;
   }
-  const { hub } = await outpostConfig(dir);
-  if (!hub) {
+  const { githubApps = {} } = await outpostConfig(dir);
+  const missing = names.filter((name) => githubApps[name] === undefined);
+  if (missing.length > 0) {
     throw new Error(
-      `Set hub in .factory/config.ts to the hub's Notation app and stage, such as hub: { app: "factory", stage: "prod" }, which name its GitHub Apps.`,
+      `Set githubApps in .factory/config.ts to the ID of the hub's GitHub App for each connection, such as githubApps: { ${missing.map((name) => `${name}: 123456`).join(", ")} }. The App's ID is on its settings page, and \`factory infra up\` prints it when it creates the App.`,
     );
   }
   const { id: repoId, owner } = await gh<{ id: number; owner: { id: number } }>(`repos/${repo}`);
@@ -145,12 +139,7 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     for (const name of names) {
-      const slug = appSlug(appName(hub, name));
-      await gh(`apps/${slug}`).catch(() => {
-        throw new Error(
-          `There's no GitHub App ${slug} for the connection ${name} of the hub ${hub.app}/${hub.stage}. Run \`factory infra up\` in the hub's repo first.`,
-        );
-      });
+      const slug = await appSlug(String(githubApps[name]));
       const url = `https://github.com/apps/${slug}/installations/new/permissions?suggested_target_id=${owner.id}&repository_ids[]=${repoId}`;
       console.log(`Install the GitHub App ${slug} on ${repo}:\n  ${url}`);
       openBrowser(url);

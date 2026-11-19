@@ -252,18 +252,6 @@ The App needs two things for this, which Factory sets up when it creates the App
 - The client secret, in the vault as `<connection>-client-secret`, which only the connection's channel binds.
 - The callback URL `http://127.0.0.1:47219/callback`. GitHub only sends the browser to an App's callback URLs, port included.
 
-An App that an earlier version of Factory created, such as `notation-factory`, has neither, and the next deploy fails because it can't get the client secret. Set them up on the App's settings page:
-
-1. Under **Identifying and authorizing users**, add the callback URL `http://127.0.0.1:47219/callback`, and save.
-2. Under **Client secrets**, generate a new client secret, and copy it.
-3. Put it in an environment variable, and pass it to the deploy that the error message names, such as:
-
-```sh
-GH_CLIENT_SECRET=… factory infra up --credential gh-app.clientSecret@<version>=GH_CLIENT_SECRET
-```
-
-The error prints the command with its `<version>`.
-
 To use Cloudflare Access instead of GitHub:
 
 ```ts [factory.infra.ts]
@@ -322,8 +310,6 @@ new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount], 
 `factory infra up` fails if a container could get two values for one env var: two outpost secrets with the same `name` whose `allowedRepos` overlap, or an outpost secret with the name of an account's secret.
 
 The agents in those containers can read the value, so give an outpost secret no more access than you would give the agents. For a database, that's a role with only the privileges the agents need.
-
-An outpost Worker built by an earlier version of Factory doesn't pass its repo to the deployer, so its containers get no outpost secrets until the outpost deploys again and rebuilds it.
 
 ## Topology
 

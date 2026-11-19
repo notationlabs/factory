@@ -60,25 +60,28 @@ export const repoToken = async (
   return token;
 };
 
-/** Permissions that let a user push to a repo. */
-const WRITE_PERMISSIONS = new Set(["admin", "maintain", "write"]);
+/** Roles that let a user push to a repo. */
+export const PUSH_ROLES = new Set(["admin", "maintain", "write"]);
 
 /**
- * The logins among `logins` that can push to `repo`, asked of GitHub. A
- * webhook's author association doesn't show private org membership, so the
- * channel asks when the association doesn't show write access.
+ * Each login's role on `repo`, asked of GitHub: `admin`, `maintain`,
+ * `write`, `triage`, `read`, an org's custom role, or `none`.
  */
-export const writers = async (auth: AppAuth, repo: string, logins: string[]) => {
+export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
   const token = await repoToken(auth, repo, { metadata: "read" });
-  const found = new Set<string>();
+  const found = new Map<string, string>();
   for (const login of logins) {
-    const response = await github("GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`, token);
-    if (response.status === 404) continue;
-    const { permission, role_name } = (await (await ok(response, `GET /repos/${repo}/collaborators/${login}/permission`)).json()) as {
+    const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
+    const response = await github("GET", path, token);
+    if (response.status === 404) {
+      found.set(login, "none");
+      continue;
+    }
+    const { permission, role_name } = (await (await ok(response, `GET ${path}`)).json()) as {
       permission: string;
       role_name?: string;
     };
-    if (WRITE_PERMISSIONS.has(permission) || WRITE_PERMISSIONS.has(role_name ?? "")) found.add(login);
+    found.set(login, role_name || permission);
   }
   return found;
 };
@@ -177,6 +180,26 @@ export const writeCheck = async (auth: AppAuth, repo: string, ref: string, check
     await ok(await github("PATCH", `/repos/${repo}/check-runs/${run.id}`, token, { body }), `PATCH /repos/${repo}/check-runs/${run.id}`);
   } else {
     await ok(await github("POST", `/repos/${repo}/check-runs`, token, { body }), `POST /repos/${repo}/check-runs`);
+  }
+};
+
+/** A comment on an issue or a pull request, as GitHub's API returns it. */
+export type IssueComment = {
+  id: number;
+  body?: string | null;
+  user?: { login: string; type?: string };
+  performed_via_github_app?: { id: number } | null;
+};
+
+/** The comments on an issue or a pull request, oldest first. */
+export const issueComments = async (auth: AppAuth, repo: string, issue: number) => {
+  const token = await repoToken(auth, repo, { issues: "read" });
+  const all: IssueComment[] = [];
+  for (let page = 1; ; page++) {
+    const path = `/repos/${repo}/issues/${issue}/comments?per_page=100&page=${page}`;
+    const batch = (await (await ok(await github("GET", path, token), `GET ${path}`)).json()) as IssueComment[];
+    all.push(...batch);
+    if (batch.length < 100) return all;
   }
 };
 

@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
   BuildCheck,
   ChannelContext,
+  ConversationTrigger,
   Delivery,
   FactoryStatus,
 } from "@notation/factory/router";
@@ -63,10 +64,10 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return writeCheck(repo, ref, check);
   }
 
-  conversation(delivery: Delivery<unknown>) {
+  conversation(delivery: Delivery<unknown>, trigger: ConversationTrigger) {
     const { conversation } = channel(context(this.env));
     if (!conversation) throw new Error("This connection's channel can't start runs.");
-    return conversation(delivery);
+    return conversation(delivery, trigger);
   }
 
   reply(thread: unknown, text: string) {

@@ -28,7 +28,18 @@ export type Delivery<E> = {
  * such as an issue. `thread` is the channel's own reference to it, which
  * only its `reply` reads.
  */
-export type Conversation = { id: string; prompt: string; thread: unknown };
+export type Conversation = {
+  id: string;
+  prompt: string;
+  thread: unknown;
+  /** What the conversation is, such as `GitHub issue`, for the runner's system prompt. */
+  channel?: string;
+  /** Text that the runner adds to its system prompt, such as which repo the conversation is in. */
+  context?: string;
+};
+
+/** The trigger that a run is for: its selector, and the agent it runs. */
+export type ConversationTrigger = { selector: unknown; agent: string };
 
 /**
  * A repo whose outpost may need deploying again. `ref` is the commit to read
@@ -75,7 +86,7 @@ export interface Channel<E = unknown> {
   /** For a code host's channel: creates or updates the check named `check.name` on commit `ref`. */
   writeCheck?(repo: string, ref: string, check: BuildCheck): Promise<void>;
   /** The conversation that a run for the delivery belongs to. A channel without it can't start runs. */
-  conversation?(delivery: Delivery<E>): Conversation;
+  conversation?(delivery: Delivery<E>, trigger: ConversationTrigger): Conversation | Promise<Conversation>;
   /** Posts `text` to a conversation's thread. */
   reply?(thread: unknown, text: string): Promise<void>;
   /** For a code host's channel: a short-lived token for `repo`, with only `permissions`. */

@@ -41,7 +41,7 @@ export type Run = {
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
   agent: { id: string } & AgentEntry;
-  conversation: { id: string; prompt: string };
+  conversation: { id: string; prompt: string; channel?: string; context?: string };
   /** The branch to run on, cut from `base` if it doesn't exist. Without it, the run gets a scratch checkout of the default branch. */
   worktree?: { branch: string; base?: string };
   /** A read-only token for cloning the repo. */

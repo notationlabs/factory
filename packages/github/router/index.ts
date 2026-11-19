@@ -2,13 +2,25 @@ import {
   type AuthorCheck,
   type Channel,
   type ChannelContext,
+  type Delivery,
   deriveKey,
   hmacHex,
   timingSafeEqual,
 } from "@notation/factory/router";
 import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
-import { comment, readDir, repoToken, sourceChanges, writeCheck as writeRepoCheck, writers, writeStatus as writeRepoStatus } from "./repos.ts";
+import {
+  comment,
+  type IssueComment,
+  issueComments,
+  PUSH_ROLES,
+  readDir,
+  repoToken,
+  roles,
+  sourceChanges,
+  writeCheck as writeRepoCheck,
+  writeStatus as writeRepoStatus,
+} from "./repos.ts";
 
 /** The webhook secret of the App with id `appId`, which the router derives from the root key. */
 export const webhookSecret = (rootKey: string, appId: string) =>
@@ -30,17 +42,16 @@ export const CHANNEL_VALUES = { appId: "APP_ID" } as const;
 
 /**
  * Someone who posted to a thread. `bot` is set for an App or another bot
- * account. `write` is whether they can push to the repo.
+ * account. `role` is their role on the repo, if GitHub said, and `write` is
+ * whether that role can push.
  */
-export type Author = { login: string; association: string; bot: boolean; write: boolean };
+export type Author = { login: string; bot: boolean; role?: string; write: boolean };
 
 /** The parts of an issue or comment event that selectors read. */
 export type GithubEvent = {
   action: string;
   /** The author of the comment, or of the issue. */
   author: Author;
-  /** For a comment, the issue's author, whose opening post the prompt also quotes. */
-  opener?: Author;
   body: string;
   /** The body before an edit. The same as `body` when an edit didn't change it. */
   before: string;
@@ -50,14 +61,12 @@ export type GithubEvent = {
 type Post = {
   body?: string | null;
   user?: { login: string; type?: string };
-  author_association?: string;
 };
 
 const authorOf = (post: Post): Author => ({
   login: post.user?.login ?? "",
-  association: post.author_association ?? "",
   bot: post.user?.type === "Bot",
-  write: WRITE_ACCESS.has(post.author_association ?? ""),
+  write: false,
 });
 
 const parse = (event: string, payload: any): GithubEvent | undefined => {
@@ -72,7 +81,6 @@ const parse = (event: string, payload: any): GithubEvent | undefined => {
   return {
     action: payload.action,
     author: authorOf(post),
-    ...(event === "issue_comment" && payload.issue && { opener: authorOf(payload.issue) }),
     body,
     before: payload.changes?.body?.from ?? body,
     labels: (payload.issue?.labels ?? []).map((l: { name: string }) => l.name),
@@ -87,7 +95,7 @@ const eventPayload = (payload: any) => ({
     title: payload.issue.title,
     body: payload.issue.body,
     labels: (payload.issue.labels ?? []).map((l: { name: string }) => ({ name: l.name })),
-    user: { login: payload.issue.user?.login },
+    user: { login: payload.issue.user?.login, type: payload.issue.user?.type },
     ...(payload.issue.pull_request && { pull_request: { url: payload.issue.pull_request.url } }),
   },
   ...(payload.comment && {
@@ -99,37 +107,53 @@ const eventPayload = (payload: any) => ({
 
 type Payload = ReturnType<typeof eventPayload>;
 
-/** Where a run's replies go: an issue or a pull request. */
-export type Thread = { repo: string; issue: number };
+/** Where a run's replies go: an issue or a pull request, and the agent whose replies they are. */
+export type Thread = { repo: string; issue: number; agent?: string };
 
-/** The prompt for a run that an issue or a comment started. */
-export const prompt = (event: string, payload: Payload) => {
-  const { issue, comment, repository } = payload;
-  const kind = issue.pull_request ? "pull request" : "issue";
-  const lines = [
-    `You're working in ${repository.full_name}, on ${kind} #${issue.number}: ${issue.title}`,
-    "",
-  ];
-  if (event === "issue_comment") {
-    lines.push(
-      `@${issue.user.login} opened it with:`,
-      issue.body ?? "",
-      "",
-      `@${comment!.user.login} commented:`,
-      comment!.body,
-    );
-  } else {
-    lines.push(`@${issue.user.login} ${payload.action} it with:`, issue.body ?? "");
-  }
-  lines.push(
-    "",
-    `Your final message is posted as a comment on the ${kind}. The gh CLI is signed in for ${repository.full_name}.`,
-  );
-  return lines.join("\n");
+/** One message in an issue's thread: its opening post or a comment. `agent` is set on a reply from one of the hub's agents. */
+type Message = { author: Author; body: string; agent?: string };
+
+/** The hidden marker at the start of an agent's reply, which names the agent. */
+const agentMarker = (agent: string) => `<!-- factory:agent=${agent} -->`;
+const AGENT_MARKER = /^<!-- factory:agent=([\w.-]+) -->\n?/;
+
+/** The comment as a message. Only this App's comments can name an agent. */
+const commentMessage = (c: IssueComment, appId: string): Message => {
+  const body = c.body ?? "";
+  const marker = String(c.performed_via_github_app?.id ?? "") === appId ? body.match(AGENT_MARKER) : null;
+  return {
+    author: authorOf(c),
+    body: marker ? body.slice(marker[0].length) : body,
+    ...(marker && { agent: marker[1] }),
+  };
 };
 
-/** Author associations that mean the person has write access to the repo. */
-const WRITE_ACCESS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+const attributes = (m: Message, from: Selector["from"]) => {
+  if (m.agent) return `agent: ${m.agent}`;
+  const canTrigger = `can_trigger_agent: ${checkAuthor(from, m.author).result === "allowed"}`;
+  return m.author.bot ? canTrigger : `role: ${m.author.role ?? "unknown"}, ${canTrigger}`;
+};
+
+const render = (m: Message, n: number, from: Selector["from"]) =>
+  `[${n}] @${m.author.login} (${attributes(m, from)})\n${m.body}`;
+
+/**
+ * The run's prompt: the messages since the agent's last reply, then the
+ * message that started the run.
+ */
+export const prompt = (recent: Message[], user: Message, from: Selector["from"]) => {
+  const parts: string[] = [];
+  if (recent.length > 0) {
+    parts.push("Messages in thread since last turn:", ...recent.map((m, i) => render(m, i + 1, from)));
+  }
+  parts.push("User message:", render(user, recent.length + 1, from));
+  return parts.join("\n\n");
+};
+
+const context = (repo: string, kind: string, issue: Payload["issue"]) =>
+  `The ${kind} is ${repo}#${issue.number}: ${issue.title}. The gh CLI is signed in for ${repo}.
+
+A message's role is its author's role on the repo. admin, maintain and write can push. triage can manage issues and pull requests, but can't push. read can only read. none has no access. A message with agent instead of a role is a reply from that agent on this hub.`;
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -173,32 +197,51 @@ const checkOne = (sets: AuthorSet[], author: Author): AuthorCheck => {
   return teams.length ? { result: "check", sets: teams } : { result: "denied" };
 };
 
+/** Whether `author` may start a run. Bots never match. */
+const checkAuthor = (from: Selector["from"], author: Author): AuthorCheck =>
+  checkOne(Array.isArray(from) ? from : [from], author);
+
 /**
- * Whether the event's author may start a run. A comment's prompt also
- * quotes the issue's opening post, so the issue's author must match `from`
- * too. Bots never match.
+ * Sets `role` and `write` on the people among `authors`, by asking GitHub.
+ * If GitHub can't answer, they stay without a role.
  */
-const checkAuthor = (from: Selector["from"], { author, opener }: GithubEvent): AuthorCheck => {
-  const sets = Array.isArray(from) ? from : [from];
-  const checks = [author, ...(opener ? [opener] : [])].map((a) => checkOne(sets, a));
-  if (checks.some((c) => c.result === "denied")) return { result: "denied" };
-  const pending = checks.find((c) => c.result === "check");
-  return pending ?? { result: "allowed" };
+const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: string, authors: Author[]) => {
+  const people = authors.filter((a) => !a.bot && a.login && a.role === undefined);
+  if (people.length === 0) return;
+  try {
+    const found = await roles(auth, repo, [...new Set(people.map((a) => a.login))]);
+    for (const a of people) {
+      a.role = found.get(a.login);
+      a.write = PUSH_ROLES.has(a.role ?? "");
+    }
+  } catch (error) {
+    console.log(JSON.stringify({ state: "role check failed", repo, error: error instanceof Error ? error.message : String(error) }));
+  }
 };
 
 /**
- * Sets `write` on the event's humans whose association doesn't show it, by
- * asking GitHub. If GitHub can't answer, they stay without write access.
+ * The messages for a run: the message that started it, and the messages
+ * before it since the agent's last reply. With no reply from the agent,
+ * they start at the issue's opening post. An issue event's message is the
+ * opening post, so it has none before it.
  */
-const resolveWriters = async (auth: { appId: string; privateKey: string }, repo: string, data: GithubEvent) => {
-  const unknown = [data.author, ...(data.opener ? [data.opener] : [])].filter((a) => !a.bot && !a.write && a.login);
-  if (unknown.length === 0) return;
-  try {
-    const found = await writers(auth, repo, [...new Set(unknown.map((a) => a.login))]);
-    for (const a of unknown) a.write = found.has(a.login);
-  } catch (error) {
-    console.log(JSON.stringify({ state: "permission check failed", repo, error: error instanceof Error ? error.message : String(error) }));
-  }
+const threadMessages = async (
+  auth: { appId: string; privateKey: string },
+  delivery: Delivery<GithubEvent>,
+  agent: string,
+) => {
+  const payload = delivery.payload as Payload;
+  const opening: Message = { author: authorOf(payload.issue), body: payload.issue.body ?? "" };
+  const user: Message = { author: delivery.data.author, body: delivery.data.body };
+  if (delivery.event !== "issue_comment") return { recent: [], user };
+  const comments = await issueComments(auth, delivery.repo, payload.issue.number);
+  const at = comments.findIndex((c) => c.id === payload.comment!.id);
+  const before = [opening, ...comments.slice(0, at === -1 ? comments.length : at).map((c) => commentMessage(c, auth.appId))];
+  let last = before.length - 1;
+  while (last >= 0 && before[last]!.agent !== agent) last--;
+  const recent = before.slice(last + 1);
+  await resolveRoles(auth, delivery.repo, recent.map((m) => m.author));
+  return { recent, user };
 };
 
 /** One GitHub App's webhook. A delivery's scope is its repo. */
@@ -227,7 +270,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      await resolveWriters(await auth(), repo, data);
+      await resolveRoles(await auth(), repo, [data.author]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
@@ -249,7 +292,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
     match(selector, delivery) {
       const s = selector as Selector;
       return selects(s, delivery.data)
-        ? checkAuthor(s.from, delivery.data)
+        ? checkAuthor(s.from, delivery.data.author)
         : undefined;
     },
 
@@ -274,19 +317,24 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       await writeRepoCheck(await auth(), repo, ref, check);
     },
 
-    conversation(delivery) {
+    async conversation(delivery, { selector, agent }) {
       const payload = delivery.payload as Payload;
-      const thread: Thread = { repo: delivery.repo, issue: payload.issue.number };
+      const { issue } = payload;
+      const kind = issue.pull_request ? "pull request" : "issue";
+      const thread: Thread = { repo: delivery.repo, issue: issue.number, agent };
+      const { recent, user } = await threadMessages(await auth(), delivery, agent);
       return {
         id: `github:${thread.repo}#${thread.issue}`.toLowerCase(),
-        prompt: prompt(delivery.event, payload),
+        prompt: prompt(recent, user, (selector as Selector).from),
         thread,
+        channel: `GitHub ${kind}`,
+        context: context(delivery.repo, kind, issue),
       };
     },
 
     async reply(thread, text) {
-      const { repo, issue } = thread as Thread;
-      await comment(await auth(), repo, issue, text);
+      const { repo, issue, agent } = thread as Thread;
+      await comment(await auth(), repo, issue, agent ? `${agentMarker(agent)}\n${text}` : text);
     },
 
     async token(repo, permissions) {

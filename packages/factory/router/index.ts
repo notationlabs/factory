@@ -14,6 +14,7 @@ export type {
   ChannelContext,
   ChannelModule,
   Conversation,
+  ConversationTrigger,
   Delivery,
   FactoryStatus,
   Received,

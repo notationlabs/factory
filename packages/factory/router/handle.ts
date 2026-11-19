@@ -195,7 +195,7 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
   const { delivery, outpost } = d;
   const repo = delivery.repo;
   const trigger = outpost.triggers[d.trigger]!;
-  const conversation = await d.channel.conversation(delivery);
+  const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
   const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
   const reply = { url: `${d.origin}/relay`, ticket, signature: await signTicket(rootKey, ticket) };
@@ -232,7 +232,12 @@ const dispatch = async (d: Dispatch, store: RouterStore) => {
       runtimes: container.runtimes,
       files: container.files ?? {},
       agent: { id: trigger.agent, ...agent },
-      conversation: { id: conversation.id, prompt: conversation.prompt },
+      conversation: {
+        id: conversation.id,
+        prompt: conversation.prompt,
+        ...(conversation.channel && { channel: conversation.channel }),
+        ...(conversation.context && { context: conversation.context }),
+      },
       ...(worktree && { worktree }),
       cloneToken: await codeHost.channel.token(repo, { contents: "read" }),
       tokens,

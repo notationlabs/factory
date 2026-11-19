@@ -223,6 +223,14 @@ const post = (body: Run) =>
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 
+test("the system prompt names the conversation's channel, then its context, then the agent's own prompt", async () => {
+  const conversation = { id: "github:acme/api#2", prompt: "fix it", channel: "GitHub issue", context: "The issue is acme/api#2." };
+  await post(run({ conversation, worktree: { branch: "issue-2" } }));
+  await nextReply();
+  const [, , args] = lastCall();
+  assert.match(args!, /--append-system-prompt You're running headless, in a container that Notation Factory started in response to a trigger in a GitHub issue\. .*The issue is acme\/api#2\.\s+Be brief\./s);
+});
+
 test("runs the agent on its branch's worktree, and replies with its final message", async () => {
   const response = await post(run());
   assert.equal(response.status, 202);

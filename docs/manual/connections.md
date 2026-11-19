@@ -56,7 +56,7 @@ ops.mention("@claude", { from: [slack.group("eng"), slack.user("dan@acme.dev")] 
 ```
 
 - `from` decides who can start a run. The router checks it when it matches the event.
-- A run's prompt has the conversation's messages that the agent's session hasn't seen, then the message that started the run. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
+- A run's prompt has the conversation's messages that the agent's session hasn't seen, in the thread's order. The message that started the run has `trigger="true"`. Each message shows its author's role and whether they match the trigger's `from`, as `can_trigger_agent`. A reply from one of the hub's agents shows the agent's name instead, and another bot shows only its login. Nothing is filtered out. The runner's system prompt tells the agent to act on messages from authors who match, and to read the others as context.
 
 On GitHub, a run's prompt looks like this:
 
@@ -75,10 +75,12 @@ Bumps jsonwebtoken from 9.0.0 to 9.0.2.
 @claude can you also bump the token lifetime to 30 days?
 </message>
 
-### User message
-
-<message user="@dan" role="admin" can_trigger_agent="true">
+<message user="@dan" role="admin" can_trigger_agent="true" trigger="true">
 @claude fix both and open a PR.
+</message>
+
+<message user="@alice" role="triage" can_trigger_agent="false">
+Thanks!
 </message>
 ```
 
@@ -108,7 +110,7 @@ Router
 Slack thread / GitHub issue
 ```
 
-The relay lets a container read a conversation's messages and reply to it. The router refuses any call for a conversation it didn't dispatch to that container: each run gets a ticket that the router signed, which names the thread and the trigger, and the router reads and replies only on that thread.
+The relay lets a container read a conversation's messages and reply to it. The router refuses any call for a conversation it didn't dispatch to that container: each run gets a ticket that the router signed, which names the thread, and the router reads and replies only on that thread.
 
 A reply can replace a message that an earlier reply of the same run posted. The router answers each reply with the message's id, signed together with the run's reply ticket, and replaces a message only when the container sends that signature back. A run can't edit any other message.
 

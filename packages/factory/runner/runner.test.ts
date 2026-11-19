@@ -44,6 +44,9 @@ case "$prompt" in
     echo '{"type":"system","subtype":"init"}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Looking."}]}}'
     sleep 0.3
+    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"hidden"}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"still hidden"}]}}'
+    sleep 0.3
     echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"A subagent."}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
@@ -72,6 +75,9 @@ case "$*" in
     sleep 0.3
     echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
     echo '{"type":"thinking","subtype":"delta","text":"hidden"}'
+    sleep 0.15
+    echo '{"type":"thinking","subtype":"delta","text":"still hidden"}'
+    echo '{"type":"thinking","subtype":"completed"}'
     sleep 0.3
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
@@ -468,6 +474,10 @@ test("the agent's messages during a run share one comment, which its final reply
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.equal(first.message, undefined);
+  // Each thought shows as "Thinking...", posted once.
+  const thinking = await nextReply();
+  assert.equal(thinking.text, "Thinking...\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
   assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.deepEqual(second.message, { id, signature: "msig" });

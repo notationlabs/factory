@@ -65,12 +65,16 @@ const claude: RuntimeRunner = {
     }
     return undefined;
   },
+  // A message with a parent tool use is a subagent's, which the conversation
+  // doesn't see. The conversation sees that the agent is thinking, but not
+  // its thoughts.
   message: (line) => {
     const event = parseLine(line);
-    // A message with a parent tool use is a subagent's, which the conversation doesn't see.
     if (event?.type !== "assistant" || event.parent_tool_use_id) return undefined;
-    const text = (event.message?.content ?? []).flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
-    return text.length ? text.join("\n\n") : undefined;
+    const content = event.message?.content ?? [];
+    const text = content.flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
+    if (text.length) return text.join("\n\n");
+    return content.some((block) => block.type === "thinking" || block.type === "redacted_thinking") ? "Thinking..." : undefined;
   },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };

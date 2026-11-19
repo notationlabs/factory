@@ -82,4 +82,4 @@ Each agent runs with `CLAUDE_CONFIG_DIR=/data/agents/<name>`:
 | **Channel trigger (headless)** | `claude -p --output-format=stream-json --verbose --dangerously-skip-permissions --session-id=<uuid>` (or `--resume=<uuid>`) |
 | **`factory container resume` (TUI)** | `claude --append-system-prompt-file=... --resume=<uuid>` inside the conversation's worktree |
 
-In a headless run, the runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. Subagents' messages aren't posted. The `result` event's text is the final reply, which replaces them.
+In a headless run, the runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. A message with only thinking is posted as "Thinking...". Subagents' messages aren't posted. The `result` event's text is the final reply, which replaces them.

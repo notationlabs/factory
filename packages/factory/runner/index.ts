@@ -498,12 +498,15 @@ const PROGRESS_NOTE = "> The agent is still running. Its final reply will replac
 /**
  * A run's replies, which share one message on the conversation. `progress`
  * posts the agent's latest message, at most once every
- * `PROGRESS_INTERVAL_MS`, and each post replaces the last. `finish` posts
- * the final reply in their place.
+ * `PROGRESS_INTERVAL_MS`, and each post replaces the last. A message that
+ * repeats the one already shown isn't posted again, such as a runtime's
+ * "Thinking..." for each part of a thought. `finish` posts the final reply
+ * in their place.
  */
 const replies = (run: Run) => {
   let posted: ReplyMessage | undefined;
   let pending: string | undefined;
+  let shown: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let sentAt = 0;
   // Posts go one at a time, so each one knows the message that the last one posted.
@@ -521,12 +524,15 @@ const replies = (run: Run) => {
     if (pending === undefined) return;
     const text = pending;
     pending = undefined;
+    if (text === shown) return;
+    shown = text;
     post(`${text}\n\n${PROGRESS_NOTE}`).catch((error: unknown) =>
       log({ run: run.id, state: "progress failed", error: message(error) }),
     );
   };
   return {
     progress(text: string) {
+      if (text === (pending ?? shown)) return;
       pending = text;
       timer ??= setTimeout(flush, Math.max(0, sentAt + PROGRESS_INTERVAL_MS - Date.now()));
     },

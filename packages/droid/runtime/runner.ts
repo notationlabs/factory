@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RuntimeRunner } from "@notation/factory";
@@ -22,6 +22,28 @@ const parseLine = (line: string): StreamEvent | undefined => {
   }
 };
 
+/**
+ * Sets Droid's user setting `showThinkingInMainView`. Without it, Droid asks
+ * Claude models for thinking as progress updates, and writes them as
+ * assistant messages that the output can't tell apart from the agent's
+ * text. With it, all thinking comes as reasoning events. Droid reads the
+ * setting only from the user's settings, not from `--settings`, and only when
+ * it creates a session.
+ */
+const hideThinking = async () => {
+  const path = join(homedir(), ".factory", "settings.json");
+  let current: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed as Record<string, unknown>;
+  } catch {
+    // Droid creates the file itself when it has never run.
+  }
+  if (current.showThinkingInMainView === true) return;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ ...current, showThinkingInMainView: true }, null, 2)}\n`);
+};
+
 /** How the runner runs Droid. Containers import it with no packages, so it imports only Node's. */
 const droid: RuntimeRunner = {
   command: "droid",
@@ -29,6 +51,7 @@ const droid: RuntimeRunner = {
   transcripts: join(homedir(), ".factory", "sessions"),
   args: async (run, { systemPrompt, dataDir }) => {
     const { agent } = run;
+    await hideThinking();
     // stream-json writes a line for each event, so the runner can post the
     // agent's messages as it writes them.
     const args = ["exec", run.conversation.prompt, "--output-format", "stream-json"];
@@ -62,8 +85,10 @@ const droid: RuntimeRunner = {
   },
   // Droid runs each subagent in a process of its own, so this output has
   // only the main session's messages. A subagent shows as a Task tool call.
+  // The conversation sees that the agent is thinking, but not its thoughts.
   message: (line) => {
     const event = parseLine(line);
+    if (event?.type === "reasoning") return "Thinking...";
     return event?.type === "message" && event.role === "assistant" ? event.text : undefined;
   },
 };

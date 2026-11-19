@@ -80,8 +80,8 @@ echo "{\\"type\\":\\"result\\",\\"subtype\\":\\"success\\",\\"is_error\\":false,
 `;
 
 // A fake Droid: like the fake Claude Code, but for droid's CLI and its
-// stream-json events. It fails, or writes messages before its completion,
-// when the prompt says so.
+// stream-json events. It fails, or writes messages and reasoning before its
+// completion, when the prompt says so.
 const FAKE_DROID = `#!/bin/sh
 prompt="$2"
 printf '%s\\n' "$(pwd)" "$(gh)" "$(printf '%s' "$*" | tr '\\n' ' ')" >> "${calls}"
@@ -97,6 +97,8 @@ case "$prompt" in
     exit 1 ;;
   talk*)
     echo '{"type":"message","role":"assistant","text":"Looking."}'
+    sleep 0.3
+    echo '{"type":"reasoning","text":"The bug is in the parser."}'
     sleep 0.3
     echo '{"type":"tool_call","toolName":"Task","parameters":{"subagent_type":"worker"}}'
     echo '{"type":"tool_result","toolId":"Task","value":"A subagent."}'
@@ -341,6 +343,9 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.equal(first.message, undefined);
+  const thinking = await nextReply();
+  assert.equal(thinking.text, "Thinking...\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
   assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.deepEqual(second.message, { id, signature: "msig" });
@@ -406,12 +411,24 @@ test("a droid agent's messages during a run share one comment, which its final r
   await post(run({ runtimes: ["droid"], agent, conversation: { id: "github:acme/api#23", prompt: "talk to me" } }));
   const first = await nextReply();
   assert.equal(first.text, "Looking.\n\n> The agent is still running. Its final reply will replace this message.");
+  const thinking = await nextReply();
+  assert.equal(thinking.text, "Thinking...\n\n> The agent is still running. Its final reply will replace this message.");
+  assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
   assert.equal(second.text, "Found it.\n\n> The agent is still running. Its final reply will replace this message.");
   assert.deepEqual(second.message, { id, signature: "msig" });
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+});
+
+test("a droid run sets Droid's user settings to send thinking as reasoning, and keeps the other settings", async () => {
+  const path = join(home, ".factory", "settings.json");
+  mkdirSync(join(home, ".factory"), { recursive: true });
+  writeFileSync(path, JSON.stringify({ logoAnimation: "off", showThinkingInMainView: false }));
+  await post(run({ runtimes: ["droid"], agent: { id: "coder", runtime: "droid" }, conversation: { id: "github:acme/api#25", prompt: "go" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { logoAnimation: "off", showThinkingInMainView: true });
 });
 
 test("a failed droid run replies with the error", async () => {

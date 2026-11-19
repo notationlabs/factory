@@ -256,8 +256,7 @@ export const deployOutposts = async (
     const source = outpostSource(settings, worker, container, files, env.ACCOUNTS);
     const sourceExecutables = executables.map((path) => `.factory/${path}`).sort();
     const entries = Object.entries(source).sort(([a], [b]) => a.localeCompare(b));
-    // Without executables, the hash is the one earlier versions stored, so their outposts don't rebuild.
-    const hash = await sha256(JSON.stringify(sourceExecutables.length ? [entries, sourceExecutables] : entries));
+    const hash = await sha256(JSON.stringify([entries, sourceExecutables]));
     if ((await kv.get(sourceKey(worker))) === hash) continue;
     const artifact = await ensureRepo(token, settings.accountId, settings.namespace, worker);
     const write = await repoToken(token, settings.accountId, settings.namespace, worker);

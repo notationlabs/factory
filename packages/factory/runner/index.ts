@@ -395,8 +395,8 @@ const refreshTokens = async (run: Run) => {
 /** The thread's messages that a session has seen: a hash of each one's body, by its id. */
 type Seen = Record<string, string>;
 
-/** An agent's session in a conversation. `seen` is set once a run has passed it the thread's messages. */
-type Session = { id: string; cwd: string; seen?: Seen };
+/** An agent's session in a conversation, with the messages that runs have passed it. */
+type Session = { id: string; cwd: string; seen: Seen };
 
 // Each agent in a conversation has its own session, since one runtime
 // can't resume another's.

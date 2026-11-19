@@ -767,10 +767,15 @@ const perform = async (run: Run, notes: string[], onMessage: (text: string) => v
   }
 };
 
+/** What a skipped run posts in place of the message that the router posted while the run waited for its container. */
+const SKIPPED_NOTE = "> An earlier run already read these messages, so this run had nothing new to do.";
+
 /**
  * Runs one run, and posts the agent's final message, or the error, to the
  * conversation, with notes on what couldn't be restored or saved. It
- * replaces the agent's last message. A skipped run posts nothing.
+ * replaces the agent's last message. A skipped run posts nothing, unless
+ * the router posted a message while the run waited for its container,
+ * which the run replaces with `SKIPPED_NOTE`.
  */
 const execute = async (run: Run) => {
   const started = Date.now();
@@ -782,10 +787,12 @@ const execute = async (run: Run) => {
     const result = await perform(run, notes, reply.progress);
     if (result === undefined) {
       log({ run: run.id, state: "skipped", reason: "no new messages" });
-      return;
+      if (!run.reply.message) return;
+      text = SKIPPED_NOTE;
+    } else {
+      text = result;
+      log({ run: run.id, state: "finished", ms: Date.now() - started });
     }
-    text = result;
-    log({ run: run.id, state: "finished", ms: Date.now() - started });
   } catch (error) {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
     text = `The run failed: ${message(error)}`;

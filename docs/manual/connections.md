@@ -90,7 +90,7 @@ The runner builds the prompt when the run starts, not when the router dispatches
 
 1. It asks the router for the thread's messages, with the run's reply ticket.
 2. It leaves out the messages that the agent's session has seen, and the agent's own replies. After each run, the runner saves a hash of each message's body with the session, so a message that someone edited since shows again, in full, with `edited="true"`.
-3. If nothing is left, the run is skipped. The run posts nothing, and the 👀 reaction that the router added stays on the message. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
+3. If nothing is left, the run is skipped. The run posts nothing, and the 👀 reaction that the router added stays on the message. If the thread shows `Booting container dev...` for the run, the run replaces it with a note that an earlier run already read the messages. This happens when an earlier run in the queue already showed the agent the messages. A run that an event without a message started, such as a label being added, is never skipped.
 4. A new session, or one that was lost, gets the whole thread, under `### Messages in thread`.
 
 A run that such an event started has no message with `trigger="true"`. Its prompt starts with what happened, which the channel describes, and then has any messages the agent hasn't seen. The agent resumes its session:

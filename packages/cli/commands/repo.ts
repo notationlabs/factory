@@ -137,6 +137,8 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   const { id: repoId, owner } = await gh<{ id: number; owner: { id: number } }>(`repos/${repo}`);
 
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  // readline takes Ctrl+C from the process while it's open, and without this listener only pauses.
+  prompt.on("SIGINT", () => process.exit(130));
   try {
     for (const name of names) {
       const slug = await appSlug(String(githubApps[name]));

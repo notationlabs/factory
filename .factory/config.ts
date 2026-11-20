@@ -1,3 +1,3 @@
 export default {
-  githubApps: { gh: 5823680 },
+  githubApps: { gh: 5841131 },
 };

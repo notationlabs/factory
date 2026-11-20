@@ -1,85 +1,55 @@
 # `@notation/factory-cursor`
 
-`@notation/factory-cursor` provides the Cursor Agent `Account` for `factory.infra.ts`, the `runtime` and `Agent` for `.factory/infra.ts`, and the `setup.sh` that installs `agent` in outpost images.
+Runs Cursor Agent CLI inside Notation Factory containers.
 
-```bash
-@pm.dev("@notation/factory-cursor")
-```
+## Exports
 
-## Account
+| Export | Purpose |
+| :--- | :--- |
+| `Account` | Hub class binding a vault secret as `CURSOR_API_KEY` |
+| `Agent` | Outpost class configuring a Cursor agent using `cursor.runtime` |
+| `runtime` | Runtime object installing Cursor Agent in images and executing `agent -p` |
 
-Give the hub the credentials Cursor Agent runs on:
+## `Account`
 
 ```ts [factory.infra.ts]
-import * as cursor from "@notation/factory-cursor";
-import * as cloudflare from "@notation/factory-cloudflare";
-import { sources } from "@notation/std/resources";
-
-const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", { vault });
-
-const cursorKey = new sources.Env("cursor-api-key", {
-  config: { key: "CURSOR_API_KEY", track: "scrypt" },
-});
 const cursorAccount = new cursor.Account("cursor", {
-  auth: vault.secret({ id: "cursor-api-key", value: cursorKey.credentials.value }), // <-- from the Cursor dashboard
+  auth: vault.secret({
+    id: "cursor-api-key",
+    value: cursorKey.credentials.value,
+  }),
 });
-
-new cloudflare.Deployer("deployer", { router, vault, accounts: [cursorAccount] });
 ```
 
-`auth` is a secret that you declare in the hub's vault with `vault.secret(...)`. You choose its id. Its value is a credential. Here, the `sources.Env` source reads `CURSOR_API_KEY` from your environment, and with `track: "scrypt"` `factory infra up` writes it to the vault only when it changes. Any other source works the same way, such as `sources.Dotenv` or `InfisicalSecret`. See [Secrets](../manual/secrets.md#credentials). Generate the key on the [Cursor dashboard](https://cursor.com/dashboard), under API Keys.
+Takes `{ auth: VaultSecret }` and exposes `{ CURSOR_API_KEY: auth }` to containers listed under `deployer.accounts`.
 
-The account's `secrets` holds the key under the env var name `CURSOR_API_KEY`. Only the deployer binds it, under that name. The deployer injects it into every container that lists `cursor.runtime`, and no other.
-
-## Runtime
-
-Give a container Cursor Agent's credentials:
+## `Agent`
 
 ```ts [.factory/infra.ts]
-import { Container } from "@notation/factory";
-import * as cursor from "@notation/factory-cursor";
-
-const dev = new Container("dev", {
-  runtimes: [cursor.runtime], // <-- id "cursor"
+const coder = new cursor.Agent("cursor-coder", {
+  model: "grok-4.7-medium-fast",
+  mode: "plan",
+  systemPrompt: "./prompts/reviewer.md",
+  settings: { permissions: { deny: ["Shell(rm *)"] } },
+  files: { "~/.cursor/rules": "./rules" },
 });
 ```
 
-The image must have `agent`. This package ships the `setup.sh` that installs it, which the deployer adds to every container that lists `cursor.runtime` (see [Containers](../manual/containers.md#image)). It also ships the runner module that tells the runner how to run `agent`. The runner fails a run if the image has no `agent`. A container that lists `cursor.runtime` fails its deploy unless the infra's deployer has a `cursor.Account` in its `accounts`.
+| Option | Details |
+| :--- | :--- |
+| `model` | Required model string passed to `--model` |
+| `mode` | Optional mode `"plan"` or `"ask"`; omit for default edit and command execution |
+| `systemPrompt` | Optional `.factory/`-relative file prepended to `stdin` before thread messages |
+| `settings` | Optional object merged into `/data/agents/<agent>/.cursor/cli-config.json` |
+| `files` | Optional map of `~/...` destinations to `.factory/`-relative source files |
 
-## Agent
+## Runtime behavior
 
-Configure a Cursor Agent for an outpost:
-
-```ts [.factory/infra.ts]
-const coder = new cursor.Agent("coder", {
-  model: "composer-2.5",
-  systemPrompt: "./prompts/coder.md", // <-- relative to .factory/
-  settings: { approvalMode: "unrestricted" },
-  files: {
-    "~/.cursor/cli-config.json": "./cli-config.json",
-  },
-});
-```
-
-A trigger that runs `coder` must target a container that lists `cursor.runtime`.
-
-| Option | Effect in outpost container |
-| --- | --- |
-| `model` | Passed as `--model`. A parameterized model takes its parameters in brackets, such as `claude-opus-4-8[effort=high]` |
-| `mode` | `plan` or `ask`, passed as `--mode`. Without it, the CLI edits and runs commands |
-| `systemPrompt` | Appended to the runner's prompt. The CLI has no flag for a system prompt, so both are placed before the conversation's messages |
-| `settings` | Merged into `/data/agents/<name>/.cursor/cli-config.json` before the run |
-| `files` | `~/.cursor/*` writes to `/data/agents/<name>/.cursor/`; other `~/*` writes to `/data/home/`. Each value is a file in `.factory/` |
-
-The container's own `~/.cursor/*` files are written to each Cursor agent's directory too, before the agent's `files`, so an agent's file replaces the container's file at the same path.
-
-## Runtime invocation
-
-A channel trigger runs the agent headless in the conversation's worktree, with `CURSOR_CONFIG_DIR=/data/agents/<name>/.cursor`, so agents in one container don't share settings, files or sessions:
-
-`agent -p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update [--model <model>] [--mode plan\|ask] [--resume <uuid>]`
-
-The runner writes the prompt to stdin, since a whole thread can be longer than one argument may be. The prompt is the runner's system prompt, then the agent's `systemPrompt`, then the conversation's messages. `--force` allows commands unless one is denied, `--trust` skips the workspace trust prompt, and `--sandbox disabled` lets those commands run. Without a `--resume`, the run starts a new session; with one, it continues the conversation's session. The runner saves the session's transcripts from the agent's `.cursor/chats` to the state store after each run, so a container that slept resumes the session.
-
-In a headless run, the runner reads each of the agent's messages from the `stream-json` output and posts it to the conversation, in place of the last one. The runner reads the model from the `init` event, and shows it under each message. A thinking event is posted as "Thinking...". A subagent's messages are part of the task tool's result, so they aren't posted. The `result` event's text is the final reply, which replaces them. A failed run writes its error to stderr and exits non-zero, with no `result` event.
+| Setting | Value |
+| :--- | :--- |
+| Installer script | `https://cursor.com/install` run as `root` |
+| Install directory | `/opt/cursor-agent` linked to `/usr/local/bin/agent` |
+| Command flags | `-p --output-format stream-json --force --trust --sandbox disabled --disable-auto-update` |
+| Config directory | `CURSOR_CONFIG_DIR` set to `/data/agents/<agent>/.cursor` |
+| Session resume | `--resume <sessionId>` |
+| Transcript persistence | `chats` directory across container sleeps |

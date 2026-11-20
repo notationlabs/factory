@@ -1,144 +1,107 @@
 # `@notation/factory-github`
 
-`@notation/factory-github` connects GitHub repositories and issues to Notation Factory. The same entrypoint serves both config files:
+Integrates GitHub Apps as Notation Factory webhook connections, repository code hosts, policy token minters, and operator authentication.
 
-```bash
-@pm.dev("@notation/factory-github")
-```
+## Entrypoints
 
-| Used in | Exports |
-| --- | --- |
-| `factory.infra.ts` | `github.Connection` (provisions the GitHub App and webhook), `github.CodeHost` (where the repositories live), `github.OperatorAuth` (operator sign-in) |
-| `.factory/infra.ts` | `Connection.get`, `Policy`, `channel.issue`, `channel.issueComment`, `collaborators`, `team`, `user` |
+| Import path | Included exports |
+| :--- | :--- |
+| `@notation/factory-github` | `Connection`, `CodeHost`, `OperatorAuth`, `Policy`, `collaborators`, `team`, `user`, event types |
+| `factory-outpost` | Condition on `@notation/factory-github` exporting `Connection.get`, `Policy`, `collaborators`, `team`, `user`, and event and selector types |
+| `@notation/factory-github/app` | CLI App utilities: `OPERATOR_CALLBACK_URL`, `createApp`, `appSlug`, `appVisibility`, `readApp`, `requestAppDeletion`, `requestAppChange` |
+| `@notation/factory-github/router` | `channel`, `webhookSecret`, `verifySignature`, `mentions`, `CHANNEL_SECRETS`, `CHANNEL_VALUES` |
 
-On GitHub, one App is both the connection and the code host's token issuer.
+## Hub classes
 
-## Connection
+### `Connection`
 
-Register a GitHub App and wire its webhooks to your router:
-
-```ts [factory.infra.ts]
-import * as cloudflare from "@notation/factory-cloudflare";
-import * as github from "@notation/factory-github";
-
-const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", { vault });
-
-new github.Connection("gh", {
-  org: "acme", // <-- omit for a personal GitHub account
-  router,
-});
-```
-
-An App that doesn't exist yet is created through GitHub's manifest flow in your browser, named `<app>--<stage>--<id>` (truncated with a hash at 34 characters). Deploy prints the App's ID when it creates the App. Notation keeps the App by its ID, not its name, so you can rename the App on GitHub. An App on a personal account is public, so that other accounts can install it. An App with an `org` is private, so only repos in that org can install it. `factory repo install` fails for a repo elsewhere, until you make the App public under Advanced on its settings page. The App is protected: `factory infra down` leaves it.
-
-The connection declares the App's private key in the hub vault as the secret `<id>-private-key`, here `gh-private-key`, and its client secret as `<id>-client-secret`. The router runs the connection's channel with `router.channel(...)`, which gets the private key as `PRIVATE_KEY`, the client secret as `CLIENT_SECRET`, the root key as `ROOT_KEY`, the App's id as `APP_ID`, and the App's client id as `CLIENT_ID`. The App resource gets the client id from GitHub when it creates the App, and reads it for an existing App. Only the channel reads the private key and the client secret: the router and the deployer don't bind them. On Cloudflare, each connection's channel is a Worker with no URL, which the router binds as a service, such as `CHANNEL_GITHUB_GH` for the connection `gh`. The secrets' values are the App's credentials `privateKey` and `clientSecret`. GitHub returns them once, when the manifest flow creates the App, and deploy writes them to the vault in memory. GitHub has no API that makes another. So when deploy needs one again, such as after the vault secret was deleted, plan fails: generate a private key or a client secret on the App's settings page, and pass it with `factory infra up --credential`. See [Secrets](../manual/secrets.md#the-secrets-in-the-vault).
-
-| GitHub App manifest | Value |
-| --- | --- |
-| **Webhook URL** | `<Url>/webhook/github/<id>`, where `Url` is the router's URL |
-| **Callback URL** | `http://127.0.0.1:47219/callback`, where the CLI listens when an operator signs in |
-| **Events** | `issues`, `issue_comment`, `push` |
-| **Permissions** | `contents: "write"`, `issues: "write"`, `pull_requests: "write"`, `actions_variables: "write"`, `checks: "write"`, `metadata: "read"`, `actions: "read"`, `deployments: "read"`, `statuses: "read"` |
-
-The router sets the App's webhook secret, because only the hub can read the root key that the secret is derived from. `POST <Url>/sync` makes the router ask each connection's channel to set its App's webhook URL to `<Url>/webhook/github/<id>` and its secret to the derived one. The channel authenticates as the App with its private key, so set the private key first. Deploy calls it at the end of every deploy, signed with the router's sync key, and the router refuses a request without that signature. See [The sync key](../manual/secrets.md#the-sync-key). `github.collaborators()` matches authors whose role on the repo is `admin`, `maintain` or `write`. The channel asks GitHub for each author's role, with a `metadata: read` token, since the author association in the event doesn't show it: an org member may only be able to read. Bot accounts never match.
-
-GitHub has no API for an existing App's permissions and events, so deploy has you change them in the browser:
-1. Deploy opens the App's permissions page, and prints the permissions and events to set there.
-2. Deploy waits until the App has them, through your `gh` login. After 15 minutes it fails, and the next deploy asks again.
-3. Deploy opens the App's installations. Each installation accepts the new permissions on its own page. Deploy doesn't wait for that, and until an installation accepts, the router can't write its build checks and logs the error.
-
-The grant is the App's installation: installing it on a repo (`factory repo install`) lets that repo's channel receive events.
-
-## Code host
-
-Every infrastructure declares one code host, where the repositories it serves live:
+Creates a GitHub App (`github/Connection`), stores its private key and client secret in the router vault, and registers its webhook channel worker:
 
 ```ts [factory.infra.ts]
-// …
+const gh = new github.Connection("gh", { router, org: "acme" });
+```
+
+Pass optional `org` to create the App under a GitHub organization instead of your personal account. Call `github.Connection.get(name)` inside `.factory/infra.ts` to obtain a `ConnectionRef`.
+
+### `CodeHost`
+
+Designates the GitHub connection as the hub's repository source and configures repository allowlists:
+
+```ts [factory.infra.ts]
 new github.CodeHost("github", {
   connection: gh,
-  allow: [{ owner: "acme" }], // <-- only installed repos that match get outposts
+  allow: [{ owner: "acme", repo: "webapp" }],
 });
 ```
 
-The deployer serves installed repos that match `allow`, reads `.factory/` and writes `FACTORY_STATUS` through it. The router mints containers' tokens through the App. The CLI reaches repositories through your `gh` login.
+Omit `repo` on a pattern in `allow` to allow all installed repositories under `owner`.
 
-GitHub installation tokens can be limited to one repo and a set of permissions, and last an hour, so every `github.Policy` passes the code host's validation.
+### `OperatorAuth`
 
-## Operator auth
-
-Sign operators in with GitHub:
+Authorizes GitHub logins (matched case-insensitively) or numeric GitHub account IDs for `factory infra` admin commands:
 
 ```ts [factory.infra.ts]
-// …
 new github.OperatorAuth("operators", {
   connection: gh,
-  users: ["djgrant", 583231], // <-- GitHub users allowed to run the CLI against the hub, by login or account id
+  users: ["alice", 123456],
 });
 ```
 
-Each entry in `users` is a GitHub login, as a string, or a numeric account ID, as a number. A string of digits is a login, not an ID. Prefer IDs: after a user renames their account, someone else can register the old login, and a login entry then lets that person in. An ID always names the same account. To find a user's ID, open `https://api.github.com/users/<login>` and read `id`.
+## Outpost classes and selectors
 
-The CLI signs you in with GitHub's web flow for the connection's App. The connection's channel exchanges the code for a user token with the App's client secret, reads your login and ID, and revokes the token. The router checks them against `users`, with logins compared without case, before it returns an admin session that lasts 4 hours. The session holds both your login and your ID, and the router checks them against `users` again on each request. An App that an earlier version of Factory created needs a client secret and the callback URL `http://127.0.0.1:47219/callback`, which you add on its settings page. See [Signing in with GitHub](../manual/secrets.md#signing-in-with-github).
+### `Policy`
 
-The code host's channel also lists the repos of every installation of the App that isn't suspended. `factory infra up` has the router deploy each of them again.
-
-## Channel
-
-Listen on this repo's issues:
+Requests a 1-hour installation token for the outpost repository (or custom `repo`) with scoped permissions:
 
 ```ts [.factory/infra.ts]
-import * as github from "@notation/factory-github";
-
-const gh = github.Connection.get("gh").channel({ id: "issues" }); // <-- scope defaults to the outpost's repo
-```
-
-## Selectors
-
-Filter the issue or comment events that wake an agent:
-
-```ts [.factory/infra.ts]
-new Trigger("mention", {
-  event: gh.issueComment({
-    actions: ["created", "edited"], // <-- default: ["created"]
-    mention: "@claude",
-    labels: ["docs"],
-    from: github.collaborators(),   // <-- required
-  }),
-  worktree: (event) => `issue-${event.issue.number}`, // <-- `event` is an IssueCommentEvent
-  agent: coder,
-  container: dev,
-});
-```
-
-| Selector | Options | Matches |
-| --- | --- | --- |
-| `gh.issueComment(opts)` | `actions`, `mention`, `labels`, `from` | Comment `"created"` / `"edited"` events |
-| `gh.issue(opts)` | `actions`, `mention`, `labels`, `from` | Issue `"opened"` / `"edited"` / `"reopened"` / `"labeled"` events |
-
-| Author set | Matches |
-| --- | --- |
-| `github.collaborators()` | Users with write access to the repo |
-| `github.team("acme/core")` | Members of a team |
-| `github.user("alice")` | One user |
-
-A conversation is an issue. Its thread is the issue's opening post, then its comments. Replies are posted as issue comments by the App, through the router's relay. The App reacts with 👀 to the comment or issue that starts a run. An issue being opened or edited, or a comment being created or edited, posts a message, which the run's prompt marks with `trigger="true"`. Any other event, such as `reopened` or `labeled`, starts the prompt with what happened and who did it, such as "The issue was labelled `ready` by @dan.", and the run always goes ahead. For such an event, both the person who acted and the issue's author must match `from`. A run's messages share one comment, which the App edits with each message and then with the final reply. During the run, the comment quotes the agent's latest message, with the model and the time since the run started below it in small text, such as "Claude Opus 5.5 working • 24:32". While the agent writes no new message, the App edits the comment once a minute to update the time. If someone deletes that comment during the run, the next message is posted as a new comment.
-
-## Policy
-
-Grant an outpost container scoped installation tokens for a repository:
-
-```ts [.factory/infra.ts]
-import * as github from "@notation/factory-github";
-
 const code = new github.Policy("code", {
-  repo: "acme/webapp", // <-- omit to scope to the current repository
-  permissions: {
-    contents: "write",
-    pull_requests: "write",
-  },
+  permissions: { contents: "write", pull_requests: "write" },
 });
 ```
 
-The code host mints a 1-hour GitHub installation token scoped to `repo` and `permissions` before each agent run. A policy can only ask for permissions the App has, at the same level or lower. For an agent to follow a pull request's CI, give it `actions: "read"`, `checks: "read"`, `statuses: "read"` and `deployments: "read"`.
+Valid permission keys accept `"read"` or `"write"`:
+
+```ts [@notation/factory-github]
+type PolicyLevel = "read" | "write";
+
+type PolicyOptions = {
+  repo?: string;
+  permissions: {
+    actions?: PolicyLevel;
+    actions_variables?: PolicyLevel;
+    checks?: PolicyLevel;
+    contents?: PolicyLevel;
+    deployments?: PolicyLevel;
+    issues?: PolicyLevel;
+    metadata?: PolicyLevel;
+    pull_requests?: PolicyLevel;
+    statuses?: PolicyLevel;
+    workflows?: PolicyLevel;
+  };
+};
+```
+
+`Policy` schema validation accepts `workflows`, though `Connection`'s default App manifest does not request `workflows` permission.
+
+### `Channel`
+
+Create a channel from a connection reference (`scope` defaults to the outpost repository):
+
+```ts [.factory/infra.ts]
+const gh = github.Connection.get("gh").channel({ id: "issues" });
+```
+
+| Selector method | Options |
+| :--- | :--- |
+| `gh.issue(opts)` | `actions?`: `"opened" \| "edited" \| "reopened" \| "labeled"`, defaults to `["opened"]`; `mention?`, `labels?`, `from` |
+| `gh.issueComment(opts)` | `actions?`: `"created" \| "edited"`, defaults to `["created"]`; `mention?`, `labels?`, `from` |
+
+On `"edited"` comment triggers with `mention`, only edits that newly add the mention match.
+
+### Author sets (`from`)
+
+| Helper | Behavior |
+| :--- | :--- |
+| `github.collaborators()` | Matches non-bot users with `admin`, `maintain`, or `write` role on the repository |
+| `github.user(login)` | Matches a specific GitHub login case-insensitively |
+| `github.team(slug)` | Accepted in config, but currently skipped by the router and starts no runs |

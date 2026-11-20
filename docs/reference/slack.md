@@ -1,66 +1,31 @@
 # `@notation/factory-slack`
 
-`@notation/factory-slack` lets agents listen and reply in Slack channels. The same entrypoint serves both config files:
+Declares Notation Factory Slack app connections, channel scopes, and mention selectors.
 
-```bash
-@pm.dev("@notation/factory-slack")
+## Status
+
+`@notation/factory-slack` is currently incomplete and cannot send or receive live Slack events:
+
+- All Slack app resource API operations in `packages/slack/lib/app.ts` throw `"not implemented"`.
+- No router channel module exists to verify Slack signing secrets, parse `app_mention` webhooks, or post replies.
+- `Connection` does not register a channel worker with the router.
+
+Use [`@notation/factory-github`](./github.md) for live triggers and conversations.
+
+## Exported API
+
+```ts [@notation/factory-slack]
+const conn = new slack.Connection(id, { router, workspace });
+const ref = slack.Connection.get(name);
+const channel = ref.channel({ id, scope }); // scope must start with "#"
+channel.mention(name, { from: [slack.group(handle), slack.user(email)] });
 ```
 
-| Used in | Exports |
-| --- | --- |
-| `factory.infra.ts` | `slack.Connection` (provisions the Slack app and its event subscription) |
-| `.factory/infra.ts` | `Connection.get`, `channel.mention`, `group`, `user` |
-
-Slack is a channel only. Code still lives on the infra's code host.
-
-## Connection
-
-Register a Slack app and point its events at your router:
-
-```ts [factory.infra.ts]
-import * as cloudflare from "@notation/factory-cloudflare";
-import * as slack from "@notation/factory-slack";
-
-const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", { vault });
-
-new slack.Connection("slack", {
-  workspace: "acme", // <-- the Slack workspace it's installed in
-  router,
-});
-```
-
-An app that doesn't exist yet is created from a manifest in your browser, named `<app>--<stage>--<id>` (truncated with a hash at 35 characters), with its Events API request URL set to `<Url>/webhook/slack/<id>`, where `Url` is the router's URL. The app is protected: `factory infra down` leaves it.
-
-The connection declares two secrets in the hub vault, `slack-bot-token` and `slack-signing-secret`. The connection binds them to the router with `router.bind(...)`, which names each binding after the secret's id: here `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`. The deployer doesn't bind them. The ids are `<id>-bot-token` and `<id>-signing-secret`, so each Slack connection in one hub gets its own bindings. Their values are the app's credentials `botToken` and `signingSecret`, which the app's create returns when it creates the app and installs it to the workspace. Deploy writes them to the vault in memory. When deploy needs a value again, such as after a vault secret was deleted, plan fails: copy the value from the app's settings page, and pass it with `notation deploy --credential`. See [Secrets](../manual/secrets.md#a-credential-that-deploy-cant-get-again).
-
-## Channel
-
-Listen in one Slack channel:
-
-```ts [.factory/infra.ts]
-import * as slack from "@notation/factory-slack";
-
-const ops = slack.Connection.get("slack").channel({ id: "ops", scope: "#ops" }); // <-- `scope` is required and starts with `#`
-```
-
-The grant is the bot's membership: invite it with `/invite @<app>` in `#ops`. A repo whose triggers use a channel the bot isn't in fails its deploy with `#ops isn't granted`. A Slack channel belongs to at most one repo.
-
-## Selectors
-
-Wake an agent when someone mentions the bot:
-
-```ts [.factory/infra.ts]
-new Trigger("slack", {
-  event: ops.mention("@claude", { from: slack.group("eng") }), // <-- `from` is required
-  agent: coder,
-  container: dev, // <-- no worktree: the agent starts on the default branch
-});
-```
-
-| Author set | Matches |
-| --- | --- |
-| `slack.group("eng")` | Members of a Slack user group |
-| `slack.user("dan@acme.dev")` | One user, by email |
-
-A conversation is a Slack thread. The agent's reply is posted in the thread by the bot, through the router's relay. Containers never hold the bot token: it covers the whole workspace and can't be narrowed.
+| Export | Description |
+| :--- | :--- |
+| `Connection` | Declares a `slack/apps/App` and binds `botToken` and `signingSecret` |
+| `Connection.get` | Returns a `ConnectionRef` for `.factory/infra.ts` |
+| `Channel` | Channel scope bound to a connection where `scope` must begin with `#` |
+| `mention` | Emits an `app_mention` selector matching `name` |
+| `group` | Matches members of a Slack user group by handle |
+| `user` | Matches one Slack user by email |

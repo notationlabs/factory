@@ -1,63 +1,73 @@
 # `@notation/factory-cli`
 
-`@notation/factory-cli` provides the `factory` executable. It runs on [Bun](https://bun.sh):
+The `factory` binary manages Notation Factory hubs from a hub repository and connects subscriber repositories to a hub. Only `infra` and `repo` subcommands are implemented today.
 
-```bash
+## Installation
+
+```bash [Terminal]
 @pm.add("-g @notation/factory-cli")
 ```
 
+Hub lifecycle commands (`infra up` and `infra down`) require Bun to invoke `bun x --bun notation`.
 
-| Command group | Purpose |
-| --- | --- |
-| `factory infra *` | Reconcile `factory.infra.ts` and inspect deliveries |
-| `factory repo *` | Subscribe repositories and inspect `FACTORY_STATUS` |
-| `factory container *` | Attach to remote outpost containers (`resume`, `ssh`) |
+Repository commands (`repo install` and `repo status`) require GitHub CLI (`gh`) and git.
 
-See [CLI Reference](../manual/cli.md) for all commands and flags.
+## `factory infra`
 
-## Credentials
+Run `factory infra` commands from the directory containing `factory.infra.ts`.
 
-The CLI has two kinds of credential, with separate jobs:
+### `factory infra up`
 
-| Credential | Used for |
-| --- | --- |
-| **Local provider credentials** (Wrangler login or `CLOUDFLARE_API_TOKEN`; `RAILWAY_API_TOKEN`; `gh`; account secrets such as `CLAUDE_CODE_OAUTH_TOKEN`) | The hub's lifecycle: `factory infra up` and `factory infra down` create, update and delete it, and write secrets to its vault |
-| **Operator auth** (`github.OperatorAuth` or `cloudflare.OperatorAuth`) | Everything that talks to the running hub: `factory infra status`, `factory infra replay`, and the router calls `up` and `down` make |
+Deploys the hub by invoking `bun x --bun notation deploy --pretty` with optional `--credential` pass-through flags and any `loadEnv` wrapper from `factory.config.ts`:
 
-The CLI keeps each hub's admin session in `~/.config/notation-factory/sessions.json` until it expires, after 4 hours. The CLI never reads a hub secret back. Deploy writes each secret's value from a credential: a source, such as an environment variable, or the resource that issued it, such as a GitHub App. See [Secrets](../manual/secrets.md).
-
-## `factory.config.ts`
-
-Load local credentials for every command:
-
-```ts [factory.config.ts]
-export default {
-  loadEnv: "./with-env.sh",
-  router: "https://acme--prod--router-1a2b3c4d.acme.workers.dev",
-};
+```bash [Terminal]
+factory infra up [--dry-run] [--credential <id>.<credential>@<hash>=<var>]
 ```
 
-Read from the infrastructure repository root before any `factory` command runs:
+| Flag | Behavior |
+| :--- | :--- |
+| `--dry-run` | Runs `notation plan` instead of `notation deploy` |
+| `--credential <spec>` | Repeatable credential override passed verbatim to `notation` |
 
-| Field | Behavior |
-| --- | --- |
-| `loadEnv` | Command prefix run once at startup; `factory` adopts the environment it sets before pre-flight checks |
-| `router` | The URL of the hub's router, which `factory infra status` and `factory infra replay` call. `factory infra up` prints it when it creates the router |
+### `factory infra status`
 
-## `.factory/config.ts`
+Calls `GET /admin/repos` and `GET /admin/deliveries` against `router` in `factory.config.ts`, printing each repository's latest deploy status, each container's latest image build, and failed deliveries from the last 7 days.
 
-Name the hub that an outpost subscribes to:
+### `factory infra replay`
 
-```ts [.factory/config.ts]
-export default {
-  hub: { app: "acme", stage: "prod" },
-  repo: "acme/webapp",
-};
+Retries failed deliveries via `POST /admin/replay` against `router` in `factory.config.ts`:
+
+```bash [Terminal]
+factory infra replay [<connection>/<id>]
 ```
 
-Read by the `factory repo` commands, beside `.factory/infra.ts`. The deployer doesn't read it:
+Omitting the argument replays every currently failed delivery. When naming a specific `<delivery>` that is no longer marked failed, the command exits with status `1`.
 
-| Field | Behavior |
-| --- | --- |
-| `hub` | The hub's Notation app and stage, which name its GitHub Apps. `factory repo install` needs it |
-| `repo` | The outpost's repo, as `owner/name`, when the `origin` remote doesn't name it |
+### `factory infra down`
+
+Destroys all deployed hub resources by invoking `bun x --bun notation destroy --pretty`.
+
+## `factory repo`
+
+Run `factory repo` commands inside an outpost repository directory containing `.factory/infra.ts`, or anywhere inside its git working tree.
+
+### `factory repo install`
+
+Guides GitHub App installation for every `github/ConnectionRef` referenced in `.factory/infra.ts` and waits up to 2 minutes for `FACTORY_STATUS` to update:
+
+```bash [Terminal]
+factory repo install [--repo <owner/name>]
+```
+
+### `factory repo status`
+
+Reads `gh variable get FACTORY_STATUS --repo <repo>` and prints the latest deploy status, exiting with status `1` if `state` is `"failed"`.
+
+## Config files and sessions
+
+| File | Schema |
+| :--- | :--- |
+| `factory.config.ts` | `{ router?: string; loadEnv?: string }` |
+| `.factory/config.ts` | `{ repo?: string; githubApps?: Record<string, number> }` |
+
+Hub admin commands cache signed operator sessions (4-hour lifetime, refreshed automatically within 5 minutes of expiry via `http://127.0.0.1:47219/callback`) in `~/.config/notation-factory/sessions.json` with mode `0600`.

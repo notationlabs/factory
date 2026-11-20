@@ -1,45 +1,40 @@
 # Notation Factory
 
-Notation Factory runs coding agents in remote containers. It starts an agent when an event arrives on a channel your team uses, such as an issue tracker or a chat app. You can also connect to a running agent over SSH.
+Notation Factory runs coding agents in remote containers. It starts an agent when an event arrives on a channel your team uses, such as a GitHub issue or pull request.
 
 You declare the infrastructure in TypeScript and deploy it with [Notation](https://github.com/notationlabs/notation).
 
 ## Hub and outposts
 
-An organisation has one hub and one outpost per repo.
+An organisation runs one central hub and one outpost per repository.
 
-| | Hub | Outpost |
-| --- | --- | --- |
-| Declared in | `factory.infra.ts` | `.factory/infra.ts` in each repo |
-| Contains | A router, a deployer, a vault, connections and agent accounts | Channels, containers, policies, agents and triggers |
-| Deployed by | Notation | The hub's deployer |
+| Side | Purpose |
+| --- | --- |
+| `factory.infra.ts` | Hub deployed with Notation declaring a router, deployer, vault, connections, and agent accounts |
+| `.factory/infra.ts` | Repository outpost applied by the hub's deployer declaring channels, containers, policies, agents, and triggers |
 
-The router receives events from each connection. The deployer provisions containers. The vault holds secrets. The router and the deployer each bind only the secrets they use. A secret's value is a Notation [credential](https://github.com/notationlabs/notation/blob/main/docs/manual/secrets.md): the value of a source, such as `sources.Env` from `@notation/std/resources`, or a key that a resource issues, such as a GitHub App's private key.
+The router receives events from each connection. The deployer provisions containers. The vault holds secrets, and the router and deployer each bind only the secrets they use. Each secret takes a Notation [credential](https://github.com/notationlabs/notation/blob/main/docs/core/secrets.md) from a source such as `sources.Env` in `@notation/std/resources` or an API key issued by a resource.
 
 ## Plugins
 
-`@notation/factory` defines contracts for each part of a hub and an outpost. Plugins implement the contracts for a particular service:
+`@notation/factory` defines contracts for each part of a hub and an outpost, and plugins implement those contracts for a particular service:
 
-| Contract | What the plugin provides | Plugins today (`@notation/…`) |
-| --- | --- | --- |
-| Vault, Router, Deployer | Where the hub and containers run | `factory-cloudflare`, `factory-railway` |
-| Connection, Channel | Where events come from, and which events a trigger can select | `factory-github`, `factory-slack` |
-| CodeHost, Policy | Where code lives, and what a container may do there | `factory-github` |
-| OperatorAuth | Who may operate the agents | `factory-github`, `factory-cloudflare` |
-| Account, Agent, runtime | Which coding agent runs | `factory-claude`, `factory-cursor`, `factory-droid` |
+| Contracts | Plugins today |
+| --- | --- |
+| `Vault`, `Router`, `Deployer` | `factory-cloudflare` |
+| `Connection`, `Channel`, `CodeHost`, `Policy` | `factory-github` |
+| `OperatorAuth` | `factory-github` |
+| `Account`, `Agent`, `runtime` | `factory-claude`, `factory-cursor`, `factory-droid` |
 
-An outpost's `.factory/infra.ts` does not name the hosting provider, so the hub can move from one provider to another without changes to each repo. To add a service, write a plugin that implements its contract (see `docs/manual/plugins.md`).
+An outpost's `.factory/infra.ts` does not name the hosting provider, so the hub can move between providers without changing repository configs. To add a service, see the [plugin authoring guide](docs/authoring/plugins.md).
 
 ## The hub
 
-For example, this hub runs on Cloudflare, receives events from GitHub, and runs Claude:
+This hub runs on Cloudflare, receives events from GitHub, and runs Claude Code:
 
-```ts
+```ts [factory.infra.ts]
 const vault = new cloudflare.Vault("vault");
-const router = new cloudflare.Router("router", {
-  project: "acme-agents",
-  vault,
-});
+const router = new cloudflare.Router("router", { vault });
 
 const gh = new github.Connection("gh", { org: "acme", router });
 new github.CodeHost("github", { allow: [{ owner: "acme" }], connection: gh });
@@ -54,14 +49,14 @@ const claudeAccount = new claude.Account("claude", {
 new cloudflare.Deployer("deployer", { router, vault, accounts: [claudeAccount] });
 ```
 
-Each class here is a group. A group creates real resources, such as a Worker or a GitHub App, and adds entries to shared ones. For example, `github.Connection` adds its App to the router's config declares the App's private key in the vault, and binds the key to the router.
+Each class here is a resource group. A group creates real resources, such as a Worker or a GitHub App, and contributes entries to shared configs. For example, `github.Connection` creates its GitHub App, stores the App's private key and client secret in the vault, registers its webhook channel on the router, and contributes to the router's config.
 
 ## An outpost
 
 Continuing the example, this outpost starts a Claude agent when a collaborator mentions `@claude` in an issue comment:
 
-```ts
-const gh = github.Connection.get("acme-agents").channel({ id: "issues" });
+```ts [.factory/infra.ts]
+const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 const code = new github.Policy("code", {
   permissions: { contents: "write", pull_requests: "write" },
@@ -81,4 +76,4 @@ new Trigger("mention", {
 });
 ```
 
-`Connection.get("acme-agents")` refers to the connection that the hub declares, by name. Every group in an outpost writes to one resource, the outpost's config. The deployer applies that config to the repo.
+`Connection.get("gh")` refers to the hub's connection by name. Every group in an outpost writes to one config resource, and the hub's deployer evaluates and applies it per repository. See the [Quickstart](docs/core/quickstart.md) to deploy your first hub and outpost.

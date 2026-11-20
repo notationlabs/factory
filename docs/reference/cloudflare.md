@@ -1,76 +1,79 @@
 # `@notation/factory-cloudflare`
 
-`@notation/factory-cloudflare` runs the Notation Factory hub (`Vault`, `Router` and `Deployer`) and repository outposts on Cloudflare Workers and Durable Object Containers. Imported in `factory.infra.ts` from `@notation/factory-cloudflare`.
+Runs a Notation Factory hub on Cloudflare Workers, Durable Objects, KV, R2, Secrets Store, Artifacts, and Cloudflare Containers.
 
-```bash
-@pm.dev("@notation/factory-cloudflare")
-```
+## Exports
 
-## Vault, Router & Deployer
+| Symbol | Description |
+| :--- | :--- |
+| `Vault` | Account Secrets Store manager class with `provider` set to `"cloudflare"` |
+| `CloudflareSecret` | Single `SecretsStoreSecret` declaration class inside a `Vault` |
+| `Router` | Hub router Worker, KV namespace, R2 bucket, and Durable Objects class |
+| `Deployer` | Outpost evaluator, Artifacts builder, and container host manager class |
+| `OperatorAuth` | Cloudflare Access resource group class, currently unimplemented at runtime |
 
-Provision the hub and outpost builder on Cloudflare:
+## `Vault`
 
 ```ts [factory.infra.ts]
-import * as claude from "@notation/factory-claude";
-import * as cloudflare from "@notation/factory-cloudflare";
-import { sources } from "@notation/std/resources";
+const vault = new cloudflare.Vault("vault");
+const secret = vault.secret({ id: "token", value: envSource.credentials.value });
+```
 
-const vault = new cloudflare.Vault("vault"); // <-- secrets in the account's Secrets Store
+Declares or shares the account-wide Cloudflare Secrets Store (`cloudflare/Vault`).
 
-const router = new cloudflare.Router("router", { vault }); // <-- only a cloudflare.Vault
+## `Router`
 
-const claudeToken = new sources.Env("claude-oauth-token", {
-  config: { key: "CLAUDE_CODE_OAUTH_TOKEN", track: "scrypt" },
-});
-const claudeAccount = new claude.Account("claude", {
-  auth: vault.secret({ id: "claude-oauth-token", value: claudeToken.credentials.value }),
-});
+```ts [factory.infra.ts]
+const router = new cloudflare.Router("router", { vault });
+```
 
+Takes `{ vault: Vault }` and automatically attaches `RouterSync` on deploy.
+
+| Member | Role |
+| :--- | :--- |
+| `url` | Public `OutputRef<string>` URL of the deployed router Worker |
+| `kv` | Hub KV namespace storing outpost and router config |
+| `bucket` | Hub R2 bucket storing container worktree bundles and session archives |
+| `worker` | Deployed router Cloudflare Worker resource |
+| `store` | KV JSON group holding `RouterConfig` |
+| `rootKey` | Vault secret holding the 32-byte root key |
+| `syncKey` | Vault secret holding the 32-byte deploy sync key |
+| `bind(secret, name?)` | Binds a `VaultSecret` onto the router Worker and returns its binding name |
+| `channel(options)` | Attaches a connection's channel Worker as a router service binding |
+
+## `Deployer`
+
+```ts [factory.infra.ts]
 new cloudflare.Deployer("deployer", {
   router,
   vault,
   accounts: [claudeAccount],
-  accountId: "<account id>",                     // <-- optional; defaults to CLOUDFLARE_ACCOUNT_ID
-  regions: ["WEUR"],                             // <-- optional; where outpost containers may run
-  sleepAfter: "10m",                             // <-- optional; how long an idle container stays up
+  secrets: [dbSecret],
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  regions: ["WEUR"],
+  sleepAfter: "10m",
 });
 ```
 
-The resources come from `@notation/cloudflare`. Their names are scoped to the Notation app and stage, such as `<app>--<stage>--router` for the KV namespace:
+| Option | Details |
+| :--- | :--- |
+| `router` | Required `cloudflare.Router` instance |
+| `vault` | Required `cloudflare.Vault` instance |
+| `accounts` | Optional `Account[]` array defaulting to `[]` |
+| `secrets` | Optional `OutpostSecret[]` array defaulting to `[]`, must not collide on env name per repo |
+| `accountId` | Optional Cloudflare account ID defaulting to `CLOUDFLARE_ACCOUNT_ID` |
+| `regions` | Optional array from `ENAM`, `WNAM`, `EEUR`, `WEUR`, `APAC`, `SAM`, `ME`, `OC`, `AFR` |
+| `sleepAfter` | Optional idle container duration matching `/^[1-9]\d*[smh]$/`, defaults to `"10m"` |
 
-| Resource | Cloudflare resources provisioned |
-| --- | --- |
-| `cloudflare.Vault` | The account's Secrets Store, as `vault.store`, which every hub on the account shares. Deploy uses the store if the account has one, and otherwise creates it. `factory infra down` leaves the store. The vault adds one `SecretsStoreSecret` to it for each secret declared in the vault. Notation names each secret `<app>--<stage>--secret-<id>-<instance>`. Values can't be read back through the API. `vault.secret({ id, value })` takes a credential as `value` and returns a `CloudflareSecret`. A Worker gets a secret only when the router or the deployer binds it |
-| `cloudflare.Router` | KV namespace and R2 bucket named `<app>--<stage>--<id>`, the router Worker served on `workers.dev`, a Worker for each connection's channel, and the router's config, a `kvJson()` document in the KV key `config`. It generates `router.rootKey` with a `RandomKey`, keeps it in the vault, and binds it as `FACTORY_ROOT_KEY`. It generates `router.syncKey` with a `RecordedKey`, keeps it in the vault's store, and binds it as `FACTORY_SYNC_KEY`. Deploy signs its call to the router's `POST /sync` with it. `router.bind(secret, name?)` binds a vault secret to the router Worker. `router.channel(...)` runs a connection's channel. The router Worker binds a `DeliveryInbox` Durable Object as `INBOX`, with one object for each delivery that starts a run, named by its connection and id. The object's alarm dispatches the delivery, tries it again while its container's first image build runs, and deletes it 7 days after it settles. A failed delivery is also listed in KV under `deliveries/failed/<connection>/<id>`, for 7 days. See [Deliveries](../manual/connections.md#deliveries). The router keeps each repo's last deploy in KV under `deploys/<owner>/<name>`, and the latest build of each of its containers under `builds/<owner>/<name>/<container>`, which `factory infra status` lists. A deploy removes the builds of containers that the outpost no longer has. A build report for another commit than the logged build's is a late report of an older build, and doesn't change the log. The router also binds a `RepoSync` Durable Object as `REPO_SYNC`, with one object, whose alarm deploys a sync's repos one at a time, one repo for each alarm |
-| `cloudflare.Deployer` | The deployer Worker. It binds `router.rootKey` as `FACTORY_ROOT_KEY`, the builds token as `CLOUDFLARE_BUILDS_TOKEN`, each account's secrets under their env var names, such as `CLAUDE_CODE_OAUTH_TOKEN`, and each of `secrets`, the outpost secrets, as `OUTPOST_<id>`. When a run starts, it passes the container the secrets of the accounts of its runtimes, and the outpost secrets that allow its repo. See [Outpost secrets](../manual/secrets.md#outpost-secrets). It creates an Artifacts namespace, and a builds token, a user API token that you paste on a local page. When a repo's config deploys, the deployer creates an outpost Worker for each of its containers, which hosts one container. The container's `instanceType` is one of Cloudflare's instance types: `lite`, `basic`, `standard-1`, `standard-2`, `standard-3` or `standard-4`, and defaults to `standard-1`. Any other value fails the container's deploy. Deploy writes the outpost settings, such as the deployer Worker's generated name, to a `kvJson()` document in the KV key `outpost-settings/<id>`. See [Providers](../manual/providers.md#cloudflare). With `regions`, Cloudflare starts the containers only in those regions: any of `ENAM`, `WNAM`, `EEUR`, `WEUR`, `APAC`, `SAM`, `ME`, `OC` and `AFR`, where `ME`, `OC` and `AFR` need another region next to them. Without it, Cloudflare starts a container in the location nearest to the request that has the image. A container stops once it has had no run in progress for `sleepAfter`, a number of seconds, minutes or hours such as `"30s"` or `"1h"`, which defaults to `"10m"`. Workers Builds builds each container's image from the repo's `.factory/`. A `BuildWatch` Durable Object in the deployer polls each build every 30 seconds, and posts its progress, signed with a key derived from the root key, to the router's `POST /builds` route. The router writes it to a check on the pushed commit. The deployer also binds the router's R2 bucket, where each container keeps its runs' worktrees and sessions under `outposts/<container id>/`. It bundles the runner modules of its accounts' runtimes and of the code host, and serves them to the containers' runners, so declare the code host before the deployer |
+## `OperatorAuth` status
 
-The router is reached at its `workers.dev` URL: `https://<script>.<account subdomain>.workers.dev`. `router.url` is that URL, and each connection sets its webhook to `<url>/webhook/<provider>/<id>`. The account needs a `workers.dev` subdomain.
-
-Each connection's channel is a Worker with no URL, which binds the secrets and values that the connection gives it under their own names. The router binds it as a service, as `CHANNEL_<connection>`, such as `CHANNEL_GITHUB_GH`, and records that name in the connection's entry in its config. The router calls the channel over RPC. The channels of one provider share one bundle. Deploy builds every Worker's code from `workers/` in this package with `bundle()`.
-
-The deployer also gets `OUTPOST_SETTINGS_KEY` and `ACCOUNTS` as JSON bindings. Destroying the deployer deletes every Worker whose name starts with its outpost prefix, and the container application of each. Cloudflare leaves a Worker's container application when it deletes the Worker, so the deployer deletes it too. It does the same when a repo drops a container.
-
-Both Workers bind the KV namespace as `FACTORY_KV`. The router binds the R2 bucket as `FACTORY_BUCKET`. The KV namespace holds the router's config and other non-secret values. The router's config names each connection's secrets by their binding names, and holds no secret values. The Workers' internal key is derived from the root key inside the Workers, so `factory infra up` deploys them without reading any secret.
-
-The router Worker only matches GitHub deliveries. See [Known gaps](../manual/providers.md#known-gaps).
-
-## Operator auth
-
-Put Cloudflare Access in front of the router's admin routes:
-
-```ts [factory.infra.ts]
-// …
-new cloudflare.OperatorAuth("operators", {
-  router,                                    // <-- the Access application sits in front of its admin routes
-  emails: ["dj@acme.dev", "alice@acme.dev"], // <-- who Access lets in
-});
-```
-
-The CLI signs you in to Access in your browser. Access decides who gets in, and the router verifies Access's token before it returns a short-lived admin session. The router can't sign operators in this way yet: its admin routes answer `501` for `cloudflare.OperatorAuth`.
+`new cloudflare.OperatorAuth(id, { router, emails })` declares Cloudflare Access configuration, but its Access operations in `packages/cloudflare/lib/access.ts` throw `"not implemented"` and the core router currently rejects non-GitHub operator sign-in with HTTP 501. Use `github.OperatorAuth` instead.
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Optional CI alternative to `npx wrangler login`. Deploy uses it for the Artifacts namespace, which needs Artifacts Edit. `factory infra down` uses it to delete outpost Workers and their container applications, which needs Workers Scripts Edit and Containers Edit |
-| `CLOUDFLARE_ACCOUNT_ID` | Selects the target account when the login has access to several. `cloudflare.Deployer` uses it as its `accountId` when you don't pass one, and fails without either |
+| Variable | Required by |
+| :--- | :--- |
+| `CLOUDFLARE_ACCOUNT_ID` | `Deployer` when `accountId` option is omitted |
+| `CLOUDFLARE_API_TOKEN` | Artifacts namespace and outpost Worker cleanup |
+
+`CLOUDFLARE_API_TOKEN` requires `Artifacts Edit`, `Workers Scripts Edit`, and `Containers Edit` permissions.

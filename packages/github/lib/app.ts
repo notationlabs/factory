@@ -172,6 +172,19 @@ export const appSlug = async (id: string): Promise<string> => {
   return slug;
 };
 
+/**
+ * The App's owner, and whether the App is public. Only the owner can install a
+ * private App. GitHub only shows a private App to a request that's signed in.
+ */
+export const appVisibility = async (slug: string): Promise<{ owner: string; public: boolean }> => {
+  const path = `/apps/${encodeURIComponent(slug)}`;
+  const app = await github<{ owner: { login: string } }>("GET", path, await ghToken());
+  const anonymous = await fetch(`${GITHUB_API}${path}`, {
+    headers: { accept: "application/vnd.github+json", "user-agent": "notation-factory" },
+  });
+  return { owner: app.owner.login, public: anonymous.ok };
+};
+
 /** Reads the App by its id, which fails if the App is gone. The lookup needs your gh login or GH_TOKEN. */
 export const readApp = async (key: { id: string }): Promise<{ id: string; clientId: string }> => {
   const slug = await appSlug(key.id);

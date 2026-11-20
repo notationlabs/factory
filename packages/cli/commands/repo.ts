@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
-import { appSlug } from "@notation/factory-github/app";
+import { appSlug, appVisibility } from "@notation/factory-github/app";
 import { collectResourceGraph } from "@notation/resource";
 import { loadConfig, openBrowser, type OutpostCliConfig, output } from "./shell.ts";
 
@@ -134,7 +134,7 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
       `Set githubApps in .factory/config.ts to the ID of the hub's GitHub App for each connection, such as githubApps: { ${missing.map((name) => `${name}: 123456`).join(", ")} }. The App's ID is on its settings page, and \`factory infra up\` prints it when it creates the App.`,
     );
   }
-  const { id: repoId, owner } = await gh<{ id: number; owner: { id: number } }>(`repos/${repo}`);
+  const { id: repoId, owner } = await gh<{ id: number; owner: { id: number; login: string } }>(`repos/${repo}`);
 
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   // readline takes Ctrl+C from the process while it's open, and without this listener only pauses.
@@ -142,6 +142,12 @@ export const repoInstall = async ({ repo: given }: { repo?: string }) => {
   try {
     for (const name of names) {
       const slug = await appSlug(String(githubApps[name]));
+      const app = await appVisibility(slug);
+      if (!app.public && app.owner.toLowerCase() !== owner.login.toLowerCase()) {
+        throw new Error(
+          `The GitHub App ${slug} is private to ${app.owner}, so it can't be installed on ${repo}. Move the repo to ${app.owner}, or make the App public under Advanced on its settings page.`,
+        );
+      }
       const url = `https://github.com/apps/${slug}/installations/new/permissions?suggested_target_id=${owner.id}&repository_ids[]=${repoId}`;
       console.log(`Install the GitHub App ${slug} on ${repo}:\n  ${url}`);
       openBrowser(url);

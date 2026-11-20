@@ -14,6 +14,9 @@ importers:
       '@notation/factory-claude':
         specifier: workspace:*
         version: link:packages/claude
+      '@notation/factory-cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@notation/factory-cursor':
         specifier: workspace:*
         version: link:packages/cursor

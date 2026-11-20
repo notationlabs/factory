@@ -14,6 +14,7 @@
   "devDependencies": {
     "@notation/factory": "workspace:*",
     "@notation/factory-claude": "workspace:*",
+    "@notation/factory-cli": "workspace:*",
     "@notation/factory-cursor": "workspace:*",
     "@notation/factory-droid": "workspace:*",
     "@notation/factory-github": "workspace:*",

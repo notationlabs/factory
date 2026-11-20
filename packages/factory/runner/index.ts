@@ -626,9 +626,6 @@ const relay = async (run: Run, text: string, message?: ReplyMessage) => {
   return ((await response.json().catch(() => ({}))) as Partial<RelayResult>).message;
 };
 
-/** What the conversation shows under an agent's latest message while the run goes on. */
-const PROGRESS_NOTE = "> The agent is still running. Its final reply will replace this message.";
-
 /**
  * A run's replies, which share one message on the conversation. `progress`
  * posts the agent's latest message, at most once every
@@ -661,7 +658,7 @@ const replies = (run: Run) => {
     pending = undefined;
     if (text === shown) return;
     shown = text;
-    post(`${text}\n\n${PROGRESS_NOTE}`).catch((error: unknown) =>
+    post(text).catch((error: unknown) =>
       log({ run: run.id, state: "progress failed", error: message(error) }),
     );
   };

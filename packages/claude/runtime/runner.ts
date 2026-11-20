@@ -17,6 +17,8 @@ function envFile(): Record<string, string> {
 /** One line of Claude Code's stream-json output. */
 type StreamEvent = {
   type?: string;
+  subtype?: string;
+  model?: string;
   result?: string;
   is_error?: boolean;
   session_id?: string;
@@ -78,6 +80,10 @@ const claude: RuntimeRunner = {
     const text = content.flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
     if (text.length) return text.join("\n\n");
     return content.some((block) => block.type === "thinking" || block.type === "redacted_thinking") ? "Thinking..." : undefined;
+  },
+  model: (line) => {
+    const event = parseLine(line);
+    return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };

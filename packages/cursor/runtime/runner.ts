@@ -5,6 +5,8 @@ import type { RuntimeRunner } from "@notation/factory";
 /** One line of Cursor Agent's stream-json output. */
 type StreamEvent = {
   type?: string;
+  subtype?: string;
+  model?: string;
   result?: string;
   is_error?: boolean;
   session_id?: string;
@@ -99,6 +101,10 @@ const cursor: RuntimeRunner = {
     if (event?.type !== "assistant") return undefined;
     const text = (event.message?.content ?? []).flatMap((block) => (block.type === "text" && block.text ? [block.text] : []));
     return text.length ? text.join("\n\n") : undefined;
+  },
+  model: (line) => {
+    const event = parseLine(line);
+    return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
 };
 

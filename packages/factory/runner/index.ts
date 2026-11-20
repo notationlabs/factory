@@ -36,6 +36,9 @@ const BIN = join(DATA, "bin");
 /** The shortest time between two posts of an agent's messages during a run. Each post edits the run's message on the conversation. */
 const PROGRESS_INTERVAL_MS = Number(process.env.FACTORY_PROGRESS_INTERVAL_MS ?? 10 * 1000);
 
+/** How often the runner edits the run's message to update its clock, while the agent writes no new message. */
+const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1000);
+
 /** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
 const STOP_REPLY_TIMEOUT_MS = 5000;
 
@@ -573,7 +576,7 @@ const runAgent = async (
   adapter: RuntimeRunner,
   run: Run,
   { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
-  onMessage: (text: string) => void,
+  progress: Progress,
 ): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
   const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
@@ -591,12 +594,12 @@ const runAgent = async (
     },
     timeout: RUN_TIMEOUT_MS,
     input: adapter.input?.(context) ?? prompt,
-    onLine:
-      adapter.message &&
-      ((line) => {
-        const text = adapter.message?.(line);
-        if (text?.trim()) onMessage(text);
-      }),
+    onLine: (line) => {
+      const model = adapter.model?.(line);
+      if (model) progress.model(model);
+      const text = adapter.message?.(line);
+      if (text?.trim()) progress.message(text);
+    },
   });
   const output = adapter.parse(result.stdout);
   if (result.code !== 0 || !output || output.isError) {
@@ -626,12 +629,48 @@ const relay = async (run: Run, text: string, message?: ReplyMessage) => {
   return ((await response.json().catch(() => ({}))) as Partial<RelayResult>).message;
 };
 
+/** What the runner reads from the agent's output while it runs. */
+type Progress = { message(text: string): void; model(name: string): void };
+
+/**
+ * A model's name for people. Claude's ids, such as `claude-opus-5-5`, become
+ * "Claude Opus 5.5". Other names, such as Cursor's "Composer 2.5", stay as
+ * they are.
+ */
+const modelName = (model: string) => {
+  const claude = /^claude-([a-z]+)-(\d+(?:-\d)?)(?:-\d{8})?$/.exec(model);
+  if (!claude) return model;
+  return `Claude ${claude[1]![0]!.toUpperCase()}${claude[1]!.slice(1)} ${claude[2]!.replace("-", ".")}`;
+};
+
+/** A duration as `m:ss`, or `h:mm:ss` from an hour. */
+const clock = (ms: number) => {
+  const seconds = Math.floor(ms / 1000);
+  const [h, m, s] = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+};
+
+/**
+ * An agent's message during a run, as the conversation shows it: quoted,
+ * with the model and the time since the run started in small text below.
+ */
+const progressText = (text: string, ms: number, model?: string) => {
+  const quoted = text
+    .split("\n")
+    .map((line) => (line ? `> ${line}` : ">"))
+    .join("\n");
+  return `${quoted}\n\n<sub>${model ? `${modelName(model)} working` : "Working"} • ${clock(ms)}</sub>`;
+};
+
 /**
  * A run's replies, which share one message on the conversation. `progress`
  * posts the agent's latest message, at most once every
  * `PROGRESS_INTERVAL_MS`, and each post replaces the last. A message that
  * repeats the one already shown isn't posted again, such as a runtime's
- * "Thinking..." for each part of a thought. `finish` posts the final reply
+ * "Thinking..." for each part of a thought. While the agent writes no new
+ * message, the shown one is posted again every `CLOCK_INTERVAL_MS`, so its
+ * clock stays current. `finish` posts the final reply
  * in their place. The first post replaces the message that the router
  * posted while the run waited for the container, if there is one.
  */
@@ -640,7 +679,10 @@ const replies = (run: Run) => {
   let pending: string | undefined;
   let shown: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let ticker: ReturnType<typeof setTimeout> | undefined;
   let sentAt = 0;
+  let startedAt = Date.now();
+  let model: string | undefined;
   // Posts go one at a time, so each one knows the message that the last one posted.
   let posting: Promise<void> = Promise.resolve();
   const post = (text: string) => {
@@ -658,19 +700,36 @@ const replies = (run: Run) => {
     pending = undefined;
     if (text === shown) return;
     shown = text;
-    post(text).catch((error: unknown) =>
+    show();
+  };
+  const show = () => {
+    clearTimeout(ticker);
+    if (shown === undefined) return;
+    post(progressText(shown, Date.now() - startedAt, model)).catch((error: unknown) =>
       log({ run: run.id, state: "progress failed", error: message(error) }),
     );
+    ticker = setTimeout(show, CLOCK_INTERVAL_MS);
   };
   return {
-    progress(text: string) {
-      if (text === (pending ?? shown)) return;
-      pending = text;
-      timer ??= setTimeout(flush, Math.max(0, sentAt + PROGRESS_INTERVAL_MS - Date.now()));
+    /** Starts the clock, when the run leaves the queue. */
+    start() {
+      startedAt = Date.now();
     },
+    progress: {
+      message(text: string) {
+        if (text === (pending ?? shown)) return;
+        pending = text;
+        timer ??= setTimeout(flush, Math.max(0, sentAt + PROGRESS_INTERVAL_MS - Date.now()));
+      },
+      model(name: string) {
+        model = name;
+      },
+    } satisfies Progress,
     finish(text: string) {
       clearTimeout(timer);
+      clearTimeout(ticker);
       timer = undefined;
+      ticker = undefined;
       pending = undefined;
       return post(text);
     },
@@ -705,7 +764,7 @@ const held = new Map<string, ReturnType<typeof replies>>();
  * 7. Saves the worktree and the session to the state store, whether or not
  *    the agent succeeded.
  */
-const perform = async (run: Run, notes: string[], onMessage: (text: string) => void) => {
+const perform = async (run: Run, notes: string[], progress: Progress) => {
   const worktree = worktreeOf(run);
   const adapter = await loadRuntime(run.agent.runtime);
   await assertCommand(adapter.command, adapter.name);
@@ -745,7 +804,7 @@ const perform = async (run: Run, notes: string[], onMessage: (text: string) => v
         adapter,
         run,
         { cwd: worktree.path, configDir, prompt, sessionId: session?.id },
-        onMessage,
+        progress,
       );
       if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
       if (result.error) throw new Error(result.error);
@@ -777,6 +836,7 @@ const SKIPPED_NOTE = "> An earlier run already read these messages, so this run 
 const execute = async (run: Run) => {
   const started = Date.now();
   const reply = held.get(run.id) ?? replies(run);
+  reply.start();
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const notes: string[] = [];
   let text: string;

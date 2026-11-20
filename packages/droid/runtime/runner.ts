@@ -5,6 +5,8 @@ import type { RuntimeRunner } from "@notation/factory";
 /** One line of Droid's stream-json output. */
 type StreamEvent = {
   type?: string;
+  subtype?: string;
+  model?: string;
   role?: string;
   text?: string;
   finalText?: string;
@@ -93,6 +95,10 @@ const droid: RuntimeRunner = {
     const event = parseLine(line);
     if (event?.type === "reasoning") return "Thinking...";
     return event?.type === "message" && event.role === "assistant" ? event.text : undefined;
+  },
+  model: (line) => {
+    const event = parseLine(line);
+    return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
 };
 

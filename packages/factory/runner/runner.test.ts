@@ -44,7 +44,7 @@ case "$prompt" in
     rm README.md ;;
   *"wait for it"*) printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill | grep password= >> "${calls}" ;;
   *"talk to me"*)
-    echo '{"type":"system","subtype":"init"}'
+    echo '{"type":"system","subtype":"init","model":"claude-opus-5-5"}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Looking."}]}}'
     sleep 0.3
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"hidden"}]}}'
@@ -76,7 +76,7 @@ case "$prompt" in
     echo "it broke" >&2
     exit 1 ;;
   *talk*)
-    echo '{"type":"system","subtype":"init","session_id":"'"$session"'"}'
+    echo '{"type":"system","subtype":"init","session_id":"'"$session"'","model":"Composer 2.5"}'
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."}]},"model_call_id":"m1","timestamp_ms":1}'
     sleep 0.3
     echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
@@ -102,7 +102,7 @@ session="s-$(basename "$(pwd)")"
 sessions="\${FACTORY_HOME_OVERRIDE:-$HOME}/.factory/sessions"
 mkdir -p "$sessions/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$sessions/-p-$(basename "$(pwd)")/$session.jsonl"
-echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\",\\"model\\":\\"claude-sonnet-5-5\\"}"
 echo "{\\"type\\":\\"message\\",\\"role\\":\\"user\\",\\"text\\":\\"the prompt\\",\\"session_id\\":\\"$session\\"}"
 case "$prompt" in
   *"fail now"*)
@@ -385,13 +385,13 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const conversation = "github:acme/api#32";
   await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent }));
   const first = await nextReply();
-  assert.equal(first.text, "Looking.");
+  assert.match(first.text, /^> Looking\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
   const thinking = await nextReply();
-  assert.equal(thinking.text, "Thinking...");
+  assert.match(thinking.text, /^> Thinking\.\.\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
-  assert.equal(second.text, "Found it.");
+  assert.match(second.text, /^> Found it\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(second.message, { id, signature: "msig" });
   const final = await nextReply();
   assert.equal(final.text, "done");
@@ -460,12 +460,12 @@ test("a droid agent's messages during a run share one comment, which its final r
   const conversation = "github:acme/api#23";
   await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent }));
   const first = await nextReply();
-  assert.equal(first.text, "Looking.");
+  assert.match(first.text, /^> Looking\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   const thinking = await nextReply();
-  assert.equal(thinking.text, "Thinking...");
+  assert.match(thinking.text, /^> Thinking\.\.\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
-  assert.equal(second.text, "Found it.");
+  assert.match(second.text, /^> Found it\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(second.message, { id, signature: "msig" });
   const final = await nextReply();
   assert.equal(final.text, "done");
@@ -729,14 +729,14 @@ test("the agent's messages during a run share one comment, which its final reply
   const conversation = "github:acme/api#5";
   await post(run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } }));
   const first = await nextReply();
-  assert.equal(first.text, "Looking.");
+  assert.match(first.text, /^> Looking\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
   // Each thought shows as "Thinking...", posted once.
   const thinking = await nextReply();
-  assert.equal(thinking.text, "Thinking...");
+  assert.match(thinking.text, /^> Thinking\.\.\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(thinking.message, { id, signature: "msig" });
   const second = await nextReply();
-  assert.equal(second.text, "Found it.");
+  assert.match(second.text, /^> Found it\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.deepEqual(second.message, { id, signature: "msig" });
   const final = await nextReply();
   assert.equal(final.text, "done");

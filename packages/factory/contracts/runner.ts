@@ -65,6 +65,12 @@ export type RuntimeRunner = {
    * them. Without it, the runner posts only the final reply.
    */
   message?(line: string): string | undefined;
+  /**
+   * Reads one line of the CLI's output while it runs, and returns the
+   * model's name or id, if the line has it. The runner shows the model
+   * under the agent's messages.
+   */
+  model?(line: string): string | undefined;
   /** Extra environment for the CLI. */
   env?: Record<string, string>;
 };

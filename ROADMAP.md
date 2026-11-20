@@ -39,6 +39,7 @@ In priority order.
 
 - [ ] **Found while deploying the `notationlabs` hub:**
   - The router, deployer and channel Workers have Workers Logs turned off, so a lost delivery leaves no trace. The outpost Workers have them on.
+  - Find a better way for the CLI to discover the router's URL. Today `factory infra status` and `replay` read `router` from `factory.config.ts`, which you paste in after each new hub.
 
 - [ ] **Stage 2 follow-up:** Notation needs a public way to refer to a `worker()`'s generated name. The deployer reads Notation's internal registration for it.
 

@@ -98,6 +98,7 @@ export default {
     {
       label: "Internals",
       slug: "internals",
+      private: true,
       sections: [
         {
           heading: "Overview",

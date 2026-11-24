@@ -82,10 +82,12 @@ Each container build reports progress on the pushed GitHub commit as a check nam
 | Check state | Meaning |
 | :--- | :--- |
 | `queued` | Deployer pushed container source to its Artifacts repository |
-| `in_progress` | Workers Builds started building; details link to the Cloudflare build log |
+| `in_progress` | Workers Builds started building, or the deployer is about to start a failed build again; details link to the Cloudflare build log |
 | `success` | Image built and the container's outpost Worker deployed |
-| `failure` | Build failed or timed out after 2 hours; next push rebuilds automatically |
+| `failure` | Build failed twice, or timed out after 2 hours; next push rebuilds automatically |
 | `cancelled` | Build was cancelled; next push rebuilds automatically |
+
+When a build fails or is terminated, the deployer waits 2 minutes and starts it once more. Failures on Cloudflare's side, such as a timeout while pushing the image to the registry, often pass in that time. The deployer skips the retry if a newer source has been pushed, because that source is already building. If the second build also fails, the check reports `failure`.
 
 If an event triggers a run before the container's first image build completes, the router posts `> Booting container \`<container>\`...` on the thread and polls every 30 seconds for up to 3 hours before failing.
 

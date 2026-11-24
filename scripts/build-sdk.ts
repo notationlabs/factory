@@ -42,6 +42,7 @@ const bundle = await rolldown({
   // The root tsconfig maps each package to its full entry, which would win over
   // the `factory-outpost` condition.
   tsconfig: false,
+  external: [/^node:/],
   resolve: {
     conditionNames: ["factory-outpost", "import", "default"],
     mainFields: ["module", "main"],

@@ -10,6 +10,7 @@ import {
   type GithubEvent,
   highestPermissions,
   type Permissions,
+  permissionsSchema,
   union,
 } from "../lib/permissions.ts";
 
@@ -38,22 +39,6 @@ const githubEvent = v.picklist([
   "pull_request",
   "pull_request_review_comment",
 ] satisfies GithubEvent[]);
-
-const permission = v.picklist(["read", "write"]);
-
-const permissions = v.partial(
-  v.object({
-    actions: permission,
-    actions_variables: permission,
-    checks: permission,
-    contents: permission,
-    deployments: permission,
-    issues: permission,
-    metadata: permission,
-    pull_requests: permission,
-    statuses: permission,
-  }),
-);
 
 export const App = defineResource<AppApi>({
   type: "github/apps/App",
@@ -87,7 +72,7 @@ export const App = defineResource<AppApi>({
     permissions: {
       propertyType: "param",
       presence: "optional",
-      value: permissions,
+      value: permissionsSchema,
       collect: highestPermissions,
     },
     id: {

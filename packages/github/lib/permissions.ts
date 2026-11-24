@@ -1,4 +1,5 @@
 import type { DeepPartial } from "@notation/resource";
+import * as v from "valibot";
 
 export type Permission = "read" | "write";
 export type Permissions = Partial<
@@ -11,10 +12,29 @@ export type Permissions = Partial<
     | "issues"
     | "metadata"
     | "pull_requests"
-    | "statuses",
+    | "statuses"
+    | "workflows",
     Permission
   >
 >;
+
+const permission = v.picklist(["read", "write"]);
+
+export const permissionsSchema = v.partial(
+  v.object({
+    actions: permission,
+    actions_variables: permission,
+    checks: permission,
+    contents: permission,
+    deployments: permission,
+    issues: permission,
+    metadata: permission,
+    pull_requests: permission,
+    statuses: permission,
+    workflows: permission,
+  }),
+);
+
 export type GithubEvent =
   | "issues"
   | "issue_comment"

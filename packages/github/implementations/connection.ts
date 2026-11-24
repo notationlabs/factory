@@ -7,12 +7,15 @@ import {
 import { webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { appName } from "../lib/app-name.ts";
+import { permissionsSchema } from "../lib/permissions.ts";
 import { App, type AppInstance } from "../resources/app.ts";
 import { CHANNEL_SECRETS, CHANNEL_VALUES } from "../router/index.ts";
 import { ConnectionRef } from "./connection-ref.ts";
 
 const connectionConfig = v.object({
   org: v.optional(v.string()),
+  /** Permissions the App holds on top of its fixed set. An outpost's policies can only ask for permissions the App holds. */
+  permissions: v.optional(permissionsSchema),
 });
 export type ConnectionConfig = v.InferInput<typeof connectionConfig>;
 
@@ -33,7 +36,7 @@ export class Connection
   readonly app: AppInstance;
 
   constructor(id: string, { router, ...config }: ConnectionOptions) {
-    const { org } = v.parse(connectionConfig, config);
+    const { org, permissions } = v.parse(connectionConfig, config);
     super("github/Connection", id, config);
     this.name = id;
     this.router = router;
@@ -62,6 +65,7 @@ export class Connection
         statuses: "read",
       },
     });
+    if (permissions) this.app.contribute({ permissions });
     router.channel({
       connection: key,
       module: fileURLToPath(new URL("../router/index.ts", import.meta.url)),

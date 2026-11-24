@@ -23,6 +23,18 @@ const gh = new github.Connection("gh", { router, org: "acme" });
 
 Pass optional `org` to create the App under a GitHub organization instead of your personal account. Call `github.Connection.get(name)` inside `.factory/infra.ts` to obtain a `ConnectionRef`.
 
+The App always holds these permissions: `contents`, `issues`, `pull_requests`, `actions_variables` and `checks` at `write`, and `metadata`, `actions`, `deployments` and `statuses` at `read`. Pass optional `permissions` to give the App more, or to raise one to `write`. An outpost's `Policy` can only get permissions the App holds, so this list is the most any outpost can ask for:
+
+```ts [factory.infra.ts]
+const gh = new github.Connection("gh", {
+  router,
+  org: "acme",
+  permissions: { workflows: "write" },
+});
+```
+
+GitHub has no API to change an App's permissions. When `permissions` adds to the App, the next deploy prints what to set on the App's permissions page and waits for you to save it. Then accept the new permissions on each installation.
+
 ### `CodeHost`
 
 Designates the GitHub connection as the hub's repository source and configures repository allowlists:
@@ -81,7 +93,7 @@ type PolicyOptions = {
 };
 ```
 
-`Policy` schema validation accepts `workflows`, though `Connection`'s default App manifest does not request `workflows` permission.
+A `Policy` can only get permissions its connection's App holds. The App doesn't hold `workflows` unless the hub passes it in the `Connection`'s `permissions`. A token without `workflows: "write"` can't push changes to `.github/workflows/`.
 
 ### `Channel`
 

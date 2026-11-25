@@ -45,10 +45,13 @@ Both selectors accept three optional filters alongside the required `from` field
 | :--- | :--- |
 | `actions` | Array of webhook actions that match this trigger |
 | `mention` | Case-insensitive handle matched at word boundaries; on `"edited"`, must be newly added |
+| `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `listen:<mention without @>`; `false` turns it off |
 | `labels` | Array of label names that must all be present on the issue |
 | `from` | Required author rule or array of author rules controlling who can start a run |
 
 Mention matching follows GitHub handle boundaries, so `@claude` matches `@Claude` without matching longer usernames or email addresses. When watching `"edited"` events, Factory compares the previous body and fires only if the edit introduced the mention.
+
+When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment or issue matches the trigger without the mention. Edits still need to add the mention. To stop the agent listening, remove the label. The next mention adds it again. Each agent has its own label, so a comment on an issue that several agents listen on starts a run for each of them.
 
 ## Author trust selectors
 

@@ -243,6 +243,13 @@ export const reactEyes = async (auth: AppAuth, repo: string, target: { issue: nu
   await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
 };
 
+/** Adds labels to an issue or a pull request. GitHub creates a label that the repo doesn't have yet. */
+export const addLabels = async (auth: AppAuth, repo: string, issue: number, labels: string[]) => {
+  const token = await repoToken(auth, repo, { issues: "write" });
+  const path = `/repos/${repo}/issues/${issue}/labels`;
+  await ok(await github("POST", path, token, { body: { labels } }), `POST ${path}`);
+};
+
 const fullNames = (repos: { full_name: string }[] | undefined) => (repos ?? []).map((r) => r.full_name);
 
 /**

@@ -428,6 +428,13 @@ test("a delivery that starts a run is acknowledged once, before the run is hande
   assert.deepEqual(events, ["acknowledge d1", "run"]);
 });
 
+test("acknowledge gets the selectors of the triggers that start runs", async () => {
+  const selectors: unknown[] = [];
+  const channel = { ...accepted(), acknowledge: async (_: Delivery<FakeEvent>, s?: unknown[]) => void selectors.push(s) };
+  await call(runStore(channel, {}));
+  assert.deepEqual(selectors, [[{ pick: true }]]);
+});
+
 test("a run starts even if the channel can't acknowledge its delivery", async () => {
   const runs: Run[] = [];
   const channel = {

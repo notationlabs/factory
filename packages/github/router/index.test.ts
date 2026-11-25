@@ -158,6 +158,15 @@ test("an edit matches only if it newly adds the mention", () => {
   assert.equal(channel.match(selector(), edit("@claude fix")), undefined);
 });
 
+test("on an issue with the listen label, a new comment matches without the mention", () => {
+  const comment = (labels: string[]) => delivery({ body: "and the tests", before: "and the tests", labels });
+  assert.equal(channel.match(selector(), comment([])), undefined);
+  assert.ok(channel.match(selector(), comment(["listen:claude"])));
+  assert.ok(channel.match(selector({ listen: "agent" }), comment(["Agent"])));
+  assert.equal(channel.match(selector({ listen: false }), comment(["listen:claude"])), undefined);
+  assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["listen:claude"] })), undefined);
+});
+
 test("mentions match as GitHub does", () => {
   assert.equal(mentions("@Claude please", "@claude"), true);
   assert.equal(mentions("hi (@claude)", "@claude"), true);
@@ -205,7 +214,7 @@ const withGithub = async (
       const name = roles[decodeURIComponent(role[1]!)];
       return name ? Response.json({ permission: name, role_name: name }) : new Response("Not Found", { status: 404 });
     }
-    if (init?.method === "PATCH" || url.pathname.endsWith("/reactions")) {
+    if (init?.method === "PATCH" || url.pathname.endsWith("/reactions") || url.pathname.endsWith("/labels")) {
       writes.push([init!.method!, url.pathname, JSON.parse(String(init!.body))]);
       if (deleted.some((id) => url.pathname.endsWith(`/comments/${id}`))) return new Response("Not Found", { status: 404 });
       return Response.json({});
@@ -366,5 +375,22 @@ test("acknowledge reacts with 👀 to the comment that matched, or to the issue 
       ["POST", "/repos/acme/api/issues/comments/99/reactions", { content: "eyes" }],
       ["POST", "/repos/acme/api/issues/7/reactions", { content: "eyes" }],
     ]);
+  });
+});
+
+test("acknowledge adds the listen label of each selector the post mentions", async () => {
+  await withGithub({}, async (_, writes) => {
+    const d = await accepted("issue_comment", commentPayload);
+    await keyed.acknowledge!(d, [selector(), selector({ mention: "@droid" }), selector({ mention: "@cursor", listen: false })]);
+    assert.deepEqual(writes.slice(1), [["POST", "/repos/acme/api/issues/7/labels", { labels: ["listen:claude"] }]]);
+  });
+});
+
+test("acknowledge adds no label that the issue has, or for a post that didn't mention the agent", async () => {
+  await withGithub({}, async (_, writes) => {
+    const d = await accepted("issue_comment", commentPayload);
+    await keyed.acknowledge!({ ...d, data: { ...d.data, labels: ["listen:claude"] } }, [selector()]);
+    await keyed.acknowledge!({ ...d, data: { ...d.data, body: "fix", before: "fix" } }, [selector()]);
+    assert.equal(writes.filter(([, path]) => path.endsWith("/labels")).length, 0);
   });
 });

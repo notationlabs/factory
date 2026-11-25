@@ -18,12 +18,20 @@ export const user = (login: string): AuthorSet => ({ kind: "user", login });
 /** Required: nothing is trusted by default. */
 const from = v.union([authorSet, v.array(authorSet)]);
 
+/**
+ * With `mention`: the label that a run started by a mention adds to the
+ * issue. While the issue has the label, a new post matches without the
+ * mention. Defaults to `listen:<mention without @>`. `false` adds no label.
+ */
+const listen = v.optional(v.union([v.string(), v.literal(false)]));
+
 export const issueSelector = v.object({
   actions: v.optional(
     v.array(v.picklist(["opened", "edited", "reopened", "labeled"])),
     ["opened"],
   ),
   mention: v.optional(v.string()),
+  listen,
   labels: v.optional(v.array(v.string())),
   from,
 });
@@ -32,6 +40,7 @@ export type IssueSelector = v.InferInput<typeof issueSelector>;
 export const issueCommentSelector = v.object({
   actions: v.optional(v.array(v.picklist(["created", "edited"])), ["created"]),
   mention: v.optional(v.string()),
+  listen,
   labels: v.optional(v.array(v.string())),
   from,
 });

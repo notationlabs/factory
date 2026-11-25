@@ -12,6 +12,7 @@ import type { AuthorSet } from "../implementations/selectors.ts";
 import { appJwt } from "./app-jwt.ts";
 import { signIn, signInUrl } from "./operators.ts";
 import {
+  addLabels,
   comment,
   installedRepos,
   type IssueComment,
@@ -205,19 +206,31 @@ export const mentions = (body: string, mention: string) =>
 type Selector = {
   actions: string[];
   mention?: string;
+  listen?: string | false;
   labels?: string[];
   from: AuthorSet | AuthorSet[];
 };
 
+/** The label that keeps a mention selector listening, if it has one. Outposts deployed before `listen` existed get the default too. */
+export const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
+  if (!selector.mention || selector.listen === false) return undefined;
+  return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`;
+};
+
+const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
+
+/** Whether the event's body mentions `mention`. An edit counts only if it newly adds the mention. */
+const newlyMentions = (event: GithubEvent, mention: string) =>
+  mentions(event.body, mention) && !(event.action === "edited" && mentions(event.before, mention));
+
 const selects = (selector: Selector, event: GithubEvent) => {
   if (!selector.actions.includes(event.action)) return false;
   if (selector.labels?.some((l) => !event.labels.includes(l))) return false;
-  if (selector.mention) {
-    if (!mentions(event.body, selector.mention)) return false;
-    // An edit matches only if it newly adds the mention.
-    if (event.action === "edited" && mentions(event.before, selector.mention)) {
-      return false;
-    }
+  if (selector.mention && !newlyMentions(event, selector.mention)) {
+    // On an issue with the listen label, a new post matches without the mention. Edits don't.
+    const label = listenLabel(selector);
+    const listening = label !== undefined && hasLabel(event.labels, label);
+    if (!listening || (event.action !== "created" && event.action !== "opened")) return false;
   }
   return true;
 };
@@ -356,9 +369,16 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       return threadMessages(await auth(), thread as Thread);
     },
 
-    async acknowledge(delivery) {
+    async acknowledge(delivery, selectors = []) {
       const payload = delivery.payload as Payload;
-      await reactEyes(await auth(), delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
+      const a = await auth();
+      await reactEyes(a, delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
+      const labels = new Set<string>();
+      for (const s of selectors as Selector[]) {
+        const label = listenLabel(s);
+        if (label && newlyMentions(delivery.data, s.mention!) && !hasLabel(delivery.data.labels, label)) labels.add(label);
+      }
+      if (labels.size) await addLabels(a, delivery.repo, payload.issue.number, [...labels]);
     },
 
     async reply(thread, text, message) {

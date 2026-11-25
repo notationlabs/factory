@@ -105,10 +105,12 @@ const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 | Selector method | Options |
 | :--- | :--- |
-| `gh.issue(opts)` | `actions?`: `"opened" \| "edited" \| "reopened" \| "labeled"`, defaults to `["opened"]`; `mention?`, `labels?`, `from` |
-| `gh.issueComment(opts)` | `actions?`: `"created" \| "edited"`, defaults to `["created"]`; `mention?`, `labels?`, `from` |
+| `gh.issue(opts)` | `actions?`: `"opened" \| "edited" \| "reopened" \| "labeled"`, defaults to `["opened"]`; `mention?`, `listen?`, `labels?`, `from` |
+| `gh.issueComment(opts)` | `actions?`: `"created" \| "edited"`, defaults to `["created"]`; `mention?`, `listen?`, `labels?`, `from` |
 
 On `"edited"` comment triggers with `mention`, only edits that newly add the mention match.
+
+A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `listen:<mention without @>`, such as `listen:claude` for `@claude`. While the issue has the label, a new comment or issue matches without the mention. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
 
 ### Author sets (`from`)
 

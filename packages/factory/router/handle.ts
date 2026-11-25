@@ -203,10 +203,10 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  * Tries a saved delivery's dispatches that are due, and resolves to when
  * to call it again, if any dispatch is left to try. It changes `record`,
  * which the caller saves:
- * 1. Has the channel show on the delivery's post that a run is starting,
- *    once.
- * 2. Reads the repo's outpost config as it is now, and dispatches each due
- *    trigger with new tokens.
+ * 1. Reads the repo's outpost config as it is now.
+ * 2. Has the channel show on the delivery's post that a run is starting,
+ *    once. It passes the channel the selectors of the delivery's triggers.
+ *    Then it dispatches each due trigger with new tokens.
  * 3. A dispatch whose container's first image build hasn't finished waits
  *    for it. See `waitForBuild`. It isn't tried again while the deploy log
  *    says the build is queued or in progress, so it doesn't mint tokens
@@ -221,13 +221,17 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
     for (const d of due) Object.assign(d, { state: "failed", error: `The hub has no channel for connection ${record.connection}.` });
   } else if (due.length && found) {
     const { entry, channel } = found;
+    const outpost = await store.outpost(record.delivery.repo);
     if (!record.acknowledged) {
-      await channel.acknowledge(record.delivery).catch((error) =>
+      const selectors = record.dispatches.flatMap((d) => {
+        const trigger = outpost?.triggers?.[d.trigger];
+        return trigger ? [trigger.match] : [];
+      });
+      await channel.acknowledge(record.delivery, selectors).catch((error) =>
         console.error(JSON.stringify({ delivery: record.id, state: "acknowledge failed", error: message(error) })),
       );
       record.acknowledged = true;
     }
-    const outpost = await store.outpost(record.delivery.repo);
     const name = record.connection.slice(entry.provider.length + 1);
     const repo = record.delivery.repo;
     await Promise.all(

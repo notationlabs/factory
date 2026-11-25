@@ -214,17 +214,21 @@ type Selector = {
 /** The label that keeps a mention selector listening, if it has one. Outposts deployed before `listen` existed get the default too. */
 const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
   if (!selector.mention || selector.listen === false) return undefined;
-  return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`;
+  // GitHub limits label names to 50 characters, which a team's mention can pass.
+  return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`.slice(0, 50);
 };
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
 
 const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?/g;
 
-/** Whether `body` mentions a user or team other than `mention`. */
+/** Code and quoted lines, where an `@` isn't a mention. */
+const NOT_MENTIONS = /```[\s\S]*?(?:```|(?![\s\S]))|`[^`\n]*`|^>.*$/gm;
+
+/** Whether `body` mentions a user or team other than `mention`, outside code and quotes. */
 const mentionsOther = (body: string, mention: string) => {
   const own = mention.replace(/^@/, "").toLowerCase();
-  return (body.match(HANDLE) ?? []).some((h) => h.slice(1).toLowerCase() !== own);
+  return (body.replace(NOT_MENTIONS, "").match(HANDLE) ?? []).some((h) => h.slice(1).toLowerCase() !== own);
 };
 
 /** Whether the event's body mentions `mention`. An edit counts only if it newly adds the mention. */

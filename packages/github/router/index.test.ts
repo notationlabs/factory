@@ -175,6 +175,18 @@ test("on an issue with the listen label, a comment addressed to someone else doe
   assert.equal(channel.match(selector(), comment("ping @acme/core")), undefined);
   assert.ok(channel.match(selector(), comment("mail me@example.com")));
   assert.ok(channel.match(selector(), comment("@Claude and @claude again")));
+  assert.ok(channel.match(selector(), comment("fix the `@types/node` import")));
+  assert.ok(channel.match(selector(), comment("```ts\n@Injectable()\n```\nlike this")));
+  assert.ok(channel.match(selector(), comment("> @bob said x\n\nplease do it")));
+});
+
+test("the default listen label is cut to GitHub's 50 characters", async () => {
+  await withGithub({}, async (_, writes) => {
+    const d = await accepted("issue_comment", commentPayload);
+    await keyed.acknowledge!(d, [selector({ mention: "@some-org/a-very-long-team-name-that-goes-on-and-on" })]);
+    const [, , body] = writes.find(([, path]) => path.endsWith("/labels"))!;
+    assert.equal((body as { labels: string[] }).labels[0]!.length, 50);
+  });
 });
 
 test("mentions match as GitHub does", () => {
@@ -392,7 +404,8 @@ test("acknowledge adds the listen label of each selector that listens", async ()
   await withGithub({}, async (_, writes) => {
     const d = await accepted("issue_comment", commentPayload);
     await keyed.acknowledge!(d, [selector(), selector({ mention: "@cursor", listen: false })]);
-    assert.deepEqual(writes.slice(1), [["POST", "/repos/acme/api/issues/7/labels", { labels: ["listen:claude"] }]]);
+    const labelled = writes.filter(([, path]) => path.endsWith("/labels"));
+    assert.deepEqual(labelled, [["POST", "/repos/acme/api/issues/7/labels", { labels: ["listen:claude"] }]]);
   });
 });
 

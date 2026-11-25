@@ -110,7 +110,7 @@ const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 On `"edited"` comment triggers with `mention`, only edits that newly add the mention match.
 
-A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `listen:<mention without @>`, such as `listen:claude` for `@claude`. While the issue has the label, a new comment or issue matches without the mention. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
+A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `listen:<mention without @>`, such as `listen:claude` for `@claude`. While the issue has the label, a new comment matches without the mention. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
 
 ### Author sets (`from`)
 

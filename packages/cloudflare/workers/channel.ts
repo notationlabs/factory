@@ -76,7 +76,7 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return messages(thread);
   }
 
-  async acknowledge(delivery: Delivery<unknown>, selectors?: unknown[]) {
+  async acknowledge(delivery: Delivery<unknown>, selectors: unknown[]) {
     await channel(context(this.env)).acknowledge?.(delivery, selectors);
   }
 

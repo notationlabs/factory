@@ -51,7 +51,7 @@ Both selectors accept three optional filters alongside the required `from` field
 
 Mention matching follows GitHub handle boundaries, so `@claude` matches `@Claude` without matching longer usernames or email addresses. When watching `"edited"` events, Factory compares the previous body and fires only if the edit introduced the mention.
 
-When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment or issue matches the trigger without the mention. Edits still need to add the mention. To stop the agent listening, remove the label. The next mention adds it again. Each agent has its own label, so a comment on an issue that several agents listen on starts a run for each of them.
+When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment matches the trigger without the mention. Edits still need to add the mention. An issue trigger and a comment trigger for the same agent need the same `listen` label, which the default gives them. To stop the agent listening, remove the label. The next mention adds it again. Each agent has its own label, so a comment on an issue that several agents listen on starts a run for each of them.
 
 ## Author trust selectors
 

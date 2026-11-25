@@ -119,7 +119,7 @@ interface ChannelBase<E> {
    * GitHub's 👀 reaction. `selectors` are those of the triggers that start
    * runs for it.
    */
-  acknowledge?(delivery: Delivery<E>, selectors?: unknown[]): Promise<void>;
+  acknowledge?(delivery: Delivery<E>, selectors: unknown[]): Promise<void>;
   /**
    * Posts `text` to a conversation's thread, or replaces the text of
    * `message`, a message that an earlier reply to the thread posted.

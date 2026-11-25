@@ -225,13 +225,11 @@ const newlyMentions = (event: GithubEvent, mention: string) =>
 
 const selects = (selector: Selector, event: GithubEvent) => {
   if (!selector.actions.includes(event.action)) return false;
-  if (selector.labels?.some((l) => !event.labels.includes(l))) return false;
-  if (selector.mention && !newlyMentions(event, selector.mention)) {
-    // On an issue with the listen label, a new post matches without the mention. Edits don't.
-    const label = listenLabel(selector);
-    const listening = label !== undefined && hasLabel(event.labels, label);
-    if (!listening || (event.action !== "created" && event.action !== "opened")) return false;
-  }
+  if (selector.labels?.some((l) => !hasLabel(event.labels, l))) return false;
+  // On an issue with the listen label, a new comment matches without the mention. Edits don't.
+  const label = listenLabel(selector);
+  const listening = event.action === "created" && label !== undefined && hasLabel(event.labels, label);
+  if (selector.mention && !newlyMentions(event, selector.mention) && !listening) return false;
   return true;
 };
 
@@ -369,16 +367,18 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       return threadMessages(await auth(), thread as Thread);
     },
 
-    async acknowledge(delivery, selectors = []) {
+    async acknowledge(delivery, selectors) {
       const payload = delivery.payload as Payload;
       const a = await auth();
-      await reactEyes(a, delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
       const labels = new Set<string>();
       for (const s of selectors as Selector[]) {
         const label = listenLabel(s);
-        if (label && newlyMentions(delivery.data, s.mention!) && !hasLabel(delivery.data.labels, label)) labels.add(label);
+        if (label && !hasLabel(delivery.data.labels, label)) labels.add(label);
       }
-      if (labels.size) await addLabels(a, delivery.repo, payload.issue.number, [...labels]);
+      await Promise.all([
+        reactEyes(a, delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id }),
+        labels.size && addLabels(a, delivery.repo, payload.issue.number, [...labels]),
+      ]);
     },
 
     async reply(thread, text, message) {

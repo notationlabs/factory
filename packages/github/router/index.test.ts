@@ -165,6 +165,16 @@ test("on an issue with the listen label, a new comment matches without the menti
   assert.ok(channel.match(selector({ listen: "agent" }), comment(["Agent"])));
   assert.equal(channel.match(selector({ listen: false }), comment(["listen:claude"])), undefined);
   assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["listen:claude"] })), undefined);
+  assert.ok(channel.match(selector(), delivery({ labels: ["listen:claude"] })));
+});
+
+test("on an issue with the listen label, a comment addressed to someone else doesn't match", () => {
+  const comment = (body: string) => delivery({ body, before: body, labels: ["listen:claude"] });
+  assert.equal(channel.match(selector(), comment("@droid do it")), undefined);
+  assert.equal(channel.match(selector(), comment("what do you think, @bob?")), undefined);
+  assert.equal(channel.match(selector(), comment("ping @acme/core")), undefined);
+  assert.ok(channel.match(selector(), comment("mail me@example.com")));
+  assert.ok(channel.match(selector(), comment("@Claude and @claude again")));
 });
 
 test("mentions match as GitHub does", () => {

@@ -39,19 +39,26 @@ GitHub channels expose two selector builders: `gh.issue` for `issues` webhooks a
 | `gh.issue(opts)` | Defaults to `"opened"`; supports `"opened"`, `"edited"`, `"reopened"`, and `"labeled"` |
 | `gh.issueComment(opts)` | Defaults to `"created"`; supports `"created"` and `"edited"` |
 
-Both selectors accept three optional filters alongside the required `from` field:
+Both selectors accept four optional filters alongside the required `from` field:
 
 | Filter | Behavior |
 | :--- | :--- |
 | `actions` | Array of webhook actions that match this trigger |
 | `mention` | Case-insensitive handle matched at word boundaries; on `"edited"`, must be newly added |
 | `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `listen:<mention without @>`; `false` turns it off |
-| `labels` | Array of label names that must all be present on the issue |
+| `labels` | Array of label names that must all be present on the issue, compared case-insensitively |
 | `from` | Required author rule or array of author rules controlling who can start a run |
 
 Mention matching follows GitHub handle boundaries, so `@claude` matches `@Claude` without matching longer usernames or email addresses. When watching `"edited"` events, Factory compares the previous body and fires only if the edit introduced the mention.
 
-When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment matches the trigger without the mention. Edits still need to add the mention. An issue trigger and a comment trigger for the same agent need the same `listen` label, which the default gives them. To stop the agent listening, remove the label. The next mention adds it again. Each agent has its own label, so a comment on an issue that several agents listen on starts a run for each of them.
+When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment matches the trigger without the mention. These don't match:
+
+- A comment that mentions another user, team or agent, such as `@bob` or `@droid`. It's addressed to them.
+- An edit, unless it adds the mention.
+
+Only a `gh.issueComment` trigger listens. On a `gh.issue` trigger, `listen` only names the label to add, so give the issue trigger and the comment trigger for an agent the same label. The default does this.
+
+To stop the agent listening, remove the label. Removing a label needs triage access to the repo. The next mention adds the label again. Each agent has its own label, so a comment on an issue that several agents listen on starts a run for each of them.
 
 ## Author trust selectors
 

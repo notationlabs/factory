@@ -212,12 +212,20 @@ type Selector = {
 };
 
 /** The label that keeps a mention selector listening, if it has one. Outposts deployed before `listen` existed get the default too. */
-export const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
+const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
   if (!selector.mention || selector.listen === false) return undefined;
   return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`;
 };
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
+
+const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?/g;
+
+/** Whether `body` mentions a user or team other than `mention`. */
+const mentionsOther = (body: string, mention: string) => {
+  const own = mention.replace(/^@/, "").toLowerCase();
+  return (body.match(HANDLE) ?? []).some((h) => h.slice(1).toLowerCase() !== own);
+};
 
 /** Whether the event's body mentions `mention`. An edit counts only if it newly adds the mention. */
 const newlyMentions = (event: GithubEvent, mention: string) =>
@@ -226,10 +234,13 @@ const newlyMentions = (event: GithubEvent, mention: string) =>
 const selects = (selector: Selector, event: GithubEvent) => {
   if (!selector.actions.includes(event.action)) return false;
   if (selector.labels?.some((l) => !hasLabel(event.labels, l))) return false;
-  // On an issue with the listen label, a new comment matches without the mention. Edits don't.
-  const label = listenLabel(selector);
-  const listening = event.action === "created" && label !== undefined && hasLabel(event.labels, label);
-  if (selector.mention && !newlyMentions(event, selector.mention) && !listening) return false;
+  if (selector.mention && !newlyMentions(event, selector.mention)) {
+    // On an issue with the listen label, a new comment matches without the mention, unless it's addressed to someone else. Edits don't.
+    const label = listenLabel(selector);
+    const listening =
+      event.action === "created" && label !== undefined && hasLabel(event.labels, label) && !mentionsOther(event.body, selector.mention);
+    if (!listening) return false;
+  }
   return true;
 };
 
@@ -377,7 +388,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       }
       await Promise.all([
         reactEyes(a, delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id }),
-        labels.size && addLabels(a, delivery.repo, payload.issue.number, [...labels]),
+        labels.size ? addLabels(a, delivery.repo, payload.issue.number, [...labels]) : undefined,
       ]);
     },
 

@@ -949,7 +949,9 @@ test("a lost run's restart link signs the person in, checks them against the tri
   assert.equal(record.dispatches[0]!.state, "lost");
 
   // A link can't be changed to restart another run, or used after it expires.
-  assert.equal((await callback("code-alice-1", token.replace(lost, crypto.randomUUID()))).status, 401);
+  const signature = token.slice(token.lastIndexOf(".") + 1);
+  const other = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: crypto.randomUUID(), expires: Date.now() + 1000 });
+  assert.equal((await callback("code-alice-1", `${other.slice(0, other.lastIndexOf("."))}.${signature}`)).status, 401);
   assert.equal((await open(store, `https://router.test/restart?run=${encodeURIComponent(`${token}0`)}`)).status, 401);
   const expired = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: lost, expires: Date.now() - 1 });
   assert.equal((await callback("code-alice-1", expired)).status, 401);

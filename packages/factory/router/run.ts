@@ -143,31 +143,36 @@ export const verifyBuildReport = (rootKey: string, report: BuildReport, signatur
 /** A lost run that a restart link starts again: the run `run` of the delivery `delivery` of `connection`. `expires` is in ms since the epoch. */
 export type RestartTicket = { connection: string; delivery: string; run: string; expires: number };
 
-// encodeURIComponent leaves dots as they are.
-const encodePart = (part: string) => encodeURIComponent(part).replaceAll(".", "%2E");
+const base64url = (text: string) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 
-/**
- * A restart link's token: `<connection>.<delivery>.<run>.<expires>.<signature>`,
- * with each part URI-encoded so that none can hold a dot.
- */
+const fromBase64url = (text: string) =>
+  new TextDecoder().decode(Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0)));
+
+/** A restart link's token: the ticket as base64url JSON, a dot, and its signature. */
 export const signRestart = async (rootKey: string, ticket: RestartTicket) =>
-  [ticket.connection, ticket.delivery, ticket.run, String(ticket.expires), await sign(rootKey, "router:restart", ticket)]
-    .map(encodePart)
-    .join(".");
+  `${base64url(JSON.stringify(ticket))}.${await sign(rootKey, "router:restart", ticket)}`;
 
 /** The ticket in a restart link's token, if the router signed it and it hasn't expired. */
 export const verifyRestart = async (rootKey: string, token: string): Promise<RestartTicket | undefined> => {
-  const parts = token.split(".");
-  if (parts.length !== 5) return undefined;
-  let decoded: string[];
+  const dot = token.lastIndexOf(".");
+  if (dot < 0) return undefined;
+  let parsed: Partial<RestartTicket>;
   try {
-    decoded = parts.map(decodeURIComponent);
+    parsed = JSON.parse(fromBase64url(token.slice(0, dot)));
   } catch {
     return undefined;
   }
-  const [connection, delivery, run, expires, signature] = decoded as [string, string, string, string, string];
-  const ticket = { connection, delivery, run, expires: Number(expires) };
-  return (await verify(rootKey, "router:restart", ticket, signature)) ? ticket : undefined;
+  const { connection, delivery, run, expires } = parsed ?? {};
+  if (typeof connection !== "string" || typeof delivery !== "string" || typeof run !== "string" || typeof expires !== "number") {
+    return undefined;
+  }
+  // The signature covers the ticket's JSON with its keys in this order.
+  const ticket = { connection, delivery, run, expires };
+  return (await verify(rootKey, "router:restart", ticket, token.slice(dot + 1))) ? ticket : undefined;
 };
 
 /** A git branch name the runner can check out: no `..`, no leading `-` or `/`, and only letters, digits and `._/-`. */

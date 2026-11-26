@@ -35,7 +35,7 @@ type DurableObjectNamespace = {
 };
 
 /** A run that waits for its container. `since` is when the Worker took it, and `noticed` whether it posted `capacityNotice`. */
-type Delivery = { run: Run; since: number; noticed?: boolean };
+type PendingRun = { run: Run; since: number; noticed?: boolean };
 
 /** How old a signed run may be. */
 const RUN_MAX_AGE_MS = 5 * 60 * 1000;
@@ -142,7 +142,7 @@ export class OutpostContainer extends Container<Env> {
    * longer to start than the caller waits.
    */
   async run(run: Run) {
-    await this.schedule(0, "deliver", { run, since: Date.now() } satisfies Delivery);
+    await this.schedule(0, "deliver", { run, since: Date.now() } satisfies PendingRun);
   }
 
   /**
@@ -152,9 +152,7 @@ export class OutpostContainer extends Container<Env> {
    * `CAPACITY_RETRY_S` until `CAPACITY_WAIT_MS` has passed. It posts
    * `capacityNotice` once, which the run's first reply replaces.
    */
-  async deliver(delivery: Delivery | Run) {
-    // A schedule from before deliveries had `since` holds the run itself.
-    const { run, since, noticed } = "since" in delivery ? delivery : { run: delivery, since: Date.now(), noticed: false };
+  async deliver({ run, since, noticed }: PendingRun) {
     try {
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
@@ -178,7 +176,7 @@ export class OutpostContainer extends Container<Env> {
         if (waited < CAPACITY_WAIT_MS) {
           const posted = noticed ? undefined : await relay(run, capacityNotice(run.container, max));
           const next = posted ? { ...run, reply: { ...run.reply, message: posted } } : run;
-          await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies Delivery);
+          await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies PendingRun);
           return;
         }
         await relay(run, capacityFailure(run.container, max));

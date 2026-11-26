@@ -78,7 +78,7 @@ const AGENT_OOM_SCORE_ADJ = 500;
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 /** How long a stopped command's processes have to exit after SIGTERM, before they get SIGKILL. */
-const STOP_GRACE_MS = Number(process.env.FACTORY_STOP_GRACE_MS ?? 10 * 1000);
+const STOP_GRACE_MS = 10 * 1000;
 
 /**
  * The system prompt every agent gets, before its own `systemPrompt`.

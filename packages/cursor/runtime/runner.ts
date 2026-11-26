@@ -23,16 +23,6 @@ const parseLine = (line: string): StreamEvent | undefined => {
   }
 };
 
-/** The input's main argument, such as a shell command or a file's path, or else the whole input as JSON. */
-const mainArgument = (input: unknown) => {
-  if (!input || typeof input !== "object") return typeof input === "string" ? input : undefined;
-  const fields = input as Record<string, unknown>;
-  for (const key of ["command", "path", "pattern", "globPattern", "url", "query", "description", "prompt"]) {
-    if (typeof fields[key] === "string") return fields[key];
-  }
-  return JSON.stringify(input);
-};
-
 /** How the runner runs Cursor Agent. Containers import it with no packages, so it imports only Node's. */
 const cursor: RuntimeRunner = {
   command: "agent",
@@ -126,8 +116,8 @@ const cursor: RuntimeRunner = {
     if (event?.type !== "tool_call" || event.subtype !== "started" || !event.tool_call) return [];
     return Object.entries(event.tool_call).flatMap(([key, call]) => {
       if (!call) return [];
-      if (key === "function") return call.name ? [{ name: call.name, argument: mainArgument(call.arguments) }] : [];
-      return [{ name: key.replace(/ToolCall$/, ""), argument: mainArgument(call.args) }];
+      if (key === "function") return call.name ? [{ name: call.name, input: call.arguments }] : [];
+      return [{ name: key.replace(/ToolCall$/, ""), input: call.args }];
     });
   },
 };

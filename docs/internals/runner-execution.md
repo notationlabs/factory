@@ -46,7 +46,7 @@ If the router answers that it has marked the run lost, the runner logs it and st
 
 The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.
 
-The runner also logs each tool that the agent calls, if the runtime's runner module has a `tools` function. The line has the run's ID, the worktree's branch or `scratch`, the tool's name, and its main argument, such as the shell command or the file's path. The argument is put on one line and cut to 200 characters:
+The runner also logs each tool that the agent calls, if the runtime's runner module has a `tools` function. The line has the run's ID, the worktree's branch or `scratch`, the tool's name, and its main argument, such as the shell command or the file's path. The runtime returns each tool's name and input, and the runner picks the argument: the first of the input's `command`, `file_path`, `directory_path`, `path`, `pattern`, `globPattern`, `url`, `query`, `description` and `prompt` that is a string, or else the whole input as JSON. The argument is put on one line and cut to 200 characters:
 
 ```json
 {"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"issue-127","tool":"Bash","argument":"pnpm typecheck"}

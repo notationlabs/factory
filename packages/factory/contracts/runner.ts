@@ -25,8 +25,8 @@ export type RunContext = {
   configDir: string;
 };
 
-/** A tool that the agent called: the tool's name, and its main argument, such as a shell command or a file's path. */
-export type ToolCall = { name: string; argument?: string };
+/** A tool that the agent called: the tool's name, and its input as the CLI wrote it. The runner logs the input's main argument, such as a shell command or a file's path. */
+export type ToolCall = { name: string; input?: unknown };
 
 /** What a runtime's CLI said at the end of a run. */
 export type RuntimeOutput = { result?: string; isError?: boolean; sessionId?: string };

@@ -47,16 +47,6 @@ const hideThinking = async (configDir: string) => {
   await writeFile(path, `${JSON.stringify({ ...current, showThinkingInMainView: true }, null, 2)}\n`);
 };
 
-/** The input's main argument, such as a shell command or a file's path, or else the whole input as JSON. */
-const mainArgument = (input: unknown) => {
-  if (!input || typeof input !== "object") return typeof input === "string" ? input : undefined;
-  const fields = input as Record<string, unknown>;
-  for (const key of ["command", "file_path", "directory_path", "pattern", "url", "query", "description", "prompt"]) {
-    if (typeof fields[key] === "string") return fields[key];
-  }
-  return JSON.stringify(input);
-};
-
 /** How the runner runs Droid. Containers import it with no packages, so it imports only Node's. */
 const droid: RuntimeRunner = {
   command: "droid",
@@ -116,7 +106,7 @@ const droid: RuntimeRunner = {
   tools: (line) => {
     const event = parseLine(line);
     return event?.type === "tool_call" && event.toolName
-      ? [{ name: event.toolName, argument: mainArgument(event.parameters) }]
+      ? [{ name: event.toolName, input: event.parameters }]
       : [];
   },
 };

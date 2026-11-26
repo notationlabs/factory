@@ -35,16 +35,6 @@ const parseLine = (line: string): StreamEvent | undefined => {
   }
 };
 
-/** The input's main argument, such as a shell command or a file's path, or else the whole input as JSON. */
-const mainArgument = (input: unknown) => {
-  if (!input || typeof input !== "object") return typeof input === "string" ? input : undefined;
-  const fields = input as Record<string, unknown>;
-  for (const key of ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"]) {
-    if (typeof fields[key] === "string") return fields[key];
-  }
-  return JSON.stringify(input);
-};
-
 /** How the runner runs Claude Code. Containers import it with no packages, so it imports only Node's. */
 const claude: RuntimeRunner = {
   command: "claude",
@@ -101,7 +91,7 @@ const claude: RuntimeRunner = {
     const event = parseLine(line);
     if (event?.type !== "assistant") return [];
     return (event.message?.content ?? []).flatMap((block) =>
-      block.type === "tool_use" && block.name ? [{ name: block.name, argument: mainArgument(block.input) }] : [],
+      block.type === "tool_use" && block.name ? [{ name: block.name, input: block.input }] : [],
     );
   },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },

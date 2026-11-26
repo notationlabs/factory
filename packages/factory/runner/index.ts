@@ -103,8 +103,19 @@ const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at:
 /** The most characters of a tool call's argument that the runner logs. */
 const MAX_TOOL_ARGUMENT = 200;
 
-/** A tool call's argument on one line, cut to `MAX_TOOL_ARGUMENT` characters. */
-const toolArgument = (argument: string) => {
+/** The fields of a tool's input that the runner logs as its main argument, in the order it looks for them. */
+const MAIN_ARGUMENT_FIELDS = ["command", "file_path", "directory_path", "path", "pattern", "globPattern", "url", "query", "description", "prompt"];
+
+/**
+ * A tool call's main argument on one line, cut to `MAX_TOOL_ARGUMENT`
+ * characters: the first of `MAIN_ARGUMENT_FIELDS` that is a string, or else
+ * the whole input as JSON. An input that is a string is its own argument.
+ */
+const toolArgument = (input: unknown) => {
+  if (input === undefined || input === null) return undefined;
+  const fields = typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const field = MAIN_ARGUMENT_FIELDS.find((key) => typeof fields[key] === "string");
+  const argument = typeof input === "string" ? input : field ? (fields[field] as string) : JSON.stringify(input);
   const line = argument.replace(/\s+/g, " ").trim();
   return line.length > MAX_TOOL_ARGUMENT ? `${line.slice(0, MAX_TOOL_ARGUMENT)}…` : line;
 };
@@ -712,12 +723,8 @@ const runAgent = async (
       const id = adapter.session?.(line);
       if (id) onSession(id);
       for (const tool of adapter.tools?.(line) ?? []) {
-        log({
-          run: run.id,
-          worktree: run.worktree?.branch ?? "scratch",
-          tool: tool.name,
-          ...(tool.argument && { argument: toolArgument(tool.argument) }),
-        });
+        const argument = toolArgument(tool.input);
+        log({ run: run.id, worktree: run.worktree?.branch ?? "scratch", tool: tool.name, ...(argument && { argument }) });
       }
     },
   });

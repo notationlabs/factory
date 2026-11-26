@@ -36,4 +36,24 @@ While streaming CLI output, `replies` throttles `POST /relay` edits to every 10 
 
 Each update passes the router-signed `ReplyMessage` ID so progress overwrites the same comment throughout the run.
 
+## Container logs
+
+The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.
+
+The runner also logs each tool that the agent calls, if the runtime's runner module has a `tools` function. The line has the run's ID, the worktree's branch or `scratch`, the tool's name, and its main argument, such as the shell command or the file's path. The argument is put on one line and cut to 200 characters:
+
+```json
+{"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"issue-127","tool":"Bash","argument":"pnpm typecheck"}
+```
+
+Claude Code's log includes its subagents' tool calls. Cursor Agent logs a tool call once, when it starts.
+
+## earlyoom
+
+At startup, the runner runs `earlyoom -r 60 -s 100,100 --avoid '^bun$'` if the image has it, and logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. `--avoid '^bun$'` lowers the score of the runner, which bun runs, so earlyoom stops the runner last.
+
+The runner runs as `factory`, without the privilege to lower its own OOM score. Instead, it starts each agent's CLI through `sh`, which writes `500` to `/proc/self/oom_score_adj` and then runs the CLI with `exec`. The CLI and every process it starts inherit the score, so earlyoom and the kernel's OOM killer prefer them to the runner. Debian 12's earlyoom 1.7 has no `--ignore` or `--ignore-root-user`, so the runner doesn't use them. The runner doesn't pass `-g`, which would stop the whole process group.
+
+The runner reads earlyoom's `sending SIGTERM to process <pid> ...` and `sending SIGKILL ...` lines. It follows the process's parents in `/proc` to the agent's CLI, and adds a note to that run's reply. If the process has already exited, so its parents can't be read, the note goes to every run whose agent is running.
+
 Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep.

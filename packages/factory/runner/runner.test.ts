@@ -20,8 +20,9 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called, the prompt on its stdin
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
-// waits for the runner to refresh its tokens, hangs, or writes messages
-// before its result, when the prompt says so.
+// waits for the runner to refresh its tokens, hangs, writes messages
+// before its result, has the fake earlyoom stop it, or stalls after it edits the worktree and reports its
+// session the first time, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$(cat)"
 case "$prompt" in
@@ -51,9 +52,21 @@ case "$prompt" in
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"still hidden"}]}}'
     sleep 0.3
     echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"A subagent."}]}}'
-    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
+    printf '%s\\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test\\n  -- --watch=false","timeout":60000}}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/a.ts"}}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
+  *"use memory"*)
+    echo "sending SIGTERM to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" > "${calls}.oom.new"
+    echo "sending SIGKILL to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" >> "${calls}.oom.new"
+    mv "${calls}.oom.new" "${calls}.oom"
+    sleep 1 ;;
+  *stall*)
+    if [ ! -e draft.txt ]; then
+      echo draft > draft.txt
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      sleep 5
+    fi ;;
 esac
 echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
@@ -79,6 +92,9 @@ case "$prompt" in
     echo '{"type":"system","subtype":"init","session_id":"'"$session"'","model":"Composer 2.5"}'
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."}]},"model_call_id":"m1","timestamp_ms":1}'
     sleep 0.3
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"shellToolCall":{"args":{"command":"ls -la"}}}}'
+    echo '{"type":"tool_call","subtype":"completed","tool_call":{"shellToolCall":{"args":{"command":"ls -la"},"result":{}}}}'
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"function":{"name":"search","arguments":"{\\"q\\":1}"}}}'
     echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
     echo '{"type":"thinking","subtype":"delta","text":"hidden"}'
     sleep 0.15
@@ -115,11 +131,26 @@ case "$prompt" in
     echo '{"type":"reasoning","text":"The bug is in the parser."}'
     sleep 0.3
     echo '{"type":"tool_call","toolName":"Task","parameters":{"subagent_type":"worker"}}'
+    echo "{\\"type\\":\\"tool_call\\",\\"toolName\\":\\"Execute\\",\\"parameters\\":{\\"command\\":\\"echo $(printf '%0300d' 0)\\"}}"
     echo '{"type":"tool_result","toolId":"Task","value":"A subagent."}'
     echo '{"type":"message","role":"assistant","text":"Found it."}'
     sleep 0.3 ;;
 esac
 echo "{\\"type\\":\\"completion\\",\\"finalText\\":\\"done\\",\\"numTurns\\":1,\\"session_id\\":\\"$session\\"}"
+`;
+
+// A fake earlyoom: it records its arguments, and writes the lines that a
+// fake agent leaves for it to stderr, as earlyoom does, until the runner exits.
+const FAKE_EARLYOOM = `#!/bin/sh
+printf '%s' "$*" > "${calls}.earlyoom"
+echo "earlyoom v1.7" >&2
+while kill -0 $PPID 2>/dev/null; do
+  if [ -e "${calls}.oom" ]; then
+    cat "${calls}.oom" >&2
+    rm -f "${calls}.oom"
+  fi
+  sleep 0.1
+done
 `;
 
 /** The hub's runner modules, by the path the runner fetches them at. */
@@ -143,8 +174,12 @@ const tokenRequests: TokenRequest[] = [];
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
+/** What the runners have written to stdout, which is the container's logs. */
+let output = "";
 /** The state store's objects, by key. */
 const state = new Map<string, Buffer>();
+/** How many times the runner has written each of the state store's objects. */
+const writes = new Map<string, number>();
 /** Each conversation's thread, which the fake router answers for its runs. */
 const threads = new Map<string, ThreadMessage[]>();
 /** The conversations whose threads the fake router can't read. */
@@ -177,6 +212,7 @@ before(async () => {
   writeFileSync(join(bin, "agent"), FAKE_CURSOR, { mode: 0o755 });
   writeFileSync(join(bin, "droid"), FAKE_DROID, { mode: 0o755 });
   writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
+  writeFileSync(join(bin, "earlyoom"), FAKE_EARLYOOM, { mode: 0o755 });
 
   const work = join(root, "work");
   mkdirSync(join(work, ".factory"), { recursive: true });
@@ -205,6 +241,7 @@ before(async () => {
         const key = pathname.slice("/state/".length);
         if (request.method === "PUT") {
           state.set(key, Buffer.concat(chunks));
+          writes.set(key, (writes.get(key) ?? 0) + 1);
           return response.end();
         }
         const object = state.get(key);
@@ -257,12 +294,16 @@ const startRunner = async () => {
       FACTORY_MODULES_URL: `${serverUrl()}/modules`,
       FACTORY_TOKEN_REFRESH_MS: "300",
       FACTORY_PROGRESS_INTERVAL_MS: "100",
+      FACTORY_SAVE_INTERVAL_MS: "200",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
       GIT_CONFIG_VALUE_0: "https://github.com/",
     },
     stdio: ["ignore", "pipe", "inherit"],
+  });
+  runner.stdout!.on("data", (chunk) => {
+    output += String(chunk);
   });
   await new Promise<void>((resolve, reject) => {
     runner.stdout!.on("data", (chunk) => String(chunk).includes("listening") && resolve());
@@ -313,6 +354,26 @@ const base = () => ({
 
 const post = (body: Run) =>
   fetch(`http://127.0.0.1:${port}/runs`, { method: "POST", body: JSON.stringify(body) });
+
+/** Resolves once `check` is true. */
+const until = async (check: () => boolean) => {
+  const deadline = Date.now() + 10_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
+
+/** The tool calls that the runner logged for a run, without their times. */
+const toolLogs = (runId: string) =>
+  output
+    .split("\n")
+    .flatMap((line) => (line.startsWith("{") ? [JSON.parse(line) as Record<string, unknown>] : []))
+    .filter((entry) => entry.run === runId && entry.tool)
+    .map(({ at, ...entry }) => {
+      assert.match(String(at), /^\d{4}-\d\d-\d\dT/);
+      return entry;
+    });
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
@@ -383,7 +444,8 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
   const conversation = "github:acme/api#32";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -396,6 +458,11 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A tool call is logged once, as it starts.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "shell", argument: "ls -la" },
+    { run: body.id, worktree: "issue-1", tool: "search", argument: '{"q":1}' },
+  ]);
 });
 
 test("a failed cursor run replies with the error", async () => {
@@ -458,7 +525,8 @@ test("a droid agent's messages during a run share one comment, which its final r
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "droid" };
   const conversation = "github:acme/api#23";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   const thinking = await nextReply();
@@ -470,6 +538,10 @@ test("a droid agent's messages during a run share one comment, which its final r
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "Task", argument: '{"subagent_type":"worker"}' },
+    { run: body.id, worktree: "issue-1", tool: "Execute", argument: `echo ${"0".repeat(195)}…` },
+  ]);
 });
 
 test("a droid run sets Droid's user settings to send thinking as reasoning, and keeps the other settings", async () => {
@@ -727,7 +799,8 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
 test("the agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
   const conversation = "github:acme/api#5";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -741,6 +814,11 @@ test("the agent's messages during a run share one comment, which its final reply
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A subagent's tool calls are logged too, and a command is logged on one line.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-5", tool: "Bash", argument: "npm test -- --watch=false" },
+    { run: body.id, worktree: "issue-5", tool: "Read", argument: "/src/a.ts" },
+  ]);
 });
 
 test("a run of a runtime that the hub has no runner module for replies with the error", async () => {
@@ -790,6 +868,37 @@ test("a snapshot that can't be restored leaves a note, and the run starts from t
   assert.equal(sh(join(data, "worktrees", "acme-api", "issue-10"), "log", "-1", "--format=%s"), "init");
 });
 
+test("during a run, the runner saves the worktree and session when they change, so a lost run can resume", async () => {
+  const id = "github:acme/api#13";
+  const first = say(id, "stall");
+  await post(run({ id, message: first }, { worktree: { branch: "issue-13" } }));
+  const session = "sessions/github-acme-api-13/coder";
+  await until(() => state.has("worktrees/issue-13.bundle") && state.has(`${session}.json`));
+  // A new session hasn't seen the thread until the run finishes.
+  assert.deepEqual(JSON.parse(state.get(`${session}.json`)!.toString()), {
+    id: "s-issue-13",
+    cwd: join(data, "worktrees", "acme-api", "issue-13"),
+    seen: {},
+  });
+  // Saves of a worktree and transcript that haven't changed upload nothing.
+  const counts = () => [writes.get("worktrees/issue-13.bundle"), writes.get(`${session}.tar.gz`)];
+  const before = counts();
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.deepEqual(counts(), before);
+
+  const lost = nextReply();
+  await sleepContainer();
+  assert.match((await lost).text, /the run was lost/);
+  await startRunner();
+
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-13" } }));
+  assert.equal((await nextReply()).text, "done");
+  const worktree = join(data, "worktrees", "acme-api", "issue-13");
+  assert.match(lastCall()[2]!, /--resume s-issue-13/);
+  assert.equal(readFileSync(join(worktree, "draft.txt"), "utf8"), "draft\n");
+  assert.match(lastPrompt(), /### Messages in thread since last turn[^]*stall[^]*carry on/);
+});
+
 test("during a long run, the runner refreshes the tokens that gh and git read", async () => {
   freshToken = "fresh-token";
   tokenRequests.length = 0;
@@ -802,6 +911,18 @@ test("during a long run, the runner refreshes the tokens that gh and git read", 
   const { ticket, signature } = tokenRequests[0]!;
   assert.deepEqual([ticket.repo, ticket.container, signature], ["acme/api", "dev", "token-sig"]);
   assert.equal(readFileSync(join(data, "github", "code"), "utf8"), "fresh-token");
+});
+
+test("the runner starts earlyoom, logs its output, and says in a run's reply when earlyoom stopped its agent's process", async () => {
+  assert.equal(readFileSync(`${calls}.earlyoom`, "utf8"), "-r 60 -s 100,100 --avoid ^bun$");
+  const id = "github:acme/api#14";
+  await post(run({ id, message: say(id, "use memory") }, { worktree: { branch: "issue-14" } }));
+  // earlyoom's SIGTERM and SIGKILL for one process make one note.
+  assert.equal(
+    (await nextReply()).text,
+    "done\n\n> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.",
+  );
+  assert.match(output, /\{"at":"[^"]+","earlyoom":"sending SIGTERM to process \d+ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB"\}/);
 });
 
 test("status counts the runs that are running or queued", async () => {

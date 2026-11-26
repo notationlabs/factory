@@ -1,6 +1,6 @@
 # Worktrees & Session State
 
-Notation Factory containers use ephemeral `/data` disks that vanish whenever Cloudflare sleeps the instance. After every run, `perform` (`packages/factory/runner/index.ts`) snapshots modified worktrees as incremental git bundles and archives per-agent transcript directories to R2 through `http://state.factory`.
+Notation Factory containers use ephemeral `/data` disks that vanish whenever Cloudflare sleeps the instance. Every 60 seconds during a run, and again after the run, `perform` (`packages/factory/runner/index.ts`) snapshots modified worktrees as incremental git bundles and archives per-agent transcript directories to R2 through `http://state.factory`.
 
 ```mermaid [Runner state persistence flow]
 sequenceDiagram
@@ -34,11 +34,14 @@ The runner stores clones and active checkouts under `/data` using three path lay
 | `/data/worktrees/<slug(repo)>/<branch>` | Checkout for branch-bound triggers |
 | `/data/scratch/<slug(convId)>` | Detached scratch checkout per conversation |
 
-After each run completes or fails, `saveWorktree` avoids mutating the user's staging area or history:
+`saveWorktree` runs every 60 seconds while the agent runs, and once more after the run completes or fails. It avoids mutating the agent's staging area or history:
 
 1. Copies the worktree's index into a temporary `GIT_INDEX_FILE` and runs `git add --all` to capture tracked, modified, and unignored untracked files.
-2. Runs `git write-tree` and `git commit-tree` on top of `HEAD` to record an ephemeral commit under `refs/factory/worktrees/<branch>` or scratch refs.
-3. Runs `git bundle create ... --not --remotes=origin` so the uploaded bundle contains only local commits and uncommitted changes relative to `origin`.
+2. Runs `git write-tree`. If the tree and `HEAD` are the same as at the run's last save, it stops here and uploads nothing.
+3. Runs `git commit-tree` on top of `HEAD` to record an ephemeral commit under `refs/factory/worktrees/<branch>` or scratch refs.
+4. Runs `git bundle create ... --not --remotes=origin` so the uploaded bundle contains only local commits and uncommitted changes relative to `origin`.
+
+A run's saves go one at a time. The save after the run waits for a save in progress to finish. `FACTORY_SAVE_INTERVAL_MS` in the container's environment changes the interval.
 
 On a cold container start, `restoreWorktree` fetches the snapshot commit from the bundle, adds the worktree at the parent commit, resets tracked and untracked state via `git read-tree` and `git reset`, and restores upstream tracking.
 
@@ -58,4 +61,6 @@ Container `files` apply before agent `files`, routing matching home config paths
 
 Runner stores session IDs, working directories, and seen message hashes in `/data/sessions/<conv>/<agent>.json`, scoped per agent so distinct runtimes never resume each other's sessions.
 
-Each post-run save uploads that metadata file and a gzip tarball of matching transcript files to `sessions/<conv>/<agent>.tar.gz`.
+Each save uploads that metadata file and a gzip tarball of matching transcript files to `sessions/<conv>/<agent>.tar.gz`. A save skips the upload when the transcript files' sizes and modification times haven't changed since the run's last save.
+
+The saves during a run need the session's ID. A resumed session has it from the start. For a new session, the runner reads it from the CLI's output with the runtime's `session` function. Until then, the saves during the run upload only the worktree. The saves during a run keep the `seen` hashes from before the run. If the container is lost during the run, the next run resumes the saved session, and its prompt has the lost run's messages again.

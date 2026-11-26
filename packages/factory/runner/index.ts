@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
@@ -42,6 +42,26 @@ const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1
 /** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
 const STOP_REPLY_TIMEOUT_MS = 5000;
 
+/** How often the runner saves a run's worktree and session to the state store while the agent runs. */
+const SAVE_INTERVAL_MS = Number(process.env.FACTORY_SAVE_INTERVAL_MS ?? 60 * 1000);
+
+/**
+ * earlyoom's options. It stops the process with the highest OOM score once
+ * less than 10% of memory is available, and logs a memory report every 60
+ * seconds. `-s 100,100` has it act on memory alone, so swap can't delay it
+ * until the container thrashes. It avoids bun, which runs the runner, and
+ * so the runner is the last process it would stop.
+ */
+const EARLYOOM_ARGS = ["-r", "60", "-s", "100,100", "--avoid", "^bun$"];
+
+/**
+ * The OOM score adjustment of the agents' processes and the processes they
+ * start. The runner keeps 0, so earlyoom and the kernel stop an agent's
+ * processes before the runner. A process without privileges can raise its
+ * own score, but not lower it.
+ */
+const AGENT_OOM_SCORE_ADJ = 500;
+
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
@@ -75,6 +95,15 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
+/** The most characters of a tool call's argument that the runner logs. */
+const MAX_TOOL_ARGUMENT = 200;
+
+/** A tool call's argument on one line, cut to `MAX_TOOL_ARGUMENT` characters. */
+const toolArgument = (argument: string) => {
+  const line = argument.replace(/\s+/g, " ").trim();
+  return line.length > MAX_TOOL_ARGUMENT ? `${line.slice(0, MAX_TOOL_ARGUMENT)}…` : line;
+};
+
 type Result = { code: number | null; stdout: string; stderr: string };
 
 const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX_OUTPUT_BYTES) : text);
@@ -82,7 +111,8 @@ const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX
 /**
  * Runs `command`, and resolves with its exit code and output. Rejects only
  * if it can't start. `input` is written to its stdin. `onLine` gets each
- * line of its stdout as it's written.
+ * line of its stdout as it's written. `onSpawn` gets its process id once it
+ * starts, and returns a function that the runner calls once it exits.
  */
 const exec = (
   command: string,
@@ -93,16 +123,19 @@ const exec = (
     timeout,
     input,
     onLine,
+    onSpawn,
   }: {
     cwd?: string;
     env?: Record<string, string | undefined>;
     timeout?: number;
     input?: string;
     onLine?: (line: string) => void;
+    onSpawn?: (pid: number) => () => void;
   } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
     const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
+    const done = child.pid === undefined ? undefined : onSpawn?.(child.pid);
     // A command that exits without reading all its input closes the pipe, and its exit code says why.
     child.stdin.on("error", () => {});
     child.stdin.end(input);
@@ -125,8 +158,12 @@ const exec = (
       if (stderr.length > 2 * MAX_OUTPUT_BYTES) stderr = tail(stderr);
     });
     const timer = timeout ? setTimeout(() => child.kill("SIGTERM"), timeout) : undefined;
-    child.on("error", reject);
+    child.on("error", (error) => {
+      done?.();
+      reject(error);
+    });
     child.on("close", (code) => {
+      done?.();
       clearTimeout(timer);
       if (line && onLine) onLine(line);
       resolve({ code, stdout: tail(stdout), stderr: tail(stderr) });
@@ -239,20 +276,27 @@ const worktreeOf = (run: Run): Worktree => {
  * Saves the worktree to the state store, as a git bundle of one commit on
  * top of its HEAD. The commit holds every file that git doesn't ignore,
  * committed or not. The bundle leaves out what `origin` already has.
+ * Returns the snapshot's tree and parent, and skips the upload if they are
+ * `previous`, which an earlier save returned.
  */
-const saveWorktree = (worktree: Worktree) =>
+const saveWorktree = (worktree: Worktree, previous?: string) =>
   withTempDir(async (dir) => {
     const cwd = worktree.path;
-    // A copy of the worktree's index, so git only reads the files that changed.
+    // A copy of the worktree's index, so git only reads the files that
+    // changed, and the agent's own index stays as it is.
     const index = join(dir, "index");
     await copyFile(resolve(cwd, await git(["rev-parse", "--git-path", "index"], { cwd })), index);
     await git(["add", "--all"], { cwd, env: { GIT_INDEX_FILE: index } });
     const tree = await git(["write-tree"], { cwd, env: { GIT_INDEX_FILE: index } });
-    const commit = await git(["commit-tree", tree, "-p", "HEAD", "-m", "Factory snapshot"], { cwd });
+    const head = await git(["rev-parse", "HEAD"], { cwd });
+    const snapshot = `${tree} ${head}`;
+    if (snapshot === previous) return snapshot;
+    const commit = await git(["commit-tree", tree, "-p", head, "-m", "Factory snapshot"], { cwd });
     await git(["update-ref", worktree.ref, commit], { cwd });
     const bundle = join(dir, "bundle");
     await git(["bundle", "create", "--quiet", bundle, worktree.ref, "--not", "--remotes=origin"], { cwd });
     await putState(worktree.key, await readFile(bundle));
+    return snapshot;
   });
 
 /**
@@ -460,11 +504,14 @@ const loadRuntime = (id: string) =>
 /**
  * Saves the conversation's session to the state store: its transcript
  * files, as a tarball of their paths under the runtime's transcripts
- * directory, and then the session's id and working directory.
+ * directory, and then the session's id, working directory and seen
+ * messages. `session` is the session file's, unless it's given. Returns the
+ * session and the transcripts' sizes and times, and skips the upload if
+ * they are `previous`, which an earlier save returned.
  */
-const saveSession = async (run: Run, transcripts: string) => {
-  const session = await readSession(run);
-  if (!session) return;
+const saveSession = async (run: Run, transcripts: string, session?: Session, previous?: string) => {
+  session ??= await readSession(run);
+  if (!session) return undefined;
   const paths: string[] = [];
   for (const project of await readdir(transcripts).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
@@ -473,6 +520,9 @@ const saveSession = async (run: Run, transcripts: string) => {
       if (existsSync(join(transcripts, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
+  const stats = await Promise.all(paths.map((path) => stat(join(transcripts, path)).catch(() => undefined)));
+  const saved = JSON.stringify([session, paths, stats.map((s) => s && [s.size, s.mtimeMs])]);
+  if (saved === previous) return saved;
   if (paths.length > 0) {
     await withTempDir(async (dir) => {
       const tarball = join(dir, "session.tar.gz");
@@ -482,6 +532,50 @@ const saveSession = async (run: Run, transcripts: string) => {
     });
   }
   await putState(`${sessionKey(run)}.json`, Buffer.from(JSON.stringify(session)));
+  return saved;
+};
+
+/**
+ * Saves a run's worktree and session to the state store, one save at a
+ * time. `during` starts a save every `SAVE_INTERVAL_MS` while the agent
+ * runs, and returns a function that stops them. `final` waits for a save
+ * in progress, and then saves. Each save skips an upload whose contents
+ * haven't changed since the last one.
+ */
+const saver = (run: Run, worktree: Worktree, transcripts: string) => {
+  const last: { worktree?: string; session?: string } = {};
+  let saving: Promise<void> = Promise.resolve();
+  const save = (session?: () => Session | undefined) => {
+    const next = saving.then(async () => {
+      last.worktree = await saveWorktree(worktree, last.worktree);
+      const current = session ? session() : await readSession(run);
+      if (current) last.session = await saveSession(run, transcripts, current, last.session);
+    });
+    saving = next.catch(() => {});
+    return next;
+  };
+  return {
+    /**
+     * `session` is the session as the run would leave it if it were lost
+     * now, or undefined while the runner doesn't know the session's id.
+     */
+    during(session: () => Session | undefined) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
+      const schedule = () => {
+        timer = setTimeout(async () => {
+          await save(session).catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }));
+          if (!stopped) schedule();
+        }, SAVE_INTERVAL_MS);
+      };
+      schedule();
+      return () => {
+        stopped = true;
+        clearTimeout(timer);
+      };
+    },
+    final: () => save(),
+  };
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
@@ -569,21 +663,28 @@ const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined
  * Runs the run's agent in `cwd` with `prompt` on its stdin and the config
  * directory `configDir`, resuming the session `sessionId` if it's set.
  * Returns the agent's final message, or `error` if the CLI failed, and the
- * session id the CLI reported either way. `onMessage` gets each message the
- * agent writes while it runs, if the runtime reads them.
+ * session id the CLI reported either way. `progress` gets each message the
+ * agent writes while it runs, if the runtime reads them, and `onSession` the
+ * session's id. earlyoom's notes on the agent's processes go in `notes`.
  */
 const runAgent = async (
   adapter: RuntimeRunner,
   run: Run,
   { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
   progress: Progress,
+  onSession: (id: string) => void,
+  notes: string[],
 ): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
   const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
   const args = await adapter.args(run, context);
   if (sessionId) args.push(...adapter.resume(sessionId));
 
-  const result = await exec(adapter.command, args, {
+  // The shell raises its own OOM score, which the agent's processes keep, and then becomes the agent's CLI.
+  const [command, commandArgs] = existsSync("/proc/self/oom_score_adj")
+    ? ["sh", ["-c", `echo ${AGENT_OOM_SCORE_ADJ} > /proc/self/oom_score_adj; exec "$0" "$@"`, adapter.command, ...args]]
+    : [adapter.command, args];
+  const result = await exec(command, commandArgs, {
     cwd,
     env: {
       ...process.env,
@@ -594,11 +695,25 @@ const runAgent = async (
     },
     timeout: RUN_TIMEOUT_MS,
     input: adapter.input?.(context) ?? prompt,
+    onSpawn: (pid) => {
+      agents.set(pid, notes);
+      return () => agents.delete(pid);
+    },
     onLine: (line) => {
       const model = adapter.model?.(line);
       if (model) progress.model(model);
       const text = adapter.message?.(line);
       if (text?.trim()) progress.message(text);
+      const id = adapter.session?.(line);
+      if (id) onSession(id);
+      for (const tool of adapter.tools?.(line) ?? []) {
+        log({
+          run: run.id,
+          worktree: run.worktree?.branch ?? "scratch",
+          tool: tool.name,
+          ...(tool.argument && { argument: toolArgument(tool.argument) }),
+        });
+      }
     },
   });
   const output = adapter.parse(result.stdout);
@@ -758,7 +873,10 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    tokens.
  * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
- *    place of the last.
+ *    place of the last. Saves the worktree and the session to the state
+ *    store every `SAVE_INTERVAL_MS`. These saves keep the messages that the
+ *    session had seen before the run, so a run that resumes after this one
+ *    is lost gets this run's messages again.
  * 6. Saves the session file, with the messages the agent has now seen, if
  *    the CLI reported a session, even if it failed.
  * 7. Saves the worktree and the session to the state store, whether or not
@@ -781,6 +899,7 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
   const repo = await fetchRepo(run, await loadCodeHost());
   await checkout(run, repo, worktree, notes);
+  const saves = saver(run, worktree, transcripts);
   try {
     await writeFiles([run.files, agentFiles(run)], {
       worktree: worktree.path,
@@ -799,23 +918,31 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
         }),
       TOKEN_REFRESH_MS,
     );
+    let sessionId = session?.id;
+    const stopSaving = saves.during(() =>
+      sessionId ? { id: sessionId, cwd: worktree.path, seen: session?.seen ?? {} } : undefined,
+    );
     try {
       const result = await runAgent(
         adapter,
         run,
         { cwd: worktree.path, configDir, prompt, sessionId: session?.id },
         progress,
+        (id) => {
+          sessionId = id;
+        },
+        notes,
       );
       if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
       if (result.error) throw new Error(result.error);
       return result.text;
     } finally {
       clearInterval(refreshing);
+      stopSaving();
     }
   } finally {
     try {
-      await saveWorktree(worktree);
-      await saveSession(run, transcripts);
+      await saves.final();
     } catch (error) {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);
@@ -860,6 +987,75 @@ const execute = async (run: Run) => {
   } catch (error) {
     log({ run: run.id, state: "relay failed", error: message(error) });
   }
+};
+
+/** The notes of the runs whose agents are running, by the process id of the agent's CLI. */
+const agents = new Map<number, string[]>();
+
+/** The process id of `pid`'s parent, or undefined if the process has exited. */
+const parentOf = (pid: number) => {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The process's name is in parentheses, and may have spaces.
+    return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The notes of the run whose agent started `pid`. If the process has
+ * exited, so that its parents can't be read, the notes of every run whose
+ * agent is running.
+ */
+const notesOf = (pid: number) => {
+  for (let current: number | undefined = pid; current && current > 1; current = parentOf(current)) {
+    const notes = agents.get(current);
+    if (notes) return [notes];
+  }
+  return [...agents.values()];
+};
+
+const size = (mib: number) => (mib < 1024 ? `${mib} MiB` : `${(mib / 1024).toFixed(1)} GiB`);
+
+/**
+ * earlyoom's line when it stops a process. earlyoom 1.7, which Debian 12
+ * has, writes `badness`, and 1.8 writes `oom_score` and the command line.
+ */
+const EARLYOOM_KILL = /^sending SIG\w+ to process (\d+) uid \d+ "(.*?)": (?:badness|oom_score) -?\d+, VmRSS (\d+) MiB/;
+
+/**
+ * Starts earlyoom, if the image has it, and logs its output. When earlyoom
+ * stops a process that a run's agent started, the run's reply says so.
+ */
+const startEarlyoom = async () => {
+  if ((await exec("sh", ["-c", "command -v earlyoom"])).code !== 0) {
+    log({ state: "earlyoom missing", detail: "The image has no earlyoom, so nothing stops a process before the container runs out of memory." });
+    return;
+  }
+  const child = spawn("earlyoom", EARLYOOM_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
+  const read = (stream: NodeJS.ReadableStream) => {
+    let rest = "";
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+      const lines = (rest + chunk).split("\n");
+      rest = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        log({ earlyoom: line });
+        const kill = EARLYOOM_KILL.exec(line);
+        if (!kill) continue;
+        const note = `earlyoom stopped \`${kill[2]}\` (${size(Number(kill[3]))}) because the container was out of memory.`;
+        for (const notes of notesOf(Number(kill[1]))) {
+          if (!notes.includes(note)) notes.push(note);
+        }
+      }
+    });
+  };
+  read(child.stdout);
+  read(child.stderr);
+  child.on("error", (error) => log({ state: "earlyoom failed", error: message(error) }));
+  child.on("exit", (code, signal) => log({ state: "earlyoom exited", code, signal }));
 };
 
 const enqueue = (run: Run) => {
@@ -927,4 +1123,5 @@ process.on("SIGTERM", async () => {
 });
 
 await configureGit();
+await startEarlyoom();
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

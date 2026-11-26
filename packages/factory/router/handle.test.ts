@@ -11,6 +11,8 @@ import {
   type Inbox,
   LOST_ERROR,
   lostNotice,
+  mergeRecord,
+  nextTry,
   replayRecord,
   type Watch,
 } from "./deliveries.ts";
@@ -1058,6 +1060,31 @@ test("a lost run's restart link signs the person in, checks them against the tri
   assert.equal(runs[1]!.reply.message?.id, "n1");
 
   assert.equal((await callback("code-alice-1")).status, 409);
+});
+
+test("the record that an alarm saves keeps a restart that was saved while the alarm waited on a channel", async () => {
+  const record: DeliveryRecord = {
+    id: "d1",
+    connection: "fake/main",
+    delivery: { id: "d1", scope: "acme/api", repo: "acme/api", event: "post", data: {}, payload: {} },
+    origin: ORIGIN,
+    received: 0,
+    acknowledged: true,
+    dispatches: [
+      { trigger: "a", run: "r1", state: "dispatched" },
+      { trigger: "b", run: "r2", state: "lost", error: LOST_ERROR },
+    ],
+  };
+  const read = record.dispatches.map((d) => JSON.stringify(d));
+  const stored = structuredClone(record);
+  // The alarm marks the first run lost, while the person restarts the second.
+  Object.assign(record.dispatches[0]!, { state: "lost", error: LOST_ERROR });
+  assert.equal(replayRecord(stored, "https://router.new", "r2"), true);
+  const saved = mergeRecord(read, record, stored);
+  assert.deepEqual(saved.dispatches.map((d) => d.state), ["lost", "pending"]);
+  assert.notEqual(saved.dispatches[1]!.run, "r2");
+  assert.equal(saved.origin, "https://router.new");
+  assert.equal(nextTry(saved, 5), 5);
 });
 
 test("watching forgets runs that the record no longer has or that failed, and leaves runs that aren't dispatched yet", async () => {

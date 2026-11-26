@@ -54,7 +54,7 @@ In the router's HTTP entrypoint, build a `RouterStore` adapter for `@notation/fa
 | `channel` | Lookup returning a `RemoteChannel` for a connection's channel binding |
 | `deployer` | Optional `RemoteDeployer` RPC client for deploys, worktrees, and runs |
 
-The inbox triggers `advance(record, store)` asynchronously via alarms or queues and retains seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`. It saves what `heartbeatWatch` returns for each heartbeat apart from the record, and calls `watch(record, watches, store)` within `LOST_AFTER_MS` of each heartbeat, so that runs that stop sending heartbeats are marked lost. `watch` also resolves to whether it marked a run lost, in which case the inbox lists the delivery as failed again.
+The inbox triggers `advance(record, store)` asynchronously via alarms or queues and retains seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`. It saves what `heartbeatWatch` returns for each heartbeat apart from the record, and calls `watch(record, watches, store)` within `LOST_AFTER_MS` of each heartbeat, so that runs that stop sending heartbeats are marked lost. `watch` also resolves to whether it marked a run lost, in which case the inbox lists the delivery as failed again. `advance` and `watch` wait on the deployer and channels, and a restart or replay may save the record meanwhile, so an inbox that saves the record afterwards merges the two with `mergeRecord`.
 
 ## Implementing `Deployer`
 

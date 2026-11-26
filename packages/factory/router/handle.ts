@@ -37,6 +37,7 @@ import {
   KEEP_DELIVERY_MS,
   LOST_ERROR,
   lostNotice,
+  nextTry,
   type TriggerDispatch,
   waitingNotice,
   type Watch,
@@ -286,8 +287,7 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
       }),
     );
   }
-  const pending = record.dispatches.filter((d) => d.state === "pending");
-  return pending.length ? Math.min(...pending.map((d) => d.next ?? now)) : undefined;
+  return nextTry(record, now);
 };
 
 const isBuilding = async (store: RouterStore, repo: string, container: string) => {

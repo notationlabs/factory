@@ -61,6 +61,8 @@ Before responding 202, the router calls `store.inbox.receive(record)`. Because `
 
 If an outpost container is still on its initial build, its placeholder Worker returns HTTP 503. On the first wait, `waitForBuild` posts a booting notice to the thread and schedules the next alarm 30 seconds later (`BUILD_POLL_MS`). Subsequent alarms skip token minting while `BuildWatch` reports a queued or active build.
 
+`advance` and `watch` wait on the deployer and the channels, and a restart or replay can save the record in the meantime. So the alarm saves `mergeRecord` of the two: each dispatch that the alarm changed, and the others as they were saved. The alarm changes only pending and dispatched dispatches, and a restart or replay only failed and lost ones. The alarm then saves the record, sets the next alarm and lists the delivery inside `blockConcurrencyWhile`, since those steps wait only on storage and KV. The alarm doesn't block other calls while it waits on the deployer: the outpost Worker posts a run's first heartbeat to this inbox before the deployer's call returns.
+
 Any failure after resolving the conversation posts an error notice instructing operators to run `factory infra replay`. Once every dispatch settles, failed deliveries remain indexed in KV for 7 days (`KEEP_DELIVERY_MS`) before Durable Object cleanup. Operators can re-queue failed dispatches with fresh run IDs through `/admin/replay`.
 
 ## Heartbeats and lost runs

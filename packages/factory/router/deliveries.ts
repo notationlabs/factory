@@ -144,6 +144,29 @@ export type Inbox = {
 /** Whether a record has no dispatch left to try. */
 export const settled = (record: DeliveryRecord) => record.dispatches.every((d) => d.state !== "pending");
 
+/** When to try the record's pending dispatches next, if it has any. A dispatch without `next` is due at `now`. */
+export const nextTry = (record: DeliveryRecord, now: number) => {
+  const pending = record.dispatches.filter((d) => d.state === "pending");
+  return pending.length ? Math.min(...pending.map((d) => d.next ?? now)) : undefined;
+};
+
+/**
+ * The record to save once the inbox's alarm has changed `changed`, whose
+ * dispatches it read as the JSON in `read`, when a restart or replay may
+ * have saved `stored` in the meantime. Each dispatch that the alarm changed
+ * comes from `changed`, and the others from `stored`. The alarm changes only
+ * pending and dispatched dispatches, and a restart or replay only failed and
+ * lost ones, so they never change the same dispatch.
+ */
+export const mergeRecord = (read: string[], changed: DeliveryRecord, stored: DeliveryRecord): DeliveryRecord => ({
+  ...stored,
+  ...(changed.acknowledged && { acknowledged: true }),
+  dispatches: stored.dispatches.map((d, i) => {
+    const mine = changed.dispatches[i]!;
+    return JSON.stringify(mine) === read[i] ? d : mine;
+  }),
+});
+
 const isFailed = (d: TriggerDispatch) => d.state === "failed" || d.state === "lost";
 
 /** The record as an operator lists it, if one of its dispatches failed or was lost. */

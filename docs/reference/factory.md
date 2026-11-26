@@ -95,6 +95,8 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `replayRecord` | Resets failed and lost dispatches on a delivery record for replay |
 | `heartbeatWatch` | What a run's heartbeat saves in the inbox: its time and message, or `{ done: true }` for a finished run |
 | `settled` | Returns `true` when no dispatch in a record is pending |
+| `nextTry(record, now)` | When to try a record's pending dispatches next, if it has any |
+| `mergeRecord(read, changed, stored)` | The record that an inbox's alarm saves: the dispatches that the alarm changed, and the others as a restart or replay saved them meanwhile |
 | `KEEP_DELIVERY_MS` | Retention duration for settled deliveries in milliseconds, 7 days |
 | `LOST_AFTER_MS` | How long a run may go without a heartbeat before the router marks it lost, 5 minutes |
 | `deriveKey` | Derives a purpose-scoped HMAC key from the router root key |

@@ -30,7 +30,7 @@ new cloudflare.Service("drafts", { router, worker: drafts });
 
 The service's id is its name, and containers reach it at `drafts.factory`. `cloudflare.Service` binds the Worker to the router Worker as `SERVICE_DRAFTS`. Outposts don't declare services, and containers don't list them. Every container on the hub can reach every service.
 
-A service's name must be a lowercase DNS label: letters, digits and hyphens, at most 63 characters, and not starting or ending with a hyphen. It can't be `state` or `runner`, since the outpost already serves `state.factory` and `runner.factory`. `isServiceName` in `@notation/factory/router` checks a name. `cloudflare.Service` throws on a name that fails the check. Notation refuses a second binding with the same name, so a second service with the same name fails too.
+A service's name must be a lowercase DNS label: letters, digits and hyphens, at most 63 characters, and not starting or ending with a hyphen. It can't be `state` or `runner`, since the outpost already serves `state.factory` and `runner.factory`. `isServiceName` in `@notation/factory/router` checks a name. `cloudflare.Service` throws on a name that fails the check. A second `cloudflare.Service` with the same name fails too, since Notation refuses a duplicate group id (`Duplicate cloudflare/Service id`).
 
 ## Writing the service's Worker
 
@@ -82,7 +82,7 @@ A request from a container passes through the outpost Worker and the router befo
 ```mermaid [A request to drafts.factory]
 flowchart LR
   C["Container"] -->|"PUT http://drafts.factory/..."| O["Outpost Worker"]
-  O -->|"ROUTER binding"| R["Router's ServiceGateway"]
+  O -->|"SERVICES binding"| R["Router's ServiceGateway"]
   R -->|"SERVICE_DRAFTS binding"| S["drafts Worker"]
 ```
 
@@ -90,12 +90,12 @@ The steps are:
 
 1. The outpost Worker's container class registers a handler for `*.factory` in `outboundByHost` from `@cloudflare/containers`. The handlers for `state.factory` and `runner.factory` match first, since exact hosts win over the glob.
 2. The handler drops every header whose name starts with `x-factory-`. It sets `x-factory-repo` and `x-factory-container` from the Worker's `REPO` and `CONTAINER` vars. Each outpost Worker runs one repo's container, and the deployer sets the vars when it builds the Worker.
-3. The handler forwards the request over the outpost Worker's `ROUTER` binding, which reaches the router Worker's `ServiceGateway` entrypoint. Only a binding reaches that entrypoint. The router's public URL doesn't.
+3. The handler forwards the request over the outpost Worker's `SERVICES` binding, which reaches the router Worker's `ServiceGateway` entrypoint. Only a binding reaches that entrypoint. The router's public URL doesn't.
 4. `ServiceGateway` takes the name from the host, and forwards the request without changes over the router Worker's binding `SERVICE_<name>`. A host that isn't a service name, or that names no service, gets a 404.
 
 The outpost intercepts only the container's plain HTTP requests to `*.factory`, `state.factory` and `runner.factory`. Other requests go to the internet as before.
 
-A service that `factory infra up` adds or removes takes effect when the router Worker deploys. The outpost Workers don't change. An outpost Worker built by a Factory version without services has no `ROUTER` binding. `factory infra up` deploys every repo at the end of each deploy, which rebuilds it.
+A service that `factory infra up` adds or removes takes effect when the router Worker deploys. The outpost Workers don't change. An outpost Worker built by a Factory version without services has no `SERVICES` binding. `factory infra up` deploys every repo at the end of each deploy, which rebuilds it.
 
 ## Services on other providers
 

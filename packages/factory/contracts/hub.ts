@@ -33,10 +33,10 @@ export interface Account extends ResourceGroup {
  * service gets each request with `SERVICE_HEADERS`, which the hub sets and
  * the container can't. The provider decides how the service runs.
  */
-export type Service = {
+export interface Service extends ResourceGroup {
   /** Containers reach the service at `<name>.factory`. */
   readonly name: string;
-};
+}
 
 /** The headers that name the repo and the container of a request to a service. The hub drops any `x-factory-*` header that the container sent. */
 export const SERVICE_HEADERS = { repo: "x-factory-repo", container: "x-factory-container" } as const;

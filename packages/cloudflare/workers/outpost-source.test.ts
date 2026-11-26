@@ -83,8 +83,8 @@ test("an outpost Worker binds the router's service gateway, and names its repo a
   const image = imageSource(container, {}, accounts, DOCKERFILE);
   const config = JSON.parse(wranglerConfig(settings, "outpost-abc", "acme/api", "dev", container, image));
   assert.deepEqual(
-    config.services.find((service: { binding: string }) => service.binding === "ROUTER"),
-    { binding: "ROUTER", service: "factory-router", entrypoint: "ServiceGateway" },
+    config.services.find((service: { binding: string }) => service.binding === "SERVICES"),
+    { binding: "SERVICES", service: "factory-router", entrypoint: "ServiceGateway" },
   );
   assert.equal(config.vars.REPO, "acme/api");
   assert.equal(config.vars.CONTAINER, "dev");

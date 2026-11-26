@@ -43,7 +43,7 @@ Takes `{ vault: Vault }` and automatically attaches `RouterSync` on deploy.
 | `channel(options)` | Attaches a connection's channel Worker as a router service binding |
 | `service(name, worker)` | Binds a hub service's Worker as `SERVICE_<name>` |
 
-The router Worker exports a `ServiceGateway` entrypoint, which each outpost Worker binds as `ROUTER`. The entrypoint forwards each request to `<name>.factory` to the binding `SERVICE_<name>`.
+The router Worker exports a `ServiceGateway` entrypoint, which each outpost Worker binds as `SERVICES`. The entrypoint forwards each request to `<name>.factory` to the binding `SERVICE_<name>`.
 
 ## `Deployer`
 
@@ -80,7 +80,7 @@ new cloudflare.Service("drafts", { router, worker: drafts });
 | `router` | Required `cloudflare.Router` instance |
 | `worker` | Required Notation `worker()` whose default export handles the containers' requests. It must have `url: false`, and the type rejects a Worker with a URL |
 
-The id is the service's name, which must pass `isServiceName`. The constructor throws on an invalid name. A second service with the same name fails, since Notation refuses a second binding with the same name. See [Services](../authoring/services.md).
+The id is the service's name, which must pass `isServiceName`. The constructor throws on an invalid name. A second `cloudflare.Service` with the same name fails, since Notation refuses a duplicate group id (`Duplicate cloudflare/Service id`). See [Services](../authoring/services.md).
 
 ## `OperatorAuth` status
 

@@ -11,7 +11,7 @@ type Env = {
   OUTPOSTS: DurableObjectNamespace;
   DEPLOYER: DeployerService;
   /** The router's `ServiceGateway` entrypoint, which forwards requests to the hub's services. */
-  ROUTER: Fetcher;
+  SERVICES: Fetcher;
   /** This Worker's name, which the deployer signs runs for. */
   WORKER_NAME: string;
   /** The repo whose container this Worker runs, which services get as the sender. */
@@ -80,7 +80,7 @@ const stateStore = async (request: Request, env: Env, ctx: OutboundHandlerContex
 };
 
 /** Forwards a container's request to `<name>.factory` to the router, with the repo and container that sent it. */
-const service = (request: Request, env: Env) => env.ROUTER.fetch(fromSender(request, env.REPO, env.CONTAINER));
+const service = (request: Request, env: Env) => env.SERVICES.fetch(fromSender(request, env.REPO, env.CONTAINER));
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 

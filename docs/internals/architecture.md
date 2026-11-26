@@ -20,7 +20,7 @@ flowchart LR
   Runner -->|POST /messages, /relay, /tokens| Router
   Runner -->|http://state.factory| Outpost
   Outpost -->|RPC getState / putState| Deployer
-  Runner -->|http://name.factory| Outpost
+  Container["Container"] -->|http://name.factory| Outpost
   Outpost -->|ServiceGateway binding| Router
   Router -->|service binding| Service["Service Worker"]
 ```

@@ -27,6 +27,7 @@ import {
   RouterConfigSchema,
 } from "../lib/router-config.ts";
 import { serviceBinding } from "../workers/services.ts";
+import type { PrivateWorker } from "./service.ts";
 import { KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import {
@@ -184,10 +185,11 @@ export class Router extends ResourceGroup implements RouterContract {
 
   /**
    * Binds a hub service's Worker as `SERVICE_<name>`, which the router's
-   * `ServiceGateway` forwards `<name>.factory` to. Notation refuses a second
-   * binding with the same name, so a second service with the name throws.
+   * `ServiceGateway` forwards `<name>.factory` to. A second
+   * `cloudflare.Service` with the same name fails before it gets here, since
+   * Notation refuses a duplicate group id (`Duplicate cloudflare/Service id`).
    */
-  service(name: string, worker: Worker) {
+  service(name: string, worker: PrivateWorker) {
     if (!isServiceName(name)) {
       throw new Error(
         `The service name ${JSON.stringify(name)} isn't a lowercase DNS label, or is one that Factory uses (state, runner).`,

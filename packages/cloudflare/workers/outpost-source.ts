@@ -129,7 +129,7 @@ export const wranglerConfig = (
     migrations: [{ tag: "v1", new_sqlite_classes: [CONTAINER_CLASS] }],
     services: [
       { binding: "DEPLOYER", service: settings.deployer },
-      { binding: "ROUTER", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
+      { binding: "SERVICES", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
     ],
     vars: { WORKER_NAME: worker, REPO: repo, CONTAINER: id, SLEEP_AFTER: settings.sleepAfter },
   };

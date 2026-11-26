@@ -20,8 +20,9 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called, the prompt on its stdin
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
-// waits for the runner to refresh its tokens, hangs, or writes messages
-// before its result, when the prompt says so.
+// waits for the runner to refresh its tokens, hangs, writes messages
+// before its result, or stalls after it edits the worktree and reports its
+// session the first time, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$(cat)"
 case "$prompt" in
@@ -54,6 +55,12 @@ case "$prompt" in
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
+  *stall*)
+    if [ ! -e draft.txt ]; then
+      echo draft > draft.txt
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      sleep 5
+    fi ;;
 esac
 echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
@@ -145,6 +152,8 @@ let server: Server;
 let runner: ChildProcess;
 /** The state store's objects, by key. */
 const state = new Map<string, Buffer>();
+/** How many times the runner has written each of the state store's objects. */
+const writes = new Map<string, number>();
 /** Each conversation's thread, which the fake router answers for its runs. */
 const threads = new Map<string, ThreadMessage[]>();
 /** The conversations whose threads the fake router can't read. */
@@ -205,6 +214,7 @@ before(async () => {
         const key = pathname.slice("/state/".length);
         if (request.method === "PUT") {
           state.set(key, Buffer.concat(chunks));
+          writes.set(key, (writes.get(key) ?? 0) + 1);
           return response.end();
         }
         const object = state.get(key);
@@ -257,6 +267,7 @@ const startRunner = async () => {
       FACTORY_MODULES_URL: `${serverUrl()}/modules`,
       FACTORY_TOKEN_REFRESH_MS: "300",
       FACTORY_PROGRESS_INTERVAL_MS: "100",
+      FACTORY_SAVE_INTERVAL_MS: "200",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
@@ -313,6 +324,15 @@ const base = () => ({
 
 const post = (body: Run) =>
   fetch(`http://127.0.0.1:${port}/runs`, { method: "POST", body: JSON.stringify(body) });
+
+/** Resolves once `check` is true. */
+const until = async (check: () => boolean) => {
+  const deadline = Date.now() + 10_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
@@ -788,6 +808,37 @@ test("a snapshot that can't be restored leaves a note, and the run starts from t
   const reply = await nextReply();
   assert.match(reply.text, /^done\n\n> Factory couldn't restore this worktree's saved state/);
   assert.equal(sh(join(data, "worktrees", "acme-api", "issue-10"), "log", "-1", "--format=%s"), "init");
+});
+
+test("during a run, the runner saves the worktree and session when they change, so a lost run can resume", async () => {
+  const id = "github:acme/api#13";
+  const first = say(id, "stall");
+  await post(run({ id, message: first }, { worktree: { branch: "issue-13" } }));
+  const session = "sessions/github-acme-api-13/coder";
+  await until(() => state.has("worktrees/issue-13.bundle") && state.has(`${session}.json`));
+  // A new session hasn't seen the thread until the run finishes.
+  assert.deepEqual(JSON.parse(state.get(`${session}.json`)!.toString()), {
+    id: "s-issue-13",
+    cwd: join(data, "worktrees", "acme-api", "issue-13"),
+    seen: {},
+  });
+  // Saves of a worktree and transcript that haven't changed upload nothing.
+  const counts = () => [writes.get("worktrees/issue-13.bundle"), writes.get(`${session}.tar.gz`)];
+  const before = counts();
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.deepEqual(counts(), before);
+
+  const lost = nextReply();
+  await sleepContainer();
+  assert.match((await lost).text, /the run was lost/);
+  await startRunner();
+
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-13" } }));
+  assert.equal((await nextReply()).text, "done");
+  const worktree = join(data, "worktrees", "acme-api", "issue-13");
+  assert.match(lastCall()[2]!, /--resume s-issue-13/);
+  assert.equal(readFileSync(join(worktree, "draft.txt"), "utf8"), "draft\n");
+  assert.match(lastPrompt(), /### Messages in thread since last turn[^]*stall[^]*carry on/);
 });
 
 test("during a long run, the runner refreshes the tokens that gh and git read", async () => {

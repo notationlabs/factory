@@ -1,6 +1,6 @@
 # Containers
 
-Notation Factory runs agents inside per-container Cloudflare Workers backed by persistent state in R2. While an active container sleeps after 10 minutes of idle time and discards its local disk, Factory snapshots worktree git bundles and agent sessions after every run so the next wake restores where the conversation left off.
+Notation Factory runs agents inside per-container Cloudflare Workers backed by persistent state in R2. While an active container sleeps after 10 minutes of idle time and discards its local disk, Factory snapshots worktree git bundles and agent sessions during and after every run so the next wake restores where the conversation left off.
 
 ## Declaring a container
 
@@ -125,7 +125,9 @@ GitHub's runner setup configures a global `git` credential helper and a `/data/b
 
 ## Persistence across container sleep
 
-When a container sleeps, everything on its local filesystem is discarded. After every run – whether it succeeds or fails – the runner persists worktree and session state to the hub's R2 bucket through `http://state.factory`.
+When a container sleeps, everything on its local filesystem is discarded. Every 60 seconds during a run, and after every run – whether it succeeds or fails – the runner persists worktree and session state to the hub's R2 bucket through `http://state.factory`. A save uploads nothing when the worktree and the session's transcript haven't changed since the last save.
+
+If the container stops or fails during a run, the work up to the last save is kept. The next run in the same worktree and conversation restores it, resumes the agent's session, and gives the agent the lost run's messages again.
 
 ```text [/data/]
 /data/

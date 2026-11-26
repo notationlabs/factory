@@ -100,6 +100,7 @@ const droid: RuntimeRunner = {
     const event = parseLine(line);
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
+  session: (line) => parseLine(line)?.session_id,
 };
 
 export default droid;

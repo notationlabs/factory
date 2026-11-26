@@ -71,6 +71,13 @@ export type RuntimeRunner = {
    * under the agent's messages.
    */
   model?(line: string): string | undefined;
+  /**
+   * Reads one line of the CLI's output while it runs, and returns the
+   * session's id, if the line has it. The runner saves the session during
+   * the run once it knows the id, so a run that is lost can be resumed.
+   * Without it, the runner saves a new session only at the end of the run.
+   */
+  session?(line: string): string | undefined;
   /** Extra environment for the CLI. */
   env?: Record<string, string>;
 };

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
@@ -41,6 +41,9 @@ const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1
 
 /** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
 const STOP_REPLY_TIMEOUT_MS = 5000;
+
+/** How often the runner saves a run's worktree and session to the state store while the agent runs. */
+const SAVE_INTERVAL_MS = Number(process.env.FACTORY_SAVE_INTERVAL_MS ?? 60 * 1000);
 
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -239,20 +242,27 @@ const worktreeOf = (run: Run): Worktree => {
  * Saves the worktree to the state store, as a git bundle of one commit on
  * top of its HEAD. The commit holds every file that git doesn't ignore,
  * committed or not. The bundle leaves out what `origin` already has.
+ * Returns the snapshot's tree and parent, and skips the upload if they are
+ * `previous`, which an earlier save returned.
  */
-const saveWorktree = (worktree: Worktree) =>
+const saveWorktree = (worktree: Worktree, previous?: string) =>
   withTempDir(async (dir) => {
     const cwd = worktree.path;
-    // A copy of the worktree's index, so git only reads the files that changed.
+    // A copy of the worktree's index, so git only reads the files that
+    // changed, and the agent's own index stays as it is.
     const index = join(dir, "index");
     await copyFile(resolve(cwd, await git(["rev-parse", "--git-path", "index"], { cwd })), index);
     await git(["add", "--all"], { cwd, env: { GIT_INDEX_FILE: index } });
     const tree = await git(["write-tree"], { cwd, env: { GIT_INDEX_FILE: index } });
-    const commit = await git(["commit-tree", tree, "-p", "HEAD", "-m", "Factory snapshot"], { cwd });
+    const head = await git(["rev-parse", "HEAD"], { cwd });
+    const snapshot = `${tree} ${head}`;
+    if (snapshot === previous) return snapshot;
+    const commit = await git(["commit-tree", tree, "-p", head, "-m", "Factory snapshot"], { cwd });
     await git(["update-ref", worktree.ref, commit], { cwd });
     const bundle = join(dir, "bundle");
     await git(["bundle", "create", "--quiet", bundle, worktree.ref, "--not", "--remotes=origin"], { cwd });
     await putState(worktree.key, await readFile(bundle));
+    return snapshot;
   });
 
 /**
@@ -460,11 +470,14 @@ const loadRuntime = (id: string) =>
 /**
  * Saves the conversation's session to the state store: its transcript
  * files, as a tarball of their paths under the runtime's transcripts
- * directory, and then the session's id and working directory.
+ * directory, and then the session's id, working directory and seen
+ * messages. `session` is the session file's, unless it's given. Returns the
+ * session and the transcripts' sizes and times, and skips the upload if
+ * they are `previous`, which an earlier save returned.
  */
-const saveSession = async (run: Run, transcripts: string) => {
-  const session = await readSession(run);
-  if (!session) return;
+const saveSession = async (run: Run, transcripts: string, session?: Session, previous?: string) => {
+  session ??= await readSession(run);
+  if (!session) return undefined;
   const paths: string[] = [];
   for (const project of await readdir(transcripts).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
@@ -473,6 +486,9 @@ const saveSession = async (run: Run, transcripts: string) => {
       if (existsSync(join(transcripts, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
+  const stats = await Promise.all(paths.map((path) => stat(join(transcripts, path)).catch(() => undefined)));
+  const saved = JSON.stringify([session, paths, stats.map((s) => s && [s.size, s.mtimeMs])]);
+  if (saved === previous) return saved;
   if (paths.length > 0) {
     await withTempDir(async (dir) => {
       const tarball = join(dir, "session.tar.gz");
@@ -482,6 +498,50 @@ const saveSession = async (run: Run, transcripts: string) => {
     });
   }
   await putState(`${sessionKey(run)}.json`, Buffer.from(JSON.stringify(session)));
+  return saved;
+};
+
+/**
+ * Saves a run's worktree and session to the state store, one save at a
+ * time. `during` starts a save every `SAVE_INTERVAL_MS` while the agent
+ * runs, and returns a function that stops them. `final` waits for a save
+ * in progress, and then saves. Each save skips an upload whose contents
+ * haven't changed since the last one.
+ */
+const saver = (run: Run, worktree: Worktree, transcripts: string) => {
+  const last: { worktree?: string; session?: string } = {};
+  let saving: Promise<void> = Promise.resolve();
+  const save = (session?: () => Session | undefined) => {
+    const next = saving.then(async () => {
+      last.worktree = await saveWorktree(worktree, last.worktree);
+      const current = session ? session() : await readSession(run);
+      if (current) last.session = await saveSession(run, transcripts, current, last.session);
+    });
+    saving = next.catch(() => {});
+    return next;
+  };
+  return {
+    /**
+     * `session` is the session as the run would leave it if it were lost
+     * now, or undefined while the runner doesn't know the session's id.
+     */
+    during(session: () => Session | undefined) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
+      const schedule = () => {
+        timer = setTimeout(async () => {
+          await save(session).catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }));
+          if (!stopped) schedule();
+        }, SAVE_INTERVAL_MS);
+      };
+      schedule();
+      return () => {
+        stopped = true;
+        clearTimeout(timer);
+      };
+    },
+    final: () => save(),
+  };
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
@@ -577,6 +637,7 @@ const runAgent = async (
   run: Run,
   { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
   progress: Progress,
+  onSession: (id: string) => void,
 ): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
   const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
@@ -599,6 +660,8 @@ const runAgent = async (
       if (model) progress.model(model);
       const text = adapter.message?.(line);
       if (text?.trim()) progress.message(text);
+      const id = adapter.session?.(line);
+      if (id) onSession(id);
     },
   });
   const output = adapter.parse(result.stdout);
@@ -758,7 +821,10 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    tokens.
  * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
- *    place of the last.
+ *    place of the last. Saves the worktree and the session to the state
+ *    store every `SAVE_INTERVAL_MS`. These saves keep the messages that the
+ *    session had seen before the run, so a run that resumes after this one
+ *    is lost gets this run's messages again.
  * 6. Saves the session file, with the messages the agent has now seen, if
  *    the CLI reported a session, even if it failed.
  * 7. Saves the worktree and the session to the state store, whether or not
@@ -781,6 +847,7 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
   const repo = await fetchRepo(run, await loadCodeHost());
   await checkout(run, repo, worktree, notes);
+  const saves = saver(run, worktree, transcripts);
   try {
     await writeFiles([run.files, agentFiles(run)], {
       worktree: worktree.path,
@@ -799,23 +866,30 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
         }),
       TOKEN_REFRESH_MS,
     );
+    let sessionId = session?.id;
+    const stopSaving = saves.during(() =>
+      sessionId ? { id: sessionId, cwd: worktree.path, seen: session?.seen ?? {} } : undefined,
+    );
     try {
       const result = await runAgent(
         adapter,
         run,
         { cwd: worktree.path, configDir, prompt, sessionId: session?.id },
         progress,
+        (id) => {
+          sessionId = id;
+        },
       );
       if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
       if (result.error) throw new Error(result.error);
       return result.text;
     } finally {
       clearInterval(refreshing);
+      stopSaving();
     }
   } finally {
     try {
-      await saveWorktree(worktree);
-      await saveSession(run, transcripts);
+      await saves.final();
     } catch (error) {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);

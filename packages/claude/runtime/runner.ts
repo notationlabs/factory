@@ -85,6 +85,7 @@ const claude: RuntimeRunner = {
     const event = parseLine(line);
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
+  session: (line) => parseLine(line)?.session_id,
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };
 

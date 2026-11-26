@@ -11,7 +11,6 @@ export {
   type Account,
   type CodeHost,
   type Deployer,
-  isServiceName,
   type OperatorAuth,
   SERVICE_HEADERS,
   type Service,
@@ -37,7 +36,6 @@ export type {
   RouterConfig,
   RouterConfigContribution,
   RouterConfigStore,
-  ServiceEntry,
 } from "./router.ts";
 export type {
   Vault,

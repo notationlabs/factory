@@ -26,14 +26,9 @@ const drafts = worker({
 new cloudflare.Service("drafts", { router, worker: drafts });
 ```
 
-The service's id is its name, and containers reach it at `drafts.factory`. `cloudflare.Service` does two things:
+The service's id is its name, and containers reach it at `drafts.factory`. `cloudflare.Service` binds the Worker to the router Worker as `SERVICE_DRAFTS`. Outposts don't declare services, and containers don't list them. Every container on the hub can reach every service.
 
-1. It binds the Worker to the router Worker as `SERVICE_DRAFTS`.
-2. It adds `drafts: { binding: "SERVICE_DRAFTS" }` to `services` in the router's config.
-
-Outposts don't declare services, and containers don't list them. Every container on the hub can reach every service.
-
-A service's name must be a lowercase DNS label: letters, digits and hyphens, at most 63 characters, and not starting or ending with a hyphen. It can't be `state` or `runner`, since the outpost already serves `state.factory` and `runner.factory`. `isServiceName` in `@notation/factory` checks a name. `cloudflare.Service` throws on a name that fails the check, and on a second service with the same name.
+A service's name must be a lowercase DNS label: letters, digits and hyphens, at most 63 characters, and not starting or ending with a hyphen. It can't be `state` or `runner`, since the outpost already serves `state.factory` and `runner.factory`. `isServiceName` in `@notation/factory/router` checks a name. `cloudflare.Service` throws on a name that fails the check. Notation refuses a second binding with the same name, so a second service with the same name fails too.
 
 ## Writing the service's Worker
 
@@ -90,33 +85,20 @@ flowchart LR
 
 The steps are:
 
-1. The router puts the names in its config's `services` into each run that it sends, as `services: ["drafts"]`.
-2. Before the outpost Worker starts the container for a run, it registers `drafts.factory` with `setOutboundByHosts` from `@cloudflare/containers`. It passes the run's repo and container as the handler's params.
-3. When the container sends a request to `drafts.factory`, the outpost Worker's handler gets it. The handler drops every header whose name starts with `x-factory-`, and sets `x-factory-repo` and `x-factory-container` from its params.
-4. The handler forwards the request over the outpost Worker's `ROUTER` binding, which reaches the router Worker's `ServiceGateway` entrypoint. Only a binding reaches that entrypoint. The router's public URL doesn't.
-5. The router reads `services.drafts.binding` from its config, and forwards the request over `SERVICE_DRAFTS` without changes. A host that names no service gets a 404.
+1. The outpost Worker's container class registers a handler for `*.factory` in `outboundByHost` from `@cloudflare/containers`. The handlers for `state.factory` and `runner.factory` match first, since exact hosts win over the glob.
+2. The handler drops every header whose name starts with `x-factory-`. It sets `x-factory-repo` and `x-factory-container` from the Worker's `REPO` and `CONTAINER` vars. Each outpost Worker runs one repo's container, and the deployer sets the vars when it builds the Worker.
+3. The handler forwards the request over the outpost Worker's `ROUTER` binding, which reaches the router Worker's `ServiceGateway` entrypoint. Only a binding reaches that entrypoint. The router's public URL doesn't.
+4. `ServiceGateway` takes the name from the host, and forwards the request without changes over the router Worker's binding `SERVICE_<name>`. A host that isn't a service name, or that names no service, gets a 404.
 
-## When containers see a change
+The outpost intercepts only the container's plain HTTP requests to `*.factory`, `state.factory` and `runner.factory`. Other requests go to the internet as before.
 
-The outpost registers the hosts again for each run, so changes reach a container at its next run:
-
-- After `factory infra up` adds a service, a container reaches it from its next run on.
-- After `factory infra up` removes a service, the next run no longer registers its host. The container's requests to the host then go to the internet, where the host doesn't resolve.
-
-The container's Durable Object keeps the hosts in its storage, and `@cloudflare/containers` registers them again each time the container starts. So a container that sleeps and wakes, or restarts, keeps the last run's hosts.
-
-Outpost Workers built before a hub had services don't bind the router. Their Workers' config changes with this binding, so the next deploy of each repo rebuilds them. `factory infra up` deploys every repo at the end of each deploy.
-
-## Other plain HTTP traffic
-
-Once the outpost registers a host at runtime, `@cloudflare/containers` 0.3.7 intercepts all of the container's plain HTTP requests, and keeps doing so after the container restarts. The outpost Worker fetches the requests to other hosts itself. The container's HTTPS requests don't pass through the outpost Worker. This applies only to hubs that have at least one service, since a run with no services registers no hosts.
+A service that `factory infra up` adds or removes takes effect when the router Worker deploys. The outpost Workers don't change. An outpost Worker built by a Factory version without services has no `ROUTER` binding. `factory infra up` deploys every repo at the end of each deploy, which rebuilds it.
 
 ## Services on other providers
 
 The `Service` contract in `packages/factory/contracts/hub.ts` has only `name`. A provider decides how a service runs, and must do the following:
 
-- Record each service in `services` in the router's config, so that the router puts its name in each run's `services`.
-- Make `<name>.factory` reach the service from each container, with `SERVICE_HEADERS` set from the run's `repo` and `container`.
+- Make `<name>.factory` reach the service from each container, with `SERVICE_HEADERS` set to the container's repo and id.
 - Drop every `x-factory-*` header that the container sent.
 
 Only the Cloudflare provider has services. `@notation/factory-railway` doesn't have them yet.

@@ -1,8 +1,8 @@
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
-import { isServiceName, type Relay, type Run } from "@notation/factory/router";
+import type { Relay, Run } from "@notation/factory/router";
 import runner from "factory:runner";
 import { type DeployerService, RUN_HEADERS } from "./outpost-api.ts";
-import { type Fetcher, fromSender, SERVICE_SUFFIX, type ServiceSender } from "./services.ts";
+import { type Fetcher, fromSender, SERVICE_SUFFIX } from "./services.ts";
 
 // Outbound interception calls the handlers through this entrypoint.
 export { ContainerProxy } from "@cloudflare/containers";
@@ -14,6 +14,10 @@ type Env = {
   ROUTER: Fetcher;
   /** This Worker's name, which the deployer signs runs for. */
   WORKER_NAME: string;
+  /** The repo whose container this Worker runs, which services get as the sender. */
+  REPO: string;
+  /** The container's id in the repo's outpost config. */
+  CONTAINER: string;
   /** How long the container stays up with no run in progress, such as `"10m"`. */
   SLEEP_AFTER: string;
 };
@@ -76,18 +80,7 @@ const stateStore = async (request: Request, env: Env, ctx: OutboundHandlerContex
 };
 
 /** Forwards a container's request to `<name>.factory` to the router, with the repo and container that sent it. */
-const service = (request: Request, env: Env, ctx: OutboundHandlerContext<ServiceSender>) =>
-  env.ROUTER.fetch(fromSender(request, ctx.params));
-
-/** The host of each of the run's services, which `service` handles with the run's repo and container. */
-const serviceHosts = (run: Run) => {
-  const params: ServiceSender = { repo: run.repo, container: run.container };
-  return Object.fromEntries(
-    (run.services ?? [])
-      .filter(isServiceName)
-      .map((name) => [`${name}${SERVICE_SUFFIX}`, { method: "service", params }]),
-  );
-};
+const service = (request: Request, env: Env) => env.ROUTER.fetch(fromSender(request, env.REPO, env.CONTAINER));
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -134,9 +127,6 @@ export class OutpostContainer extends Container<Env> {
 
   async deliver(run: Run) {
     try {
-      // The hosts replace the last run's. The object keeps them, and applies
-      // them again each time the container starts.
-      await this.setOutboundByHosts(serviceHosts(run));
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
         cancellationOptions: { instanceGetTimeoutMS: START_TIMEOUT_MS, portReadyTimeoutMS: START_TIMEOUT_MS },
@@ -172,10 +162,14 @@ export class OutpostContainer extends Container<Env> {
   }
 }
 
-// The setters register the handlers by class name. A static field would
-// define its own property instead, and the proxy wouldn't find them.
-OutpostContainer.outboundByHost = { [STATE_HOST]: stateStore, [RUNNER_HOST]: runnerSource };
-OutpostContainer.outboundHandlers = { service };
+// The setter registers the handlers by class name. A static field would
+// define its own property instead, and the proxy wouldn't find them. The
+// proxy tries exact hosts before globs, so the glob leaves state and runner.
+OutpostContainer.outboundByHost = {
+  [STATE_HOST]: stateStore,
+  [RUNNER_HOST]: runnerSource,
+  [`*${SERVICE_SUFFIX}`]: service,
+};
 
 /**
  * Takes `POST /runs` from the hub's deployer, signed with a key derived

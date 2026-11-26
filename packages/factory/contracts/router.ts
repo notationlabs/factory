@@ -35,15 +35,11 @@ export type CodeHostEntry = {
 /** In the router's config: how it checks who an operator is. The rest is the provider's. */
 export type OperatorsEntry = { provider: string } & Record<string, unknown>;
 
-/** In the router's config: the name the router reaches a service by. */
-export type ServiceEntry = { binding: string };
-
-/** The router's config. Connections are keyed by provider and name, and services by name. An infra has one code host and one operator auth. */
+/** The router's config. Connections are keyed by provider and name. An infra has one code host and one operator auth. */
 export type RouterConfig = {
   connections: Record<string, ConnectionEntry>;
   codeHost: CodeHostEntry;
   operators: OperatorsEntry;
-  services: Record<string, ServiceEntry>;
 };
 
 type ConfigPartial<T> = T extends readonly unknown[]

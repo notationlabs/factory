@@ -72,6 +72,8 @@ const PLACEHOLDER = `export default { fetch: () => new Response("building", { st
 const outpostSource = (
   settings: OutpostSettings,
   worker: string,
+  repo: string,
+  id: string,
   container: OutpostConfig["containers"][string],
   files: Record<string, string>,
   accounts: Record<string, RuntimeAccount>,
@@ -111,7 +113,7 @@ const outpostSource = (
       { binding: "DEPLOYER", service: settings.deployer },
       { binding: "ROUTER", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
     ],
-    vars: { WORKER_NAME: worker, SLEEP_AFTER: settings.sleepAfter },
+    vars: { WORKER_NAME: worker, REPO: repo, CONTAINER: id, SLEEP_AFTER: settings.sleepAfter },
   };
   source["wrangler.json"] = `${JSON.stringify(config, null, 2)}\n`;
   source["outpost.js"] = outpostBundle;
@@ -256,7 +258,7 @@ export const deployOutposts = async (
   for (const [id, container] of Object.entries(outpost?.containers ?? {})) {
     const worker = await outpostWorkerName(settings, repo, id);
     current[id] = worker;
-    const source = outpostSource(settings, worker, container, files, env.ACCOUNTS);
+    const source = outpostSource(settings, worker, repo, id, container, files, env.ACCOUNTS);
     const sourceExecutables = executables.map((path) => `.factory/${path}`).sort();
     const entries = Object.entries(source).sort(([a], [b]) => a.localeCompare(b));
     const hash = await sha256(JSON.stringify([entries, sourceExecutables]));

@@ -57,8 +57,6 @@ export type Run = {
   runtimes: string[];
   /** The container's startup files, read from `.factory/` in the checkout. */
   files: ContainerEntry["files"];
-  /** The names of the hub's services, which the container reaches at `<name>.factory`. */
-  services?: string[];
   agent: { id: string } & AgentEntry;
   /**
    * The conversation. `message` is the id of the thread's message that

@@ -13,12 +13,10 @@ export type ServiceOptions = { router: Router; worker: Worker };
  */
 export class Service extends ResourceGroup implements ServiceContract {
   readonly name: string;
-  readonly worker: Worker;
 
   constructor(name: string, { router, worker }: ServiceOptions) {
     super("cloudflare/Service", name);
     this.name = name;
-    this.worker = worker;
     router.service(name, worker);
   }
 }

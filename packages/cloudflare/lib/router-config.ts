@@ -24,5 +24,4 @@ export const RouterConfigSchema = v.object({
   connections: v.optional(v.record(v.string(), connectionEntry)),
   codeHost: v.optional(codeHostEntry),
   operators: v.optional(operatorsEntry),
-  services: v.optional(v.record(v.string(), v.object({ binding: v.string() }))),
 });

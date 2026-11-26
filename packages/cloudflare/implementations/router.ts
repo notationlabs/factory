@@ -3,7 +3,6 @@ import { type OutputRef, ResourceGroup } from "@notation/resource";
 import type { CodeHost } from "@notation/factory";
 import {
   bindingName,
-  isServiceName,
   RandomKey,
   type RandomKeyInstance,
   RecordedKey,
@@ -13,6 +12,7 @@ import {
   scopedName,
   type VaultSecret,
 } from "@notation/factory";
+import { isServiceName } from "@notation/factory/router";
 import { kvJson, type KVJsonGroup } from "@notation/cloudflare/kv";
 import { kv, r2 } from "@notation/cloudflare/resources";
 import {
@@ -26,6 +26,7 @@ import {
   ROUTER_CONFIG_KEY,
   RouterConfigSchema,
 } from "../lib/router-config.ts";
+import { serviceBinding } from "../workers/services.ts";
 import { KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import {
@@ -68,7 +69,6 @@ export class Router extends ResourceGroup implements RouterContract {
     string,
     { module: string; bundle: ReturnType<typeof workerBundle> }
   >();
-  readonly #services = new Set<string>();
 
   constructor(id: string, { vault }: RouterOptions) {
     super("cloudflare/Router", id);
@@ -183,8 +183,9 @@ export class Router extends ResourceGroup implements RouterContract {
   }
 
   /**
-   * Binds a hub service's Worker as `SERVICE_<name>`, and records the binding
-   * under the service's name in the router's config.
+   * Binds a hub service's Worker as `SERVICE_<name>`, which the router's
+   * `ServiceGateway` forwards `<name>.factory` to. Notation refuses a second
+   * binding with the same name, so a second service with the name throws.
    */
   service(name: string, worker: Worker) {
     if (!isServiceName(name)) {
@@ -192,11 +193,7 @@ export class Router extends ResourceGroup implements RouterContract {
         `The service name ${JSON.stringify(name)} isn't a lowercase DNS label, or is one that Factory uses (state, runner).`,
       );
     }
-    if (this.#services.has(name)) throw new Error(`The router ${this.id} already has a service named ${name}.`);
-    this.#services.add(name);
-    const binding = `SERVICE_${bindingName(name)}`;
-    addBindings(this.worker, { [binding]: worker });
-    this.store.contribute({ services: { [name]: { binding } } });
+    addBindings(this.worker, { [serviceBinding(name)]: worker });
   }
 
   #channelBundle(provider: string, module: string) {

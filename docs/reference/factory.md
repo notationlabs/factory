@@ -80,7 +80,6 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `single(items, ctx)` | Unwraps a single contribution or throws `ContributionConflictError` |
 | `Service` | Contract of a hub service: `{ readonly name: string }` |
 | `SERVICE_HEADERS` | The headers that name a service request's sender: `x-factory-repo` and `x-factory-container` |
-| `isServiceName(name)` | Whether `name` is a lowercase DNS label other than `state` and `runner` |
 
 ## `@notation/factory/router`
 
@@ -102,7 +101,9 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `signBuildReport` | Signs a `BuildReport` payload for the `/builds` route |
 | `signSync` | Signs a `POST /sync` header value with timestamp and origin |
 | `SYNC_HEADER` | Header name `x-factory-sync` carrying signed sync credentials |
-| `SERVICE_HEADERS`, `isServiceName` | The same as the exports of `@notation/factory`, for Workers |
+| `SERVICE_HEADERS` | The same as the export of `@notation/factory`, for Workers |
+| `isServiceName(name)` | Whether `name` is a lowercase DNS label other than `state` and `runner` |
+| `bindingName(id)` | The same as the export of `@notation/factory`, for Workers |
 | `RouterStore` | Storage and binding interface required by the router |
 | `Inbox` | Delivery persistence and retry queue interface |
 | `DeployLog` | Persistence interface for latest repository deploy results |

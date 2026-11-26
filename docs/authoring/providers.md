@@ -30,7 +30,7 @@ A `Router` group exposes platform storage and worker bindings to connection and 
 | Member | Purpose |
 | :--- | :--- |
 | `url` | `OutputRef<string>` resolving to the deployed router origin |
-| `store` | `RouterConfigStore` collecting `connections`, `codeHost`, `operators`, and `services` entries |
+| `store` | `RouterConfigStore` collecting `connections`, `codeHost`, and `operators` entries |
 | `vault` | The provider `Vault` passed in constructor options |
 | `rootKey` | `VaultSecret` wrapping a 32-byte `RandomKey`, bound as `FACTORY_ROOT_KEY` |
 | `codeHost` | Mutable slot set by the hub's `CodeHost` constructor; throws if declared twice |
@@ -72,6 +72,6 @@ Bind platform secrets and runner endpoints before starting each container, witho
 | `FACTORY_MODULES_URL` | Base URL serving `code-host.ts` and runtime modules |
 | `FACTORY_STATE_URL` | Persistent state endpoint scoped per container ID |
 
-If the provider has hub services, make `<name>.factory` reach each name in the run's `services`, as [Services](./services.md#services-on-other-providers) describes.
+If the provider has hub services, make `<name>.factory` reach each service from the container, as [Services](./services.md#services-on-other-providers) describes.
 
 Also inject every `Account` secret under its declared variable name, plus matching `OutpostSecret` entries filtered with `allowsRepo`. Start executions by posting signed `Run` payloads to the container.

@@ -123,6 +123,6 @@ Each component provisions dedicated Cloudflare resources scoped to your hub's ap
 | `cloudflare.Vault` | Shared account Secrets Store and stage-scoped secret entries |
 | `cloudflare.Router` | Router Worker, channel Workers, KV namespace, R2 bucket, `DeliveryInbox` and `RepoSync` Durable Objects |
 | `cloudflare.Deployer` | Deployer Worker, `BuildWatch` Durable Object, `WorkerLoader` binding, Artifacts namespace, and outpost Workers |
-| `cloudflare.Service` | A binding of the service's Worker on the router Worker, and the service's entry in the router's config |
+| `cloudflare.Service` | A binding of the service's Worker on the router Worker |
 
 For each container declared in an outpost's `.factory/infra.ts`, the deployer creates an Artifacts repository, pushes container sources, triggers Workers Builds, and hosts a Durable Object Container using the container's `instanceType` or `standard-1` by default.

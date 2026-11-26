@@ -45,7 +45,7 @@ The outpost Worker rejects payloads older than 5 minutes (`RUN_MAX_AGE_MS`) and 
 
 ## Service requests
 
-A request from a container to a hub service at `<name>.factory` carries no key or ticket. The outpost Worker's outbound handler drops every `x-factory-*` header that the container sent, and sets `x-factory-repo` and `x-factory-container` from the run. The handler forwards the request to the router's `ServiceGateway` entrypoint over a service binding. That entrypoint has no public URL, so the router trusts the headers, and forwards the request to the service's binding. A service's Worker should have `url: false`, so that only bindings reach it. See [Services](../authoring/services.md).
+A request from a container to a hub service at `<name>.factory` carries no key or ticket. The outpost Worker's outbound handler drops every `x-factory-*` header that the container sent, and sets `x-factory-repo` and `x-factory-container` from its Worker's `REPO` and `CONTAINER` vars. Each outpost Worker runs one repo's container, and the deployer sets the vars when it builds the Worker. The handler forwards the request to the router's `ServiceGateway` entrypoint over a service binding. That entrypoint has no public URL, so the router trusts the headers, and forwards the request to the service's binding. A service's Worker should have `url: false`, so that only bindings reach it. See [Services](../authoring/services.md).
 
 ## Operator sessions
 

@@ -8,7 +8,7 @@ import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
 import { cloudflare, cloudflareOrNone } from "../lib/cloudflare-api.ts";
 import { deleteOutpostWorker } from "../lib/outpost-workers.ts";
 import type { StartedBuild } from "./build-watch.ts";
-import { CONTAINER_CLASS, RUN_HEADERS } from "./outpost-api.ts";
+import { CONTAINER_CLASS, RUN_HEADERS, SERVICE_GATEWAY } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
 import { imageSource, instanceType, type RuntimeAccount } from "./outpost-source.ts";
 import { commitSource } from "./source-commit.ts";
@@ -107,7 +107,10 @@ const outpostSource = (
     ],
     durable_objects: { bindings: [{ name: "OUTPOSTS", class_name: CONTAINER_CLASS }] },
     migrations: [{ tag: "v1", new_sqlite_classes: [CONTAINER_CLASS] }],
-    services: [{ binding: "DEPLOYER", service: settings.deployer }],
+    services: [
+      { binding: "DEPLOYER", service: settings.deployer },
+      { binding: "ROUTER", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
+    ],
     vars: { WORKER_NAME: worker, SLEEP_AFTER: settings.sleepAfter },
   };
   source["wrangler.json"] = `${JSON.stringify(config, null, 2)}\n`;

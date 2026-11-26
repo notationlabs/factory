@@ -355,7 +355,7 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
  *    for new tokens.
- * 4. Hands the run to the deployer.
+ * 4. Hands the run to the deployer, with the names of the hub's services.
  */
 const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undefined> => {
   const { delivery, outpost } = d;
@@ -397,6 +397,7 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undef
   }
 
   const tokens = await mintTokens(store, outpost, repo, trigger.container);
+  const services = Object.keys(store.config.services ?? {});
   const tokenTicket = { repo, container: trigger.container, expires: Date.now() + REPLY_TTL_MS };
   const refresh = { url: `${d.origin}/tokens`, ticket: tokenTicket, signature: await signTokenTicket(rootKey, tokenTicket) };
 
@@ -407,6 +408,7 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undef
     container: trigger.container,
     runtimes: container.runtimes,
     files: container.files ?? {},
+    ...(services.length && { services }),
     agent: { id: trigger.agent, ...agent },
     conversation: {
       id: conversation.id,

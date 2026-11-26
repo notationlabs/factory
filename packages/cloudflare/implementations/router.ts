@@ -3,6 +3,7 @@ import { type OutputRef, ResourceGroup } from "@notation/resource";
 import type { CodeHost } from "@notation/factory";
 import {
   bindingName,
+  isServiceName,
   RandomKey,
   type RandomKeyInstance,
   RecordedKey,
@@ -48,7 +49,8 @@ const workerId = (...parts: string[]) =>
  * bucket, and the KV entry its config is contributed to. It generates the
  * root key and the sync key, and keeps both in the vault's store. Each
  * connection's channel is a Worker of its own, which the router binds as a
- * service.
+ * service, and so is each hub service. The router's `ServiceGateway`
+ * entrypoint forwards outposts' requests to the hub's services.
  */
 export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
@@ -66,6 +68,7 @@ export class Router extends ResourceGroup implements RouterContract {
     string,
     { module: string; bundle: ReturnType<typeof workerBundle> }
   >();
+  readonly #services = new Set<string>();
 
   constructor(id: string, { vault }: RouterOptions) {
     super("cloudflare/Router", id);
@@ -177,6 +180,23 @@ export class Router extends ResourceGroup implements RouterContract {
     const name = `CHANNEL_${bindingName(connection)}`;
     addBindings(this.worker, { [name]: channel });
     this.store.contribute({ connections: { [connection]: { channel: name } } });
+  }
+
+  /**
+   * Binds a hub service's Worker as `SERVICE_<name>`, and records the binding
+   * under the service's name in the router's config.
+   */
+  service(name: string, worker: Worker) {
+    if (!isServiceName(name)) {
+      throw new Error(
+        `The service name ${JSON.stringify(name)} isn't a lowercase DNS label, or is one that Factory uses (state, runner).`,
+      );
+    }
+    if (this.#services.has(name)) throw new Error(`The router ${this.id} already has a service named ${name}.`);
+    this.#services.add(name);
+    const binding = `SERVICE_${bindingName(name)}`;
+    addBindings(this.worker, { [binding]: worker });
+    this.store.contribute({ services: { [name]: { binding } } });
   }
 
   #channelBundle(provider: string, module: string) {

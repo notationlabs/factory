@@ -395,6 +395,16 @@ test("a match whose author may start a run hands the deployer a run, with its br
   assert.equal(run!.reply.signature, await signTicket(ROOT_KEY, run!.reply.ticket));
 });
 
+test("a run names the hub's services, and has no services when the hub has none", async () => {
+  const runs: Run[] = [];
+  const run = async (run: Run) => (runs.push(run), "queued" as const);
+  const s = runStore(accepted(), { run });
+  await call({ ...s, config: { ...s.config, services: { drafts: { binding: "SERVICE_DRAFTS" }, notes: { binding: "SERVICE_NOTES" } } } });
+  await call(runStore(accepted(), { run }));
+  assert.deepEqual(runs[0]!.services, ["drafts", "notes"]);
+  assert.equal("services" in runs[1]!, false);
+});
+
 test("a worktree function that names no branch runs in a scratch worktree", async () => {
   const runs: Run[] = [];
   await call(runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }));

@@ -12,6 +12,8 @@ type StreamEvent = {
   finalText?: string;
   message?: string;
   session_id?: string;
+  toolName?: string;
+  parameters?: unknown;
 };
 
 const parseLine = (line: string): StreamEvent | undefined => {
@@ -99,6 +101,13 @@ const droid: RuntimeRunner = {
   model: (line) => {
     const event = parseLine(line);
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
+  },
+  session: (line) => parseLine(line)?.session_id,
+  tools: (line) => {
+    const event = parseLine(line);
+    return event?.type === "tool_call" && event.toolName
+      ? [{ name: event.toolName, input: event.parameters }]
+      : [];
   },
 };
 

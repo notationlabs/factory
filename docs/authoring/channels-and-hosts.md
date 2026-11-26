@@ -45,8 +45,9 @@ Export `channel(ctx: ChannelContext): Channel<E>` from a dedicated module path r
 | `writeCheck` | Code hosts; creates or updates a named commit check |
 | `token` | Code hosts; mints a short-lived scoped repository token |
 | `repos` | Code hosts; lists repositories readable by the hub |
-| `signInUrl` | Operators; builds the browser OAuth redirect URL for `OperatorAuth` |
-| `signIn` | Operators; exchanges an OAuth callback code for an `Operator` identity |
+| `signInUrl` | Sign-in; builds the OAuth URL. It returns to `redirect` if given, otherwise to the CLI's callback |
+| `signIn` | Sign-in; exchanges the callback code for an `Operator` identity. Pass the same `redirect` |
+| `canTrigger` | Restart links; checks whether a signed-in person is in a trigger's `from` |
 
 Always check `performed_via_github_app` or an equivalent bot check inside `receive` and mark bot authors explicitly so agent replies never trigger infinite self-loops.
 

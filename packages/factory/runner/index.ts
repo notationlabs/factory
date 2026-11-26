@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize, resolve } from "node:path";
@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import type { CodeHostRunner, RuntimeRunner } from "../contracts/runner.ts";
 import type { ThreadMessage } from "../router/channel.ts";
 import type {
+  Heartbeat,
+  HeartbeatResult,
   MessagesRequest,
   MessagesResult,
   Relay,
@@ -39,11 +41,47 @@ const PROGRESS_INTERVAL_MS = Number(process.env.FACTORY_PROGRESS_INTERVAL_MS ?? 
 /** How often the runner edits the run's message to update its clock, while the agent writes no new message. */
 const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1000);
 
+/** How often the runner posts a heartbeat to the router for each run it holds. The router marks a run lost after 5 minutes without one. */
+const HEARTBEAT_INTERVAL_MS = Number(process.env.FACTORY_HEARTBEAT_INTERVAL_MS ?? 60 * 1000);
+
+/** How long a heartbeat may take before the runner gives up on it and tries again with the next one. */
+const HEARTBEAT_TIMEOUT_MS = 10 * 1000;
+
+/** How long the runner waits before it posts a run's `done` heartbeat again, after the router couldn't be reached or failed. */
+const DONE_RETRY_MS = Number(process.env.FACTORY_DONE_RETRY_MS ?? 10 * 1000);
+
+/** How many times the runner posts a run's `done` heartbeat, until the router takes it. */
+const DONE_ATTEMPTS = 3;
+
 /** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
 const STOP_REPLY_TIMEOUT_MS = 5000;
 
+/** How often the runner saves a run's worktree and session to the state store while the agent runs. */
+const SAVE_INTERVAL_MS = Number(process.env.FACTORY_SAVE_INTERVAL_MS ?? 60 * 1000);
+
+/**
+ * earlyoom's options. It stops the process with the highest OOM score once
+ * less than 10% of memory is available, and logs a memory report every 60
+ * seconds. `-s 100,100` has it act on memory alone, so swap can't delay it
+ * until the container thrashes. The agents' processes have a higher OOM
+ * score than the runner, so earlyoom stops them first. See
+ * `AGENT_OOM_SCORE_ADJ`.
+ */
+const EARLYOOM_ARGS = ["-r", "60", "-s", "100,100"];
+
+/**
+ * The OOM score adjustment of the agents' processes and the processes they
+ * start. The runner keeps 0, so earlyoom and the kernel stop an agent's
+ * processes before the runner. A process without privileges can raise its
+ * own score, but not lower it.
+ */
+const AGENT_OOM_SCORE_ADJ = 500;
+
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+/** How long a stopped command's processes have to exit after SIGTERM, before they get SIGKILL. */
+const STOP_GRACE_MS = 10 * 1000;
 
 /**
  * The system prompt every agent gets, before its own `systemPrompt`.
@@ -75,6 +113,26 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
+/** The most characters of a tool call's argument that the runner logs. */
+const MAX_TOOL_ARGUMENT = 200;
+
+/** The fields of a tool's input that the runner logs as its main argument, in the order it looks for them. */
+const MAIN_ARGUMENT_FIELDS = ["command", "file_path", "directory_path", "path", "pattern", "globPattern", "url", "query", "description", "prompt"];
+
+/**
+ * A tool call's main argument on one line, cut to `MAX_TOOL_ARGUMENT`
+ * characters: the first of `MAIN_ARGUMENT_FIELDS` that is a string, or else
+ * the whole input as JSON. An input that is a string is its own argument.
+ */
+const toolArgument = (input: unknown) => {
+  if (input === undefined || input === null) return undefined;
+  const fields = typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const field = MAIN_ARGUMENT_FIELDS.find((key) => typeof fields[key] === "string");
+  const argument = typeof input === "string" ? input : field ? (fields[field] as string) : JSON.stringify(input);
+  const line = argument.replace(/\s+/g, " ").trim();
+  return line.length > MAX_TOOL_ARGUMENT ? `${line.slice(0, MAX_TOOL_ARGUMENT)}…` : line;
+};
+
 type Result = { code: number | null; stdout: string; stderr: string };
 
 const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX_OUTPUT_BYTES) : text);
@@ -82,7 +140,10 @@ const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX
 /**
  * Runs `command`, and resolves with its exit code and output. Rejects only
  * if it can't start. `input` is written to its stdin. `onLine` gets each
- * line of its stdout as it's written.
+ * line of its stdout as it's written. Once `signal` aborts, it stops the
+ * command, as it does once `timeout` passes. The command runs in its own
+ * process group, so stopping it sends SIGTERM to every process it started,
+ * such as an agent's `tsc`, and SIGKILL `STOP_GRACE_MS` later.
  */
 const exec = (
   command: string,
@@ -93,16 +154,18 @@ const exec = (
     timeout,
     input,
     onLine,
+    signal,
   }: {
     cwd?: string;
     env?: Record<string, string | undefined>;
     timeout?: number;
     input?: string;
     onLine?: (line: string) => void;
+    signal?: AbortSignal;
   } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     // A command that exits without reading all its input closes the pipe, and its exit code says why.
     child.stdin.on("error", () => {});
     child.stdin.end(input);
@@ -124,10 +187,25 @@ const exec = (
       stderr += chunk;
       if (stderr.length > 2 * MAX_OUTPUT_BYTES) stderr = tail(stderr);
     });
-    const timer = timeout ? setTimeout(() => child.kill("SIGTERM"), timeout) : undefined;
+    const signalGroup = (name: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, name);
+      } catch {}
+    };
+    let killer: ReturnType<typeof setTimeout> | undefined;
+    // The SIGKILL isn't cancelled when the command exits, since the processes it started may outlive it.
+    const stop = () => {
+      if (killer) return;
+      signalGroup("SIGTERM");
+      killer = setTimeout(() => signalGroup("SIGKILL"), STOP_GRACE_MS);
+    };
+    const timer = timeout ? setTimeout(stop, timeout) : undefined;
+    if (signal?.aborted) stop();
+    else signal?.addEventListener("abort", stop, { once: true });
     child.on("error", reject);
     child.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
       if (line && onLine) onLine(line);
       resolve({ code, stdout: tail(stdout), stderr: tail(stderr) });
     });
@@ -239,20 +317,27 @@ const worktreeOf = (run: Run): Worktree => {
  * Saves the worktree to the state store, as a git bundle of one commit on
  * top of its HEAD. The commit holds every file that git doesn't ignore,
  * committed or not. The bundle leaves out what `origin` already has.
+ * Returns the snapshot's tree and parent, and skips the upload if they are
+ * `previous`, which an earlier save returned.
  */
-const saveWorktree = (worktree: Worktree) =>
+const saveWorktree = (worktree: Worktree, previous?: string) =>
   withTempDir(async (dir) => {
     const cwd = worktree.path;
-    // A copy of the worktree's index, so git only reads the files that changed.
+    // A copy of the worktree's index, so git only reads the files that
+    // changed, and the agent's own index stays as it is.
     const index = join(dir, "index");
     await copyFile(resolve(cwd, await git(["rev-parse", "--git-path", "index"], { cwd })), index);
     await git(["add", "--all"], { cwd, env: { GIT_INDEX_FILE: index } });
     const tree = await git(["write-tree"], { cwd, env: { GIT_INDEX_FILE: index } });
-    const commit = await git(["commit-tree", tree, "-p", "HEAD", "-m", "Factory snapshot"], { cwd });
+    const head = await git(["rev-parse", "HEAD"], { cwd });
+    const snapshot = `${tree} ${head}`;
+    if (snapshot === previous) return snapshot;
+    const commit = await git(["commit-tree", tree, "-p", head, "-m", "Factory snapshot"], { cwd });
     await git(["update-ref", worktree.ref, commit], { cwd });
     const bundle = join(dir, "bundle");
     await git(["bundle", "create", "--quiet", bundle, worktree.ref, "--not", "--remotes=origin"], { cwd });
     await putState(worktree.key, await readFile(bundle));
+    return snapshot;
   });
 
 /**
@@ -460,11 +545,11 @@ const loadRuntime = (id: string) =>
 /**
  * Saves the conversation's session to the state store: its transcript
  * files, as a tarball of their paths under the runtime's transcripts
- * directory, and then the session's id and working directory.
+ * directory, and then the session's id, working directory and seen
+ * messages. Returns the session and the transcripts' sizes and times, and
+ * skips the upload if they are `previous`, which an earlier save returned.
  */
-const saveSession = async (run: Run, transcripts: string) => {
-  const session = await readSession(run);
-  if (!session) return;
+const saveSession = async (run: Run, transcripts: string, session: Session, previous?: string) => {
   const paths: string[] = [];
   for (const project of await readdir(transcripts).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
@@ -473,6 +558,9 @@ const saveSession = async (run: Run, transcripts: string) => {
       if (existsSync(join(transcripts, project, name))) paths.push(`./${join(project, name)}`);
     }
   }
+  const stats = await Promise.all(paths.map((path) => stat(join(transcripts, path)).catch(() => undefined)));
+  const saved = JSON.stringify([session, paths, stats.map((s) => s && [s.size, s.mtimeMs])]);
+  if (saved === previous) return saved;
   if (paths.length > 0) {
     await withTempDir(async (dir) => {
       const tarball = join(dir, "session.tar.gz");
@@ -482,6 +570,43 @@ const saveSession = async (run: Run, transcripts: string) => {
     });
   }
   await putState(`${sessionKey(run)}.json`, Buffer.from(JSON.stringify(session)));
+  return saved;
+};
+
+/**
+ * Saves a run's worktree and session to the state store, one save at a
+ * time. `session` returns the session to save, or undefined while the runner
+ * doesn't know the session's id. `during` starts a save every
+ * `SAVE_INTERVAL_MS` while the agent runs, unless one is in progress, and
+ * returns a function that stops them. `final` waits for a save in progress,
+ * and then saves. Each save skips an upload whose contents haven't changed
+ * since the last one.
+ */
+const saver = (run: Run, worktree: Worktree, transcripts: string, session: () => Session | undefined) => {
+  const last: { worktree?: string; session?: string } = {};
+  let inflight: Promise<void> | undefined;
+  const save = async () => {
+    last.worktree = await saveWorktree(worktree, last.worktree);
+    const current = session();
+    if (current) last.session = await saveSession(run, transcripts, current, last.session);
+  };
+  return {
+    during() {
+      const timer = setInterval(() => {
+        if (inflight) return;
+        inflight = save()
+          .catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }))
+          .finally(() => {
+            inflight = undefined;
+          });
+      }, SAVE_INTERVAL_MS);
+      return () => clearInterval(timer);
+    },
+    async final() {
+      await inflight;
+      await save();
+    },
+  };
 };
 
 /** Restores the conversation's session from the state store, if this container doesn't have it. */
@@ -569,21 +694,28 @@ const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined
  * Runs the run's agent in `cwd` with `prompt` on its stdin and the config
  * directory `configDir`, resuming the session `sessionId` if it's set.
  * Returns the agent's final message, or `error` if the CLI failed, and the
- * session id the CLI reported either way. `onMessage` gets each message the
- * agent writes while it runs, if the runtime reads them.
+ * session id the CLI reported either way. `progress` gets each message the
+ * agent writes while it runs, if the runtime reads them, and `onSession` the
+ * session's id. Once `signal` aborts, the runner stops the CLI.
  */
 const runAgent = async (
   adapter: RuntimeRunner,
   run: Run,
   { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
   progress: Progress,
+  onSession: (id: string) => void,
+  signal: AbortSignal,
 ): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
   const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
   const args = await adapter.args(run, context);
   if (sessionId) args.push(...adapter.resume(sessionId));
 
-  const result = await exec(adapter.command, args, {
+  // The shell raises its own OOM score, which the agent's processes keep, and then becomes the agent's CLI.
+  const [command, commandArgs] = existsSync("/proc/self/oom_score_adj")
+    ? ["sh", ["-c", `echo ${AGENT_OOM_SCORE_ADJ} > /proc/self/oom_score_adj; exec "$0" "$@"`, adapter.command, ...args]]
+    : [adapter.command, args];
+  const result = await exec(command, commandArgs, {
     cwd,
     env: {
       ...process.env,
@@ -594,11 +726,18 @@ const runAgent = async (
     },
     timeout: RUN_TIMEOUT_MS,
     input: adapter.input?.(context) ?? prompt,
+    signal,
     onLine: (line) => {
       const model = adapter.model?.(line);
       if (model) progress.model(model);
       const text = adapter.message?.(line);
       if (text?.trim()) progress.message(text);
+      const id = adapter.session?.(line);
+      if (id) onSession(id);
+      for (const tool of adapter.tools?.(line) ?? []) {
+        const argument = toolArgument(tool.input);
+        log({ run: run.id, worktree: run.worktree?.branch ?? "scratch", tool: tool.name, ...(argument && { argument }) });
+      }
     },
   });
   const output = adapter.parse(result.stdout);
@@ -617,16 +756,33 @@ const assertCommand = async (command: string, name: string) => {
   }
 };
 
-/** Posts `text` to the run's conversation, in place of `message` if it's set. Resolves to the message the router names. */
-const relay = async (run: Run, text: string, message?: ReplyMessage) => {
-  const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text, ...(message && { message }) };
+/**
+ * Posts `text` to the run's conversation, in place of `message` if it's set.
+ * With `done`, it's the run's last reply. Resolves to the message the router
+ * names, or to `lost` if the router refused the reply because it marked the
+ * run lost.
+ */
+const relay = async (run: Run, text: string, message: ReplyMessage | undefined, done: boolean) => {
+  const body: Relay = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    text,
+    ...(message && { message }),
+    ...(done && { done }),
+  };
   const response = await fetch(run.reply.url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`The router refused the reply with status ${response.status}: ${await response.text()}`);
-  return ((await response.json().catch(() => ({}))) as Partial<RelayResult>).message;
+  const answer = await response.text();
+  let result: Partial<RelayResult> & { lost?: boolean } = {};
+  try {
+    result = JSON.parse(answer);
+  } catch {}
+  if (response.status === 409 && result.lost) return "lost";
+  if (!response.ok) throw new Error(`The router refused the reply with status ${response.status}: ${answer}`);
+  return result.message;
 };
 
 /** What the runner reads from the agent's output while it runs. */
@@ -671,10 +827,12 @@ const progressText = (text: string, ms: number, model?: string) => {
  * "Thinking..." for each part of a thought. While the agent writes no new
  * message, the shown one is posted again every `CLOCK_INTERVAL_MS`, so its
  * clock stays current. `finish` posts the final reply
- * in their place. The first post replaces the message that the router
- * posted while the run waited for the container, if there is one.
+ * in their place, as the run's last reply unless `done` is false. The first
+ * post replaces the message that the router posted while the run waited for
+ * the container, if there is one. A post that the router refuses because it
+ * marked the run lost ends the run.
  */
-const replies = (run: Run) => {
+const replies = (run: Run, lost: AbortController) => {
   let posted: ReplyMessage | undefined = run.reply.message;
   let pending: string | undefined;
   let shown: string | undefined;
@@ -685,9 +843,11 @@ const replies = (run: Run) => {
   let model: string | undefined;
   // Posts go one at a time, so each one knows the message that the last one posted.
   let posting: Promise<void> = Promise.resolve();
-  const post = (text: string) => {
+  const post = (text: string, done = false) => {
     const next = posting.then(async () => {
-      posted = (await relay(run, text, posted)) ?? posted;
+      const result = await relay(run, text, posted, done);
+      if (result === "lost") return lose(run, lost);
+      posted = result ?? posted;
       sentAt = Date.now();
     });
     posting = next.catch(() => {});
@@ -710,11 +870,17 @@ const replies = (run: Run) => {
     );
     ticker = setTimeout(show, CLOCK_INTERVAL_MS);
   };
+  lost.signal.addEventListener("abort", () => {
+    clearTimeout(timer);
+    clearTimeout(ticker);
+  });
   return {
     /** Starts the clock, when the run leaves the queue. */
     start() {
       startedAt = Date.now();
     },
+    /** The message that the run's next reply replaces. */
+    message: () => posted,
     progress: {
       message(text: string) {
         if (text === (pending ?? shown)) return;
@@ -725,20 +891,29 @@ const replies = (run: Run) => {
         model = name;
       },
     } satisfies Progress,
-    finish(text: string) {
+    finish(text: string, done = true) {
       clearTimeout(timer);
       clearTimeout(ticker);
       timer = undefined;
       ticker = undefined;
       pending = undefined;
-      return post(text);
+      return post(text, done);
     },
   };
 };
 
-let active = 0;
-/** The replies of the runs that are running or queued. */
-const held = new Map<string, ReturnType<typeof replies>>();
+/** A run that the runner holds, running or queued, with its replies, and the controller that ends it once the router marks it lost. */
+type Held = { run: Run; reply: ReturnType<typeof replies>; lost: AbortController };
+
+/** Ends a run that the router marked lost. See `execute`. */
+const lose = (run: Run, lost: AbortController) => {
+  if (lost.signal.aborted) return;
+  log({ run: run.id, state: "lost", detail: "The router marked the run lost, so the runner stops it." });
+  lost.abort();
+};
+
+/** The runs that are running or queued, by id. */
+const held = new Map<string, Held>();
 
 /**
  * Runs one run, and returns the agent's final message, or undefined if the
@@ -758,13 +933,18 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    tokens.
  * 5. Runs the agent in the worktree, and has the router mint new tokens
  *    while it runs. Posts the agent's messages as it writes them, each in
- *    place of the last.
+ *    place of the last. Saves the worktree and the session to the state
+ *    store every `SAVE_INTERVAL_MS`. These saves keep the messages that the
+ *    session had seen before the run, so a run that resumes after this one
+ *    is lost gets this run's messages again.
  * 6. Saves the session file, with the messages the agent has now seen, if
- *    the CLI reported a session, even if it failed.
+ *    the runner knows the session's id, from the CLI's result or from its
+ *    output during the run, even if the CLI failed.
  * 7. Saves the worktree and the session to the state store, whether or not
- *    the agent succeeded.
+ *    the agent succeeded. The saves in steps 5 and 7 save the same session
+ *    that step 6 writes, so the last save never uploads an older session.
  */
-const perform = async (run: Run, notes: string[], progress: Progress) => {
+const perform = async (run: Run, notes: string[], progress: Progress, lost: AbortSignal) => {
   const worktree = worktreeOf(run);
   const adapter = await loadRuntime(run.agent.runtime);
   await assertCommand(adapter.command, adapter.name);
@@ -781,6 +961,10 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
   const repo = await fetchRepo(run, await loadCodeHost());
   await checkout(run, repo, worktree, notes);
+  let sessionId = session?.id;
+  let sessionSeen = session?.seen ?? {};
+  const current = () => (sessionId ? { id: sessionId, cwd: worktree.path, seen: sessionSeen } : undefined);
+  const saves = saver(run, worktree, transcripts, current);
   try {
     await writeFiles([run.files, agentFiles(run)], {
       worktree: worktree.path,
@@ -799,23 +983,32 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
         }),
       TOKEN_REFRESH_MS,
     );
+    const stopSaving = saves.during();
     try {
       const result = await runAgent(
         adapter,
         run,
         { cwd: worktree.path, configDir, prompt, sessionId: session?.id },
         progress,
+        (id) => {
+          sessionId = id;
+        },
+        lost,
       );
-      if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
+      sessionId = result.sessionId ?? sessionId;
+      // A lost run's session keeps the messages it had seen before the run, so the restarted run gets them again.
+      if (!lost.aborted) sessionSeen = seen;
+      const ended = current();
+      if (ended) await writeSession(run, ended);
       if (result.error) throw new Error(result.error);
       return result.text;
     } finally {
       clearInterval(refreshing);
+      stopSaving();
     }
   } finally {
     try {
-      await saveWorktree(worktree);
-      await saveSession(run, transcripts);
+      await saves.final();
     } catch (error) {
       log({ run: run.id, state: "save failed", error: message(error) });
       notes.push(`Factory couldn't save this worktree and session, so they'll be lost when the container sleeps: ${message(error)}`);
@@ -823,28 +1016,40 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   }
 };
 
+/**
+ * The notes of the run that is running, which earlyoom's notes go to. A
+ * container serves one worktree, and runs in a worktree go one at a time,
+ * so at most one run is running.
+ */
+let runningNotes: string[] | undefined;
+
 /** What a skipped run posts in place of the message that the router posted while the run waited for its container. */
 const SKIPPED_NOTE = "> An earlier run already read these messages, so this run had nothing new to do.";
 
 /**
  * Runs one run, and posts the agent's final message, or the error, to the
  * conversation, with notes on what couldn't be restored or saved. It
- * replaces the agent's last message. A skipped run posts nothing, unless
- * the router posted a message while the run waited for its container,
- * which the run replaces with `SKIPPED_NOTE`.
+ * replaces the agent's last message, and is the run's last reply. A skipped
+ * run posts nothing, and posts its done heartbeat instead, unless the router
+ * posted a message while the run waited for its container, which the run
+ * replaces with `SKIPPED_NOTE`. A run that the router marks lost is over: if
+ * it's queued, it doesn't start, and if it's running, the runner stops its
+ * agent, saves its worktree and session, and posts nothing.
  */
-const execute = async (run: Run) => {
+const execute = async (entry: Held) => {
+  const { run, reply, lost } = entry;
+  if (lost.signal.aborted) return log({ run: run.id, state: "skipped", reason: "lost" });
   const started = Date.now();
-  const reply = held.get(run.id) ?? replies(run);
   reply.start();
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const notes: string[] = [];
+  runningNotes = notes;
   let text: string;
   try {
-    const result = await perform(run, notes, reply.progress);
+    const result = await perform(run, notes, reply.progress, lost.signal);
     if (result === undefined) {
       log({ run: run.id, state: "skipped", reason: "no new messages" });
-      if (!run.reply.message) return;
+      if (!run.reply.message) return await heartbeatDone(entry);
       text = SKIPPED_NOTE;
     } else {
       text = result;
@@ -853,7 +1058,10 @@ const execute = async (run: Run) => {
   } catch (error) {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
     text = `The run failed: ${message(error)}`;
+  } finally {
+    runningNotes = undefined;
   }
+  if (lost.signal.aborted) return log({ run: run.id, state: "stopped", reason: "lost", ms: Date.now() - started });
   try {
     const parts = [text || "(The agent finished with no message.)", ...notes.map((note) => `> ${note}`)];
     await reply.finish(parts.join("\n\n"));
@@ -862,14 +1070,100 @@ const execute = async (run: Run) => {
   }
 };
 
+const size = (mib: number) => (mib < 1024 ? `${mib} MiB` : `${(mib / 1024).toFixed(1)} GiB`);
+
+/**
+ * earlyoom's line when it stops a process. earlyoom 1.7, which Debian 12
+ * has, writes `badness`, and 1.8 writes `oom_score` and the command line.
+ */
+const EARLYOOM_KILL = /^sending SIG\w+ to process \d+ uid \d+ "(.*?)": (?:badness|oom_score) -?\d+, VmRSS (\d+) MiB/;
+
+/**
+ * Starts earlyoom, if the image has it, and logs its output. When earlyoom
+ * stops a process while a run is running, the run's reply says so.
+ */
+const startEarlyoom = () => {
+  const child = spawn("earlyoom", EARLYOOM_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
+  const read = (stream: NodeJS.ReadableStream) => {
+    let rest = "";
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+      const lines = (rest + chunk).split("\n");
+      rest = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        log({ earlyoom: line });
+        const kill = EARLYOOM_KILL.exec(line);
+        if (!kill) continue;
+        const note = `earlyoom stopped \`${kill[1]}\` (${size(Number(kill[2]))}) because the container was out of memory.`;
+        if (runningNotes && !runningNotes.includes(note)) runningNotes.push(note);
+      }
+    });
+  };
+  read(child.stdout);
+  read(child.stderr);
+  child.on("error", (error: NodeJS.ErrnoException) =>
+    log(
+      error.code === "ENOENT"
+        ? { state: "earlyoom missing", detail: "The image has no earlyoom, so nothing stops a process before the container runs out of memory." }
+        : { state: "earlyoom failed", error: message(error) },
+    ),
+  );
+  child.on("exit", (code, signal) => log({ state: "earlyoom exited", code, signal }));
+};
+
+/**
+ * Posts a heartbeat for the run to the router, if the router watches the
+ * run. With `done`, the router stops watching it. Resolves to `lost` if the
+ * router marked the run lost, and to `retry` if the router couldn't be
+ * reached or failed. The outpost Worker's `heartbeat` posts the same body
+ * and reads the answer the same way.
+ */
+const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, done: boolean): Promise<"ok" | "lost" | "retry"> => {
+  if (!run.reply.heartbeat) return "ok";
+  const body: Heartbeat = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    ...(posted && { message: posted }),
+    ...(done && { done }),
+  };
+  try {
+    const response = await fetch(run.reply.heartbeat, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      log({ run: run.id, state: "heartbeat refused", status: response.status, error: await response.text() });
+      return response.status < 500 ? "ok" : "retry";
+    }
+    return ((await response.json().catch(() => ({}))) as Partial<HeartbeatResult>).lost ? "lost" : "ok";
+  } catch (error) {
+    log({ run: run.id, state: "heartbeat failed", error: message(error) });
+    return "retry";
+  }
+};
+
+/** Posts the run's heartbeat, and ends the run if the router marked it lost. */
+const heartbeat = async ({ run, reply, lost }: Held) => {
+  if ((await postHeartbeat(run, reply.message(), false)) === "lost") lose(run, lost);
+};
+
+/** Posts the run's `done` heartbeat, up to `DONE_ATTEMPTS` times in all, while the router can't be reached or fails. */
+const heartbeatDone = async ({ run, reply }: Held) => {
+  for (let attempt = 1; (await postHeartbeat(run, reply.message(), true)) === "retry" && attempt < DONE_ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, DONE_RETRY_MS));
+  }
+};
+
 const enqueue = (run: Run) => {
-  active++;
-  held.set(run.id, replies(run));
+  const lost = new AbortController();
+  const entry: Held = { run, reply: replies(run, lost), lost };
+  held.set(run.id, entry);
+  void heartbeat(entry);
   const key = run.worktree ? `branch:${run.repo}:${run.worktree.branch}` : `scratch:${run.conversation.id}`;
-  void worktreeLock(key, () => execute(run)).finally(() => {
-    active--;
-    held.delete(run.id);
-  });
+  void worktreeLock(key, () => execute(entry)).finally(() => held.delete(run.id));
 };
 
 const send = (response: ServerResponse, status: number, body: unknown) => {
@@ -905,7 +1199,7 @@ const server = createServer(async (request, response) => {
       enqueue(run);
       return send(response, 202, { queued: run.id });
     }
-    if (request.method === "GET" && pathname === "/status") return send(response, 200, { active });
+    if (request.method === "GET" && pathname === "/status") return send(response, 200, { active: held.size });
     return send(response, 404, { error: "not found" });
   } catch (error) {
     send(response, 500, { error: message(error) });
@@ -916,10 +1210,12 @@ const server = createServer(async (request, response) => {
 // that the process doesn't handle. The provider stops a sleeping container
 // with SIGTERM, and also a busy one when it rolls out a new image. The runs
 // the runner holds are lost then, so it says so on their conversations.
+// These replies aren't the runs' last, so the router goes on watching the
+// runs, and later replaces them with the lost notice and its restart link.
 process.on("SIGTERM", async () => {
   log({ state: "stopping", runs: held.size });
-  const lost = [...held.values()].map((reply) =>
-    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over."),
+  const lost = [...held.values()].map(({ reply }) =>
+    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over.", false),
   );
   const timeout = new Promise((resolve) => setTimeout(resolve, STOP_REPLY_TIMEOUT_MS));
   await Promise.race([Promise.allSettled(lost), timeout]);
@@ -927,4 +1223,8 @@ process.on("SIGTERM", async () => {
 });
 
 await configureGit();
+startEarlyoom();
+setInterval(() => {
+  for (const entry of held.values()) void heartbeat(entry);
+}, HEARTBEAT_INTERVAL_MS);
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

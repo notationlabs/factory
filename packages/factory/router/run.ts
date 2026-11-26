@@ -2,8 +2,12 @@ import type { AgentEntry, ContainerEntry } from "../contracts/outpost.ts";
 import type { ThreadMessage } from "./channel.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
-/** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
-export type ReplyTicket = { connection: string; thread: unknown; expires: number };
+/**
+ * Where a run's reply goes: the connection whose channel posts it, and the
+ * channel's thread. `delivery` and `run` name the run's dispatch in the
+ * inbox, for its heartbeats. `expires` is in ms since the epoch.
+ */
+export type ReplyTicket = { connection: string; thread: unknown; delivery?: string; run?: string; expires: number };
 
 /**
  * A message that a run's reply posted, which a later reply of the run
@@ -12,11 +16,37 @@ export type ReplyTicket = { connection: string; thread: unknown; expires: number
  */
 export type ReplyMessage = { id: string; signature: string };
 
-/** What the runner posts to a run's `reply.url`. With `message`, the reply replaces that message. */
-export type Relay = { ticket: ReplyTicket; signature: string; text: string; message?: ReplyMessage };
+/**
+ * What the runner posts to a run's `reply.url`. With `message`, the reply
+ * replaces that message. `done` says that this is the run's last reply, so
+ * the router stops watching the run once it posts it.
+ */
+export type Relay = { ticket: ReplyTicket; signature: string; text: string; message?: ReplyMessage; done?: boolean };
 
-/** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
+/**
+ * What the router answers to a `Relay`: the message that the reply posted or
+ * replaced, if the channel names it. If the router marked the run lost, it
+ * posts nothing and answers 409 with `{ lost: true }`.
+ */
 export type RelayResult = { ok: true; message?: ReplyMessage };
+
+/**
+ * What the runner posts to a run's `reply.heartbeat` once a minute while it
+ * holds the run, queued or running.
+ * `message` is the message that the run's replies replace now. `done` says
+ * that the run finished without a last reply, so the router stops watching it.
+ */
+export type Heartbeat = { ticket: ReplyTicket; signature: string; message?: ReplyMessage; done?: boolean };
+
+/**
+ * What the router answers to a `Heartbeat`. `lost` means that the router has
+ * marked the run lost, and posted a notice in place of its message, or that
+ * a restart replaced the run with a new one.
+ */
+export type HeartbeatResult = { ok: true; lost?: boolean };
+
+/** How long the router waits for a run's next heartbeat before it marks the run lost. */
+export const LOST_AFTER_MS = 5 * 60 * 1000;
 
 /** What the runner posts to the router's `/messages` route, next to `reply.url`. The router answers with `MessagesResult`. */
 export type MessagesRequest = { ticket: ReplyTicket; signature: string };
@@ -74,9 +104,10 @@ export type Run = {
   /**
    * The runner posts a `Relay` with this ticket and signature to `url`.
    * `message` is a message that the router posted while the run waited for
-   * its container, which the run's first reply replaces.
+   * its container, which the run's first reply replaces. The runner posts a
+   * `Heartbeat` with the same ticket to `heartbeat`, if it's set.
    */
-  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage };
+  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage; heartbeat?: string };
 };
 
 /**
@@ -120,6 +151,41 @@ export const signBuildReport = (rootKey: string, report: BuildReport) => sign(ro
 /** Whether the deployer signed `report`, and it hasn't expired. */
 export const verifyBuildReport = (rootKey: string, report: BuildReport, signature: string) =>
   verify(rootKey, "router:builds", report, signature);
+
+/** A lost run that a restart link starts again: the run `run` of the delivery `delivery` of `connection`. `expires` is in ms since the epoch. */
+export type RestartTicket = { connection: string; delivery: string; run: string; expires: number };
+
+const base64url = (text: string) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+
+const fromBase64url = (text: string) =>
+  new TextDecoder().decode(Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0)));
+
+/** A restart link's token: the ticket as base64url JSON, a dot, and its signature. */
+export const signRestart = async (rootKey: string, ticket: RestartTicket) =>
+  `${base64url(JSON.stringify(ticket))}.${await sign(rootKey, "router:restart", ticket)}`;
+
+/** The ticket in a restart link's token, if the router signed it and it hasn't expired. */
+export const verifyRestart = async (rootKey: string, token: string): Promise<RestartTicket | undefined> => {
+  const dot = token.lastIndexOf(".");
+  if (dot < 0) return undefined;
+  let parsed: Partial<RestartTicket>;
+  try {
+    parsed = JSON.parse(fromBase64url(token.slice(0, dot)));
+  } catch {
+    return undefined;
+  }
+  const { connection, delivery, run, expires } = parsed ?? {};
+  if (typeof connection !== "string" || typeof delivery !== "string" || typeof run !== "string" || typeof expires !== "number") {
+    return undefined;
+  }
+  // The signature covers the ticket's JSON with its keys in this order.
+  const ticket = { connection, delivery, run, expires };
+  return (await verify(rootKey, "router:restart", ticket, token.slice(dot + 1))) ? ticket : undefined;
+};
 
 /** A git branch name the runner can check out: no `..`, no leading `-` or `/`, and only letters, digits and `._/-`. */
 export const isBranchName = (name: string) =>

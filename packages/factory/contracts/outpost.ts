@@ -20,12 +20,15 @@ export interface PolicyContract extends ResourceGroup {
   readonly provider: string;
 }
 
+/** A machine size given as its resources, in place of one of the provider's names. */
+export type CustomInstanceType = { vcpu: number; memoryMib: number; diskMb: number };
+
 /** In an outpost's config: a container, with its runtimes' and policies' ids. */
 export type ContainerEntry = {
   /** The Dockerfile, relative to `.factory/`. Without it, the container gets Factory's default image. */
   image?: string;
-  /** The size of the machine, in the provider's names. */
-  instanceType?: string;
+  /** The size of the machine: one of the provider's names, or its resources. */
+  instanceType?: string | CustomInstanceType;
   runtimes: string[];
   policies: string[];
   files: Record<string, string | Record<string, unknown>>;

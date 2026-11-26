@@ -8,7 +8,7 @@ Integrates GitHub Apps as Notation Factory webhook connections, repository code 
 | :--- | :--- |
 | `@notation/factory-github` | `Connection`, `CodeHost`, `OperatorAuth`, `Policy`, `collaborators`, `team`, `user`, event types |
 | `factory-outpost` | Condition on `@notation/factory-github` exporting `Connection.get`, `Policy`, `collaborators`, `team`, `user`, and event and selector types |
-| `@notation/factory-github/app` | CLI App utilities: `OPERATOR_CALLBACK_URL`, `createApp`, `appSlug`, `appVisibility`, `readApp`, `requestAppDeletion`, `requestAppChange` |
+| `@notation/factory-github/app` | CLI App utilities: `OPERATOR_CALLBACK_URL`, `createApp`, `appSlug`, `appVisibility`, `readApp`, `requestAppDeletion`, `requestAppChange`, `requestCallbackUrl` |
 | `@notation/factory-github/router` | `channel`, `webhookSecret`, `verifySignature`, `mentions`, `CHANNEL_SECRETS`, `CHANNEL_VALUES` |
 
 ## Hub classes
@@ -34,6 +34,8 @@ const gh = new github.Connection("gh", {
 ```
 
 GitHub has no API to change an App's permissions. When `permissions` adds to the App, the next deploy prints what to set on the App's permissions page and waits for you to save it. Then accept the new permissions on each installation.
+
+The App needs two callback URLs: `http://127.0.0.1:47219/callback` for operator sign-in, and `<router>/restart/callback` for restart links. GitHub has no API to add a callback URL. For an App created before restart links, the next deploy prints the router's URL and opens the App's settings. Add the URL under **Callback URL** and save. Until you do, restart links fail at GitHub with a `redirect_uri` error.
 
 ### `CodeHost`
 

@@ -100,7 +100,7 @@ const outpostSource = (
         class_name: CONTAINER_CLASS,
         image: image.image,
         image_build_context: image.context,
-        max_instances: 1,
+        max_instances: settings.maxInstances,
         instance_type: instanceType(container),
         ...(settings.regions && { constraints: { regions: settings.regions } }),
       },
@@ -108,7 +108,7 @@ const outpostSource = (
     durable_objects: { bindings: [{ name: "OUTPOSTS", class_name: CONTAINER_CLASS }] },
     migrations: [{ tag: "v1", new_sqlite_classes: [CONTAINER_CLASS] }],
     services: [{ binding: "DEPLOYER", service: settings.deployer }],
-    vars: { WORKER_NAME: worker, SLEEP_AFTER: settings.sleepAfter },
+    vars: { WORKER_NAME: worker, SLEEP_AFTER: settings.sleepAfter, MAX_INSTANCES: String(settings.maxInstances) },
   };
   source["wrangler.json"] = `${JSON.stringify(config, null, 2)}\n`;
   source["outpost.js"] = outpostBundle;

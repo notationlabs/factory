@@ -31,7 +31,7 @@ new Container(id, {
 | Option | Details |
 | :--- | :--- |
 | `image` | Optional Dockerfile path relative to `.factory/`, defaults to provider default image |
-| `instanceType` | Optional machine size identifier passed to the hub provider |
+| `instanceType` | Optional machine size: a size name for the hub provider, or `{ vcpu, memoryMib, diskMb }` |
 | `runtimes` | Optional `Runtime[]` array defaulting to `[]`, must not repeat runtime IDs |
 | `policies` | Optional `PolicyContract[]` array defaulting to `[]` |
 | `files` | Optional map of `~/...` targets to `.factory/` paths or JSON objects, defaults to `{}` |
@@ -85,14 +85,20 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | :--- | :--- |
 | `handle(request, store)` | Portable HTTP request handler for webhooks, syncs, relays, and admin routes |
 | `advance(record, store, now?)` | Advances pending dispatches in a saved delivery record |
+| `watch(record, watches, store, now?)` | Marks runs lost after 5 minutes without a heartbeat, and posts their notices |
 | `redeployRepo(change, store)` | Redeploys a repository outpost config after source changes |
 | `outpostKey(repo)` | Returns the lowercase store key for a repository outpost |
+| `RESTART_PATH`, `RESTART_CALLBACK_PATH` | Router paths for the restart link and its sign-in callback |
 | `webhookPath(key)` | Returns the webhook URL path for a connection key |
 | `allowsRepo(allow, repo)` | Checks whether a repository matches a `RepoPattern[]` allowlist |
 | `failedDelivery` | Formats a settled failed `DeliveryRecord` into a `FailedDelivery` |
-| `replayRecord` | Resets failed dispatches on a delivery record for replay |
-| `settled` | Returns `true` when all dispatches in a record have succeeded or failed |
+| `replayRecord` | Resets failed and lost dispatches for replay |
+| `heartbeatWatch` | Returns what to store for a heartbeat: its time and message, or `{ done: true }` |
+| `settled` | Returns `true` when no dispatch is pending |
+| `nextTry(record, now)` | Returns when to retry the record's pending dispatches, if it has any |
+| `mergeRecord(read, changed, stored)` | Combines an alarm's changes with a restart or replay saved in the meantime |
 | `KEEP_DELIVERY_MS` | Retention duration for settled deliveries in milliseconds, 7 days |
+| `LOST_AFTER_MS` | Time without a heartbeat before a run is lost, 5 minutes |
 | `deriveKey` | Derives a purpose-scoped HMAC key from the router root key |
 | `hmacHex` | Computes a lowercase hex HMAC-SHA256 digest |
 | `timingSafeEqual` | Constant-time string equality check for signatures |
@@ -100,7 +106,7 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `signSync` | Signs a `POST /sync` header value with timestamp and origin |
 | `SYNC_HEADER` | Header name `x-factory-sync` carrying signed sync credentials |
 | `RouterStore` | Storage and binding interface required by the router |
-| `Inbox` | Delivery persistence and retry queue interface |
+| `Inbox` | Delivery persistence, retries and heartbeats interface |
 | `DeployLog` | Persistence interface for latest repository deploy results |
 | `RemoteDeployer` | Deployer RPC contract called by the router |
 | `ChannelModule` | Interface implemented by channel webhook modules |

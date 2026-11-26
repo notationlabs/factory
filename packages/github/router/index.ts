@@ -411,12 +411,19 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       return installedRepos(await auth());
     },
 
-    async signInUrl(state) {
-      return signInUrl(ctx.value(CHANNEL_VALUES.clientId), state);
+    async signInUrl(state, redirect) {
+      return signInUrl(ctx.value(CHANNEL_VALUES.clientId), state, redirect);
     },
 
-    async signIn(code) {
-      return signIn({ clientId: ctx.value(CHANNEL_VALUES.clientId), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code);
+    async signIn(code, redirect) {
+      return signIn({ clientId: ctx.value(CHANNEL_VALUES.clientId), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code, redirect);
+    },
+
+    // A team in `from` needs a call that the router doesn't make yet, so it doesn't let the person in.
+    async canTrigger(selector, delivery, { login }) {
+      const person: Author = { login, bot: false, write: false };
+      await resolveRoles(await auth(), delivery.repo, [person]);
+      return checkAuthor((selector as Selector).from, person).result === "allowed";
     },
   };
 };

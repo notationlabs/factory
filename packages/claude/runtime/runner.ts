@@ -23,7 +23,7 @@ type StreamEvent = {
   is_error?: boolean;
   session_id?: string;
   parent_tool_use_id?: string | null;
-  message?: { content?: { type: string; text?: string }[] };
+  message?: { content?: { type: string; text?: string; name?: string; input?: unknown }[] };
 };
 
 const parseLine = (line: string): StreamEvent | undefined => {
@@ -84,6 +84,15 @@ const claude: RuntimeRunner = {
   model: (line) => {
     const event = parseLine(line);
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
+  },
+  session: (line) => parseLine(line)?.session_id,
+  // Subagents' tool calls are in the output too, with a parent tool use.
+  tools: (line) => {
+    const event = parseLine(line);
+    if (event?.type !== "assistant") return [];
+    return (event.message?.content ?? []).flatMap((block) =>
+      block.type === "tool_use" && block.name ? [{ name: block.name, input: block.input }] : [],
+    );
   },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };

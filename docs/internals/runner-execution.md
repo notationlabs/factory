@@ -36,4 +36,36 @@ While streaming CLI output, `replies` throttles `POST /relay` edits to every 10 
 
 Each update passes the router-signed `ReplyMessage` ID so progress overwrites the same comment throughout the run.
 
-Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep.
+## Heartbeats
+
+The runner posts a heartbeat for each run it holds. It posts one when it takes the run and then one every 60 seconds (`HEARTBEAT_INTERVAL_MS`). The run's final reply carries `done`. A run that ends without a reply, such as a skipped run, sends a `done` heartbeat instead. If that heartbeat fails with a network error or a 5xx status, the runner tries again after 10 seconds, up to 3 times in total.
+
+If the router answers a heartbeat with `lost`, or refuses a reply with 409, the runner ends the run. A queued run doesn't start. For a running run, the runner stops the agent and saves the worktree and session. It posts nothing more for that run.
+
+## Stopping the agent
+
+The runner starts each command in its own process group. To stop the agent, it sends `SIGTERM` to the group, and `SIGKILL` 10 seconds later. This also stops the processes that the agent started, such as `tsc` or a dev server. The runner stops the agent when the run is lost or when it has run for 2 hours.
+
+## Container logs
+
+The runner writes one JSON object per line to stdout, which is the container's log. It logs when each run starts, finishes, fails or is skipped.
+
+It also logs each tool call the agent makes, using the runtime's `tools` function. The line has the run ID, the worktree's branch, the tool name and the tool's main argument:
+
+```json
+{"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"<branch>","tool":"Bash","argument":"pnpm typecheck"}
+```
+
+The main argument is the first string field among `command`, `file_path`, `path`, `pattern`, `url` and similar names. If there is none, it is the whole input as JSON. The runner cuts it to 200 characters.
+
+## earlyoom
+
+At startup, the runner runs `earlyoom -r 60 -s 100,100` and logs its output. `-s 100,100` makes earlyoom ignore swap. If earlyoom isn't installed, the runner logs `earlyoom missing` and carries on.
+
+The runner runs as `factory`, so it can't lower its own OOM score. Instead, it starts the agent's CLI through `sh`, which sets `oom_score_adj` to 500 and then runs the CLI. Every process the agent starts inherits that score, so earlyoom kills them before the runner. Debian 12 ships earlyoom 1.7, which has no `--ignore` option, so the runner relies on the score alone.
+
+When earlyoom kills a process, the runner adds a note to the reply of the active run. Each container serves one worktree and runs one run at a time, so the note always belongs to that run.
+
+## Container shutdown
+
+Linux ignores unhandled signals sent to PID 1, so the runner handles `SIGTERM` itself. When Cloudflare stops the container, the runner posts to each run's thread that the run was lost, with a 5-second timeout. These replies don't carry `done`, so 5 minutes later the router replaces them with the lost notice and its restart link.

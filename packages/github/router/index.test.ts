@@ -416,3 +416,14 @@ test("acknowledge adds no label that the issue has", async () => {
     assert.equal(writes.filter(([, path]) => path.endsWith("/labels")).length, 0);
   });
 });
+
+test("canTrigger checks a signed-in person against the trigger's from, with their role on the repo", async () => {
+  await withGithub({ roles: { carol: "write", dave: "triage" } }, async () => {
+    const d = await accepted("issue_comment", commentPayload);
+    const both = selector({ from: [{ kind: "user", login: "Alice" }, collaborators] });
+    assert.equal(await keyed.canTrigger!(both, d, { login: "alice", id: "1" }), true);
+    assert.equal(await keyed.canTrigger!(both, d, { login: "carol", id: "2" }), true);
+    assert.equal(await keyed.canTrigger!(both, d, { login: "dave", id: "3" }), false);
+    assert.equal(await keyed.canTrigger!(selector({ from: { kind: "team", slug: "acme/devs" } }), d, { login: "alice", id: "1" }), false);
+  });
+});

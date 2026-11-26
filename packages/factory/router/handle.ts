@@ -273,7 +273,7 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
             store,
           );
           if (building) await waitForBuild(d, building, repo, channel, store, now);
-          else d.state = "dispatched";
+          else Object.assign(d, { state: "dispatched", dispatched: now });
         } catch (error) {
           Object.assign(d, { state: "failed", error: message(error) });
           console.error(JSON.stringify({ run: d.run, trigger: d.trigger, error: d.error }));
@@ -330,22 +330,29 @@ const waitForBuild = async (
 /**
  * Marks lost each dispatched run of the record whose last heartbeat in
  * `watches` is `LOST_AFTER_MS` old, and posts the lost notice in place of
- * the run's message. The notice has a restart link, signed for the run, which
- * works for `KEEP_DELIVERY_MS`, as long as the inbox keeps the delivery. Watching starts with a run's first heartbeat, so a run
- * that waits for a container instance isn't watched. It changes `record`,
- * which the caller saves, and resolves to the runs to stop watching, and to
- * when to check the others again.
+ * the run's message. A run with no heartbeat yet counts from when the router
+ * dispatched it. The notice has a restart link, signed for the run, which
+ * works for `KEEP_DELIVERY_MS`, as long as the inbox keeps the delivery. It
+ * changes `record`, which the caller saves, and resolves to the runs to stop
+ * watching, to when to check the others again, and to whether it marked a
+ * run lost.
  */
 export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>, store: RouterStore, now = Date.now()) => {
   const forget: string[] = [];
   let next: number | undefined;
+  let lost = false;
   const channel = channels(store).find((c) => c.key === record.connection)?.channel;
-  for (const [run, beat] of watches) {
+  const beats = new Map(watches);
+  for (const d of record.dispatches) {
+    if (d.state === "dispatched" && d.dispatched !== undefined && !beats.has(d.run)) beats.set(d.run, { at: d.dispatched });
+  }
+  for (const [run, beat] of beats) {
     const d = record.dispatches.find((d) => d.run === run);
     if (!d || d.state === "failed" || d.state === "lost") {
       forget.push(run);
       continue;
     }
+    if ("done" in beat) continue;
     const due = beat.at + LOST_AFTER_MS;
     if (d.state !== "dispatched" || due > now) {
       next = Math.min(next ?? due, due);
@@ -353,6 +360,7 @@ export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>,
     }
     Object.assign(d, { state: "lost", error: LOST_ERROR });
     forget.push(run);
+    lost = true;
     console.error(JSON.stringify({ run, trigger: d.trigger, state: "lost", heartbeat: beat.at }));
     if (!channel || d.thread === undefined) continue;
     try {
@@ -364,7 +372,7 @@ export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>,
       console.error(JSON.stringify({ run, state: "lost notice failed", error: message(error) }));
     }
   }
-  return { forget, next };
+  return { forget, next, lost };
 };
 
 type Dispatch = {

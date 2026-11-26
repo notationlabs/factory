@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import type { Relay, RelayResult, Run } from "@notation/factory/router";
+import type { Heartbeat, HeartbeatResult, Relay, RelayResult, Run } from "@notation/factory/router";
 import runner from "factory:runner";
 import {
   CAPACITY_RETRY_S,
@@ -35,10 +35,13 @@ type DurableObjectNamespace = {
 };
 
 /** A run that waits for its container. `since` is when the Worker took it, and `noticed` whether it posted `capacityNotice`. */
-type Delivery = { run: Run; since: number; noticed?: boolean };
+type PendingRun = { run: Run; since: number; noticed?: boolean };
 
 /** How old a signed run may be. */
 const RUN_MAX_AGE_MS = 5 * 60 * 1000;
+
+/** How often the Worker posts a heartbeat for a run while it starts the run's container. */
+const HEARTBEAT_MS = 60 * 1000;
 
 /** The port that the runner listens on. */
 const RUNNER_PORT = 8080;
@@ -118,6 +121,37 @@ const relay = async (run: Run, text: string) => {
 };
 
 /**
+ * Posts a heartbeat for a run that the Worker hasn't handed to the runner
+ * yet, so that the router can mark the run lost if the Worker stops
+ * delivering it. With `done`, the router stops watching the run. Resolves to
+ * whether the router marked the run lost.
+ */
+const heartbeat = async (run: Run, done = false) => {
+  if (!run.reply.heartbeat) return false;
+  const body: Heartbeat = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    ...(run.reply.message && { message: run.reply.message }),
+    ...(done && { done: true }),
+  };
+  try {
+    const response = await fetch(run.reply.heartbeat, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      console.error(JSON.stringify({ run: run.id, heartbeat: response.status, error: await response.text() }));
+      return false;
+    }
+    return ((await response.json()) as HeartbeatResult).lost === true;
+  } catch (error) {
+    console.error(JSON.stringify({ run: run.id, heartbeat: "failed", error: message(error) }));
+    return false;
+  }
+};
+
+/**
  * The outpost container, which this Worker's image runs. Each worktree has
  * its own, named by `instanceName`. The runner in the container queues the
  * runs it's given. The container sleeps once it's idle for `SLEEP_AFTER`.
@@ -142,7 +176,7 @@ export class OutpostContainer extends Container<Env> {
    * longer to start than the caller waits.
    */
   async run(run: Run) {
-    await this.schedule(0, "deliver", { run, since: Date.now() } satisfies Delivery);
+    await this.schedule(0, "deliver", { run, since: Date.now() } satisfies PendingRun);
   }
 
   /**
@@ -151,10 +185,16 @@ export class OutpostContainer extends Container<Env> {
    * `MAX_INSTANCES` containers running, the run tries again every
    * `CAPACITY_RETRY_S` until `CAPACITY_WAIT_MS` has passed. It posts
    * `capacityNotice` once, which the run's first reply replaces.
+   * It posts the run's heartbeats until the runner takes the run, which
+   * posts them from then on. It drops a run that the router marked lost, and
+   * stops the router watching a run that it couldn't deliver.
    */
-  async deliver(delivery: Delivery | Run) {
-    // A schedule from before deliveries had `since` holds the run itself.
-    const { run, since, noticed } = "since" in delivery ? delivery : { run: delivery, since: Date.now(), noticed: false };
+  async deliver({ run, since, noticed }: PendingRun) {
+    if (await heartbeat(run)) {
+      console.error(JSON.stringify({ run: run.id, lost: true }));
+      return;
+    }
+    const beating = setInterval(() => void heartbeat(run), HEARTBEAT_MS);
     try {
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
@@ -178,14 +218,17 @@ export class OutpostContainer extends Container<Env> {
         if (waited < CAPACITY_WAIT_MS) {
           const posted = noticed ? undefined : await relay(run, capacityNotice(run.container, max));
           const next = posted ? { ...run, reply: { ...run.reply, message: posted } } : run;
-          await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies Delivery);
+          await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies PendingRun);
           return;
         }
         await relay(run, capacityFailure(run.container, max));
-        return;
+      } else {
+        console.error(JSON.stringify({ run: run.id, error: message(error) }));
+        await relay(run, `The container \`${run.container}\` couldn't take the run: ${message(error)}`);
       }
-      console.error(JSON.stringify({ run: run.id, error: message(error) }));
-      await relay(run, `The container \`${run.container}\` couldn't take the run: ${message(error)}`);
+      await heartbeat(run, true);
+    } finally {
+      clearInterval(beating);
     }
   }
 

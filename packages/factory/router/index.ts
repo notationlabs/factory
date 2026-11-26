@@ -28,6 +28,7 @@ export {
   type DeliveryRecord,
   type FailedDelivery,
   failedDelivery,
+  heartbeatWatch,
   type Inbox,
   KEEP_DELIVERY_MS,
   replayRecord,
@@ -50,6 +51,8 @@ export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 export { allowsRepo } from "../lib/repos.ts";
 export {
   type BuildReport,
+  type Heartbeat,
+  type HeartbeatResult,
   LOST_AFTER_MS,
   type Relay,
   type RelayResult,

@@ -25,6 +25,8 @@ export type TriggerDispatch = {
   state: "pending" | "dispatched" | "failed" | "lost";
   /** When the dispatch started to wait for its container's first image build. */
   since?: number;
+  /** When the router handed the run to the deployer. The router watches the run from then. */
+  dispatched?: number;
   next?: number;
   error?: string;
   /** The channel's thread of the run's conversation, once an attempt has named it. */
@@ -40,9 +42,33 @@ export type TriggerDispatch = {
 /**
  * A run's last heartbeat, which the inbox keeps apart from its record.
  * `at` is in ms since the epoch. `message` is the id of the message that
- * the run's replies replace, which the lost notice replaces too.
+ * the run's replies replace, which the lost notice replaces too. A run that
+ * finished keeps `{ done: true }`, so that a heartbeat that arrives after
+ * its last one doesn't have the router watch it again.
  */
-export type Watch = { at: number; message?: string };
+export type Watch = { at: number; message?: string } | { done: true };
+
+/**
+ * What a heartbeat of `run` does to the run's watch `current`. Resolves to
+ * `unknown` if the record has no such run, and to `lost` if the run was
+ * marked lost. `watch` is the run's new watch, if it changes: a heartbeat
+ * with `done`, or of a run that failed, marks the run done, and a heartbeat
+ * of a done run changes nothing.
+ */
+export const heartbeatWatch = (
+  record: DeliveryRecord | undefined,
+  run: string,
+  current: Watch | undefined,
+  beat: { message?: string; done?: boolean },
+  now: number,
+): { result: "ok" | "lost" | "unknown"; watch?: Watch } => {
+  const dispatch = record?.dispatches.find((d) => d.run === run);
+  if (!dispatch) return { result: "unknown" };
+  if (dispatch.state === "lost") return { result: "lost" };
+  if (current && "done" in current) return { result: "ok" };
+  if (beat.done || dispatch.state === "failed") return { result: "ok", watch: { done: true } };
+  return { result: "ok", watch: { at: now, ...(beat.message && { message: beat.message }) } };
+};
 
 /**
  * A verified delivery that matched triggers whose authors may start runs,
@@ -137,6 +163,7 @@ export const replayRecord = (record: DeliveryRecord, origin: string, run?: strin
     if (dispatch.state !== "lost") delete dispatch.waiting;
     Object.assign(dispatch, { state: "pending", run: crypto.randomUUID() });
     delete dispatch.since;
+    delete dispatch.dispatched;
     delete dispatch.next;
     delete dispatch.error;
   }

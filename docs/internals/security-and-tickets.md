@@ -56,6 +56,6 @@ Every `/admin/*` call verifies that signature and re-checks `users` live against
 
 ## Restart links
 
-The notice of a lost run is a public comment, so its restart link is signed and does nothing on its own. Its token is `<connection>.<delivery>.<run>.<expires>.<sig>`, signed with `router:restart`, and it expires after 7 days. It names one run, so it can only restart that run, and only while the run is lost.
+The notice of a lost run is a public comment, so its restart link is signed and does nothing on its own. Its token is the ticket `{ connection, delivery, run, expires }` as base64url JSON, a dot, and the ticket's signature with `router:restart`. The router checks the signature and the expiry, which is 7 days after the run was lost. It names one run, so it can only restart that run, and only while the run is lost.
 
 The person who opens the link signs in with GitHub through the connection's App. The router checks the signed token again when GitHub returns, so it doesn't need a session or cookie. It then checks the person against the trigger's `from`, with their role on the repo as GitHub reports it, and revokes their access token, as for operators. Someone who signs in and isn't in `from` can't restart the run.

@@ -18,11 +18,7 @@ const containerConfig = v.object({
   instanceType: v.optional(
     v.union([
       v.string(),
-      v.strictObject({
-        vcpu: v.pipe(v.number(), v.gtValue(0, "vcpu must be positive.")),
-        memoryMib: v.pipe(v.number(), v.integer("memoryMib must be a whole number."), v.minValue(1, "memoryMib must be positive.")),
-        diskMb: v.pipe(v.number(), v.integer("diskMb must be a whole number."), v.minValue(1, "diskMb must be positive.")),
-      }),
+      v.strictObject({ vcpu: v.number(), memoryMib: v.number(), diskMb: v.number() }),
     ]),
   ),
   runtimes: v.optional(

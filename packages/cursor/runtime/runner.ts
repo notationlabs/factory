@@ -11,6 +11,7 @@ type StreamEvent = {
   is_error?: boolean;
   session_id?: string;
   message?: { content?: { type: string; text?: string }[] };
+  tool_call?: Record<string, { args?: unknown; name?: string; arguments?: unknown } | undefined>;
 };
 
 const parseLine = (line: string): StreamEvent | undefined => {
@@ -20,6 +21,16 @@ const parseLine = (line: string): StreamEvent | undefined => {
   } catch {
     return undefined;
   }
+};
+
+/** The input's main argument, such as a shell command or a file's path, or else the whole input as JSON. */
+const mainArgument = (input: unknown) => {
+  if (!input || typeof input !== "object") return typeof input === "string" ? input : undefined;
+  const fields = input as Record<string, unknown>;
+  for (const key of ["command", "path", "pattern", "globPattern", "url", "query", "description", "prompt"]) {
+    if (typeof fields[key] === "string") return fields[key];
+  }
+  return JSON.stringify(input);
 };
 
 /** How the runner runs Cursor Agent. Containers import it with no packages, so it imports only Node's. */
@@ -107,6 +118,18 @@ const cursor: RuntimeRunner = {
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
   session: (line) => parseLine(line)?.session_id,
+  // Each tool call is in the output twice, once as it starts and once as it
+  // completes. Its one key names the tool, such as `shellToolCall`. Other
+  // tools, such as an MCP server's, are under `function`, with their own name.
+  tools: (line) => {
+    const event = parseLine(line);
+    if (event?.type !== "tool_call" || event.subtype !== "started" || !event.tool_call) return [];
+    return Object.entries(event.tool_call).flatMap(([key, call]) => {
+      if (!call) return [];
+      if (key === "function") return call.name ? [{ name: call.name, argument: mainArgument(call.arguments) }] : [];
+      return [{ name: key.replace(/ToolCall$/, ""), argument: mainArgument(call.args) }];
+    });
+  },
 };
 
 export default cursor;

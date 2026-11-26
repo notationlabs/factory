@@ -52,7 +52,8 @@ case "$prompt" in
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"still hidden"}]}}'
     sleep 0.3
     echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"A subagent."}]}}'
-    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
+    printf '%s\\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test\\n  -- --watch=false","timeout":60000}}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/a.ts"}}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
   *stall*)
@@ -86,6 +87,9 @@ case "$prompt" in
     echo '{"type":"system","subtype":"init","session_id":"'"$session"'","model":"Composer 2.5"}'
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."}]},"model_call_id":"m1","timestamp_ms":1}'
     sleep 0.3
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"shellToolCall":{"args":{"command":"ls -la"}}}}'
+    echo '{"type":"tool_call","subtype":"completed","tool_call":{"shellToolCall":{"args":{"command":"ls -la"},"result":{}}}}'
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"function":{"name":"search","arguments":"{\\"q\\":1}"}}}'
     echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
     echo '{"type":"thinking","subtype":"delta","text":"hidden"}'
     sleep 0.15
@@ -122,6 +126,7 @@ case "$prompt" in
     echo '{"type":"reasoning","text":"The bug is in the parser."}'
     sleep 0.3
     echo '{"type":"tool_call","toolName":"Task","parameters":{"subagent_type":"worker"}}'
+    echo "{\\"type\\":\\"tool_call\\",\\"toolName\\":\\"Execute\\",\\"parameters\\":{\\"command\\":\\"echo $(printf '%0300d' 0)\\"}}"
     echo '{"type":"tool_result","toolId":"Task","value":"A subagent."}'
     echo '{"type":"message","role":"assistant","text":"Found it."}'
     sleep 0.3 ;;
@@ -150,6 +155,8 @@ const tokenRequests: TokenRequest[] = [];
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
+/** What the runners have written to stdout, which is the container's logs. */
+let output = "";
 /** The state store's objects, by key. */
 const state = new Map<string, Buffer>();
 /** How many times the runner has written each of the state store's objects. */
@@ -275,6 +282,9 @@ const startRunner = async () => {
     },
     stdio: ["ignore", "pipe", "inherit"],
   });
+  runner.stdout!.on("data", (chunk) => {
+    output += String(chunk);
+  });
   await new Promise<void>((resolve, reject) => {
     runner.stdout!.on("data", (chunk) => String(chunk).includes("listening") && resolve());
     runner.once("exit", (code) => reject(new Error(`The runner exited with code ${code}.`)));
@@ -333,6 +343,17 @@ const until = async (check: () => boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 };
+
+/** The tool calls that the runner logged for a run, without their times. */
+const toolLogs = (runId: string) =>
+  output
+    .split("\n")
+    .flatMap((line) => (line.startsWith("{") ? [JSON.parse(line) as Record<string, unknown>] : []))
+    .filter((entry) => entry.run === runId && entry.tool)
+    .map(({ at, ...entry }) => {
+      assert.match(String(at), /^\d{4}-\d\d-\d\dT/);
+      return entry;
+    });
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
@@ -403,7 +424,8 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
   const conversation = "github:acme/api#32";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -416,6 +438,11 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A tool call is logged once, as it starts.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "shell", argument: "ls -la" },
+    { run: body.id, worktree: "issue-1", tool: "search", argument: '{"q":1}' },
+  ]);
 });
 
 test("a failed cursor run replies with the error", async () => {
@@ -478,7 +505,8 @@ test("a droid agent's messages during a run share one comment, which its final r
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "droid" };
   const conversation = "github:acme/api#23";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   const thinking = await nextReply();
@@ -490,6 +518,10 @@ test("a droid agent's messages during a run share one comment, which its final r
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "Task", argument: '{"subagent_type":"worker"}' },
+    { run: body.id, worktree: "issue-1", tool: "Execute", argument: `echo ${"0".repeat(195)}…` },
+  ]);
 });
 
 test("a droid run sets Droid's user settings to send thinking as reasoning, and keeps the other settings", async () => {
@@ -747,7 +779,8 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
 test("the agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
   const conversation = "github:acme/api#5";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -761,6 +794,11 @@ test("the agent's messages during a run share one comment, which its final reply
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A subagent's tool calls are logged too, and a command is logged on one line.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-5", tool: "Bash", argument: "npm test -- --watch=false" },
+    { run: body.id, worktree: "issue-5", tool: "Read", argument: "/src/a.ts" },
+  ]);
 });
 
 test("a run of a runtime that the hub has no runner module for replies with the error", async () => {

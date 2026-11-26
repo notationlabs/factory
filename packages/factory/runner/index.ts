@@ -78,6 +78,15 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
+/** The most characters of a tool call's argument that the runner logs. */
+const MAX_TOOL_ARGUMENT = 200;
+
+/** A tool call's argument on one line, cut to `MAX_TOOL_ARGUMENT` characters. */
+const toolArgument = (argument: string) => {
+  const line = argument.replace(/\s+/g, " ").trim();
+  return line.length > MAX_TOOL_ARGUMENT ? `${line.slice(0, MAX_TOOL_ARGUMENT)}…` : line;
+};
+
 type Result = { code: number | null; stdout: string; stderr: string };
 
 const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX_OUTPUT_BYTES) : text);
@@ -662,6 +671,14 @@ const runAgent = async (
       if (text?.trim()) progress.message(text);
       const id = adapter.session?.(line);
       if (id) onSession(id);
+      for (const tool of adapter.tools?.(line) ?? []) {
+        log({
+          run: run.id,
+          worktree: run.worktree?.branch ?? "scratch",
+          tool: tool.name,
+          ...(tool.argument && { argument: toolArgument(tool.argument) }),
+        });
+      }
     },
   });
   const output = adapter.parse(result.stdout);

@@ -23,7 +23,7 @@ type StreamEvent = {
   is_error?: boolean;
   session_id?: string;
   parent_tool_use_id?: string | null;
-  message?: { content?: { type: string; text?: string }[] };
+  message?: { content?: { type: string; text?: string; name?: string; input?: unknown }[] };
 };
 
 const parseLine = (line: string): StreamEvent | undefined => {
@@ -33,6 +33,16 @@ const parseLine = (line: string): StreamEvent | undefined => {
   } catch {
     return undefined;
   }
+};
+
+/** The input's main argument, such as a shell command or a file's path, or else the whole input as JSON. */
+const mainArgument = (input: unknown) => {
+  if (!input || typeof input !== "object") return typeof input === "string" ? input : undefined;
+  const fields = input as Record<string, unknown>;
+  for (const key of ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"]) {
+    if (typeof fields[key] === "string") return fields[key];
+  }
+  return JSON.stringify(input);
 };
 
 /** How the runner runs Claude Code. Containers import it with no packages, so it imports only Node's. */
@@ -86,6 +96,14 @@ const claude: RuntimeRunner = {
     return event?.type === "system" && event.subtype === "init" ? event.model : undefined;
   },
   session: (line) => parseLine(line)?.session_id,
+  // Subagents' tool calls are in the output too, with a parent tool use.
+  tools: (line) => {
+    const event = parseLine(line);
+    if (event?.type !== "assistant") return [];
+    return (event.message?.content ?? []).flatMap((block) =>
+      block.type === "tool_use" && block.name ? [{ name: block.name, argument: mainArgument(block.input) }] : [],
+    );
+  },
   env: { DISABLE_AUTOUPDATER: "1", ...envFile() },
 };
 

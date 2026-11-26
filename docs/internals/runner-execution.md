@@ -36,4 +36,16 @@ While streaming CLI output, `replies` throttles `POST /relay` edits to every 10 
 
 Each update passes the router-signed `ReplyMessage` ID so progress overwrites the same comment throughout the run.
 
+## Container logs
+
+The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.
+
+The runner also logs each tool that the agent calls, if the runtime's runner module has a `tools` function. The line has the run's ID, the worktree's branch or `scratch`, the tool's name, and its main argument, such as the shell command or the file's path. The argument is put on one line and cut to 200 characters:
+
+```json
+{"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"issue-127","tool":"Bash","argument":"pnpm typecheck"}
+```
+
+Claude Code's log includes its subagents' tool calls. Cursor Agent logs a tool call once, when it starts.
+
 Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep.

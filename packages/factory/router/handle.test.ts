@@ -1052,14 +1052,23 @@ test("a lost run's restart link signs the person in, checks them against the tri
   const expired = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: lost, expires: Date.now() - 1 });
   assert.equal((await callback("code-alice-1", expired)).status, 401);
 
+  // The callback redirects, so reloading the page that says the run restarted doesn't send the code again.
   const restarted = await callback("code-alice-1");
-  assert.equal(restarted.status, 200);
+  assert.equal(restarted.status, 303);
+  assert.equal(restarted.location, "https://router.test/restart/started");
+  const started = await open(store, restarted.location!);
+  assert.equal(started.status, 200);
+  assert.match(started.text, /The run is starting again/);
   assert.equal(record.dispatches[0]!.state, "pending");
   await advance(record, store, 1);
   assert.notEqual(runs[1]!.id, lost);
   assert.equal(runs[1]!.reply.message?.id, "n1");
 
   assert.equal((await callback("code-alice-1")).status, 409);
+  // A link to a run that isn't lost any more says so before it sends the person to sign in.
+  const again = await open(store, link);
+  assert.equal(again.status, 409);
+  assert.match(again.text, /isn't lost any more/);
 });
 
 test("the record that an alarm saves keeps a restart that was saved while the alarm waited on a channel", async () => {

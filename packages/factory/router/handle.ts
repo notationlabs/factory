@@ -53,6 +53,7 @@ import {
   type Relay,
   type RelayResult,
   REPLY_TTL_MS,
+  type RestartTicket,
   type Run,
   type RunResult,
   signMessage,
@@ -124,6 +125,9 @@ export const RESTART_PATH = "/restart";
 
 /** The router's page that the sign-in of a restart link sends the browser back to. A code host's App must allow it as a callback URL. */
 export const RESTART_CALLBACK_PATH = "/restart/callback";
+
+/** The router's page that says a run is starting again. The callback redirects to it, so reloading the page doesn't send GitHub's code again. */
+const RESTARTED_PATH = "/restart/started";
 
 /** The path that a connection's platform delivers to. `key` is the connection's key, such as `github/gh`. */
 export const webhookPath = (key: string) => `/webhook/${key}`;
@@ -850,12 +854,26 @@ const restartTicket = async (token: string, store: RouterStore) => {
   return { ticket, channel };
 };
 
-/** Sends the browser to the sign-in page of the lost run's channel, which sends it to the callback with the link's token as the state. */
+/** The delivery of a restart link's ticket, and its dispatch, if that dispatch is still the lost run. */
+const lostRun = async (ticket: RestartTicket, store: RouterStore) => {
+  const record = await store.inbox.record(ticket.connection, ticket.delivery);
+  const dispatch = record?.dispatches.find((d) => d.run === ticket.run);
+  return record && dispatch?.state === "lost" ? { record, dispatch } : undefined;
+};
+
+const NOT_LOST = "This run isn't lost any more. Someone may have restarted it already.";
+
+/**
+ * Sends the browser to the sign-in page of the lost run's channel, which
+ * sends it to the callback with the link's token as the state, if the run
+ * is still lost.
+ */
 const restartLink = async (request: Request, store: RouterStore) => {
   const url = new URL(request.url);
   const token = url.searchParams.get("run") ?? "";
   const found = await restartTicket(token, store);
   if (found instanceof Response) return found;
+  if (!(await lostRun(found.ticket, store))) return page(409, NOT_LOST);
   try {
     const location = await found.channel.signInUrl(token, `${url.origin}${RESTART_CALLBACK_PATH}`);
     return new Response(null, { status: 302, headers: { location } });
@@ -864,8 +882,6 @@ const restartLink = async (request: Request, store: RouterStore) => {
   }
 };
 
-const NOT_LOST = "This run isn't lost any more. Someone may have restarted it already.";
-
 /**
  * Restarts a lost run for the person who signed in:
  * 1. Checks the restart link's token, which comes back as the sign-in's state.
@@ -873,7 +889,8 @@ const NOT_LOST = "This run isn't lost any more. Someone may have restarted it al
  * 3. Finds the lost run in the inbox, and its trigger in the outpost config
  *    that the repo has now.
  * 4. Has the channel check that the trigger's `from` lets the person start a run.
- * 5. Has the inbox dispatch the run again, as a new run.
+ * 5. Has the inbox dispatch the run again, as a new run, and redirects the
+ *    browser to the page that says so.
  */
 const restartCallback = async (request: Request, store: RouterStore) => {
   const url = new URL(request.url);
@@ -888,9 +905,9 @@ const restartCallback = async (request: Request, store: RouterStore) => {
   } catch (error) {
     return page(401, `Signing in failed: ${message(error)}`);
   }
-  const record = await store.inbox.record(ticket.connection, ticket.delivery);
-  const dispatch = record?.dispatches.find((d) => d.run === ticket.run);
-  if (!record || dispatch?.state !== "lost") return page(409, NOT_LOST);
+  const lost = await lostRun(ticket, store);
+  if (!lost) return page(409, NOT_LOST);
+  const { record, dispatch } = lost;
   const trigger = (await store.outpost(record.delivery.repo))?.triggers?.[dispatch.trigger];
   if (!trigger) return page(404, `The outpost of ${record.delivery.repo} no longer has the trigger ${dispatch.trigger}.`);
   let allowed: boolean;
@@ -902,7 +919,7 @@ const restartCallback = async (request: Request, store: RouterStore) => {
   if (!allowed) return page(403, `${person.login} may not trigger this agent, so the run wasn't restarted.`);
   if (!(await store.inbox.restart(ticket.connection, ticket.delivery, ticket.run, url.origin))) return page(409, NOT_LOST);
   console.log(JSON.stringify({ run: ticket.run, delivery: ticket.delivery, state: "restarted", by: person.login, id: person.id }));
-  return page(200, "The run is starting again. Its replies will show on the thread.");
+  return new Response(null, { status: 303, headers: { location: `${url.origin}${RESTARTED_PATH}` } });
 };
 
 /** Reads a JSON object body, or answers 400. */
@@ -1032,9 +1049,9 @@ const admin = async (request: Request, route: string, store: RouterStore) => {
  * the sync key. `POST /relay`, `POST /messages`, `POST /heartbeat`
  * and `POST /tokens` take tickets that the router signed when it started a
  * run. `POST /builds` takes reports that the deployer signed. The routes
- * under `/admin/` are for operators. `GET /restart` and `GET
- * /restart/callback` are the pages of a lost run's restart link, which the
- * router signed.
+ * under `/admin/` are for operators. `GET /restart`, `GET
+ * /restart/callback` and `GET /restart/started` are the pages of a lost
+ * run's restart link, which the router signed.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -1064,6 +1081,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "GET" && pathname === RESTART_CALLBACK_PATH) {
     return restartCallback(request, store);
+  }
+  if (request.method === "GET" && pathname === RESTARTED_PATH) {
+    return Promise.resolve(page(200, "The run is starting again. Its replies will show on the thread."));
   }
   if (pathname.startsWith("/admin/")) {
     return admin(request, pathname.slice("/admin/".length), store);

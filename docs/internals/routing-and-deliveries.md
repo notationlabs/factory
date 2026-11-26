@@ -33,7 +33,8 @@ stateDiagram-v2
 | `POST /builds` | Verifies `BuildReport`, logs latest build, updates commit check |
 | `POST /sync` | Syncs connection webhooks and queues allowed repositories |
 | `GET /restart` | Verifies a lost run's restart link and sends the browser to the channel's sign-in |
-| `GET /restart/callback` | Signs the person in, checks them against the trigger's `from`, and restarts the lost run |
+| `GET /restart/callback` | Signs the person in, checks them against the trigger's `from`, restarts the lost run, and redirects to `/restart/started` |
+| `GET /restart/started` | Says that the run is starting again |
 | `POST /admin/sign-in` | Starts GitHub OAuth sign-in for the `factory` CLI |
 | `POST /admin/session` | Exchanges an OAuth code for a 4-hour operator session token |
 | `GET /admin/repos` | Lists each repository's last deploy and container builds |
@@ -89,10 +90,11 @@ A lost notice's restart link is `<router>/restart?run=<token>`. The token is the
 
 The router doesn't know which platform the delivery came from, so the channel of the token's connection signs the person in and checks them:
 
-1. `GET /restart` checks the token, and redirects the browser to the channel's `signInUrl`, with the token as the OAuth state and `<router>/restart/callback` as the redirect. For GitHub, this is the connection's App's web sign-in, which operators use too.
+1. `GET /restart` checks the token and that the run is still `lost`, and redirects the browser to the channel's `signInUrl`, with the token as the OAuth state and `<router>/restart/callback` as the redirect. For GitHub, this is the connection's App's web sign-in, which operators use too.
 2. GitHub sends the browser to `GET /restart/callback` with a code. The router checks the token again, and has the channel exchange the code for the person's login and ID with `signIn`.
 3. The router reads the delivery from the inbox, and checks that the token's run is still `lost`.
 4. The router reads the run's trigger from the repo's outpost config as it is now, and has the channel's `canTrigger` check the person against the trigger's `from`. For GitHub, a person matches `collaborators` if their role on the repo can push. A `team` doesn't match yet, since the router doesn't check teams.
 5. The inbox's `restart` sets that dispatch to `pending` with a new run ID, the way `factory infra replay` does, and leaves the delivery's other dispatches as they are. The new run's first reply replaces the lost notice.
+6. The router redirects the browser to `GET /restart/started`, which says that the run is starting again. Reloading that page doesn't send GitHub's code again.
 
-A second visit to the link finds the run no longer lost, and restarts nothing. The new run is dispatched like any other, so it checks again that the trigger matches the delivery and its author.
+A second visit to the link finds the run no longer lost, says so, and doesn't send the person to sign in. The new run is dispatched like any other, so it checks again that the trigger matches the delivery and its author.

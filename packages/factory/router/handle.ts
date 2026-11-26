@@ -123,7 +123,7 @@ export type TriggerMatch = { trigger: string; author: AuthorCheck; run?: string 
 /** The router's page that a lost run's restart link opens. */
 export const RESTART_PATH = "/restart";
 
-/** The router's page that the sign-in of a restart link sends the browser back to. A code host's App must allow it as a callback URL. */
+/** The router's page that the sign-in of a restart link sends the browser back to. A code host's App must allow it as a redirect URL. */
 export const RESTART_CALLBACK_PATH = "/restart/callback";
 
 /** The router's page that says a run is starting again. The callback redirects to it, so reloading the page doesn't send GitHub's code again. */

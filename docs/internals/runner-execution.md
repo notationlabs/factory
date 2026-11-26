@@ -56,10 +56,10 @@ Claude Code's log includes its subagents' tool calls. Cursor Agent logs a tool c
 
 ## earlyoom
 
-At startup, the runner runs `earlyoom -r 60 -s 100,100 --avoid '^bun$'` if the image has it, and logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. `--avoid '^bun$'` lowers the score of the runner, which bun runs, so earlyoom stops the runner last.
+At startup, the runner starts `earlyoom -r 60 -s 100,100 --avoid '^bun$'`. If the image has no `earlyoom`, the start fails with `ENOENT`, and the runner logs `earlyoom missing` and carries on. Otherwise it logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. `--avoid '^bun$'` lowers the score of the runner, which bun runs, so earlyoom stops the runner last.
 
 The runner runs as `factory`, without the privilege to lower its own OOM score. Instead, it starts each agent's CLI through `sh`, which writes `500` to `/proc/self/oom_score_adj` and then runs the CLI with `exec`. The CLI and every process it starts inherit the score, so earlyoom and the kernel's OOM killer prefer them to the runner. Debian 12's earlyoom 1.7 has no `--ignore` or `--ignore-root-user`, so the runner doesn't use them. The runner doesn't pass `-g`, which would stop the whole process group.
 
-The runner reads earlyoom's `sending SIGTERM to process <pid> ...` and `sending SIGKILL ...` lines. It follows the process's parents in `/proc` to the agent's CLI, and adds a note to that run's reply. If the process has already exited, so its parents can't be read, the note goes to every run whose agent is running.
+The runner reads earlyoom's `sending SIGTERM to process <pid> ...` and `sending SIGKILL ...` lines, and adds a note to the reply of the run that is running. A container serves one worktree, and the runs in a worktree go one at a time, so at most one run is running in a container. If no run is running, the runner only logs the line.
 
 Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep. It posts no `done` heartbeat for those runs, so 5 minutes later the router replaces each one's message with the lost notice and its restart link.

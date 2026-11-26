@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
@@ -127,8 +127,7 @@ const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX
 /**
  * Runs `command`, and resolves with its exit code and output. Rejects only
  * if it can't start. `input` is written to its stdin. `onLine` gets each
- * line of its stdout as it's written. `onSpawn` gets its process id once it
- * starts, and returns a function that the runner calls once it exits.
+ * line of its stdout as it's written.
  */
 const exec = (
   command: string,
@@ -139,19 +138,16 @@ const exec = (
     timeout,
     input,
     onLine,
-    onSpawn,
   }: {
     cwd?: string;
     env?: Record<string, string | undefined>;
     timeout?: number;
     input?: string;
     onLine?: (line: string) => void;
-    onSpawn?: (pid: number) => () => void;
   } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
     const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
-    const done = child.pid === undefined ? undefined : onSpawn?.(child.pid);
     // A command that exits without reading all its input closes the pipe, and its exit code says why.
     child.stdin.on("error", () => {});
     child.stdin.end(input);
@@ -174,12 +170,8 @@ const exec = (
       if (stderr.length > 2 * MAX_OUTPUT_BYTES) stderr = tail(stderr);
     });
     const timer = timeout ? setTimeout(() => child.kill("SIGTERM"), timeout) : undefined;
-    child.on("error", (error) => {
-      done?.();
-      reject(error);
-    });
+    child.on("error", reject);
     child.on("close", (code) => {
-      done?.();
       clearTimeout(timer);
       if (line && onLine) onLine(line);
       resolve({ code, stdout: tail(stdout), stderr: tail(stderr) });
@@ -681,7 +673,7 @@ const buildPrompt = (run: Run, messages: ThreadMessage[], seen: Seen | undefined
  * Returns the agent's final message, or `error` if the CLI failed, and the
  * session id the CLI reported either way. `progress` gets each message the
  * agent writes while it runs, if the runtime reads them, and `onSession` the
- * session's id. earlyoom's notes on the agent's processes go in `notes`.
+ * session's id.
  */
 const runAgent = async (
   adapter: RuntimeRunner,
@@ -689,7 +681,6 @@ const runAgent = async (
   { cwd, configDir, prompt, sessionId }: { cwd: string; configDir: string; prompt: string; sessionId?: string },
   progress: Progress,
   onSession: (id: string) => void,
-  notes: string[],
 ): Promise<{ text: string; sessionId?: string; error?: string }> => {
   await mkdir(configDir, { recursive: true });
   const context = { cwd, prompt, systemPrompt: await systemPrompt(run, cwd), dataDir: DATA, configDir };
@@ -711,10 +702,6 @@ const runAgent = async (
     },
     timeout: RUN_TIMEOUT_MS,
     input: adapter.input?.(context) ?? prompt,
-    onSpawn: (pid) => {
-      agents.set(pid, notes);
-      return () => agents.delete(pid);
-    },
     onLine: (line) => {
       const model = adapter.model?.(line);
       if (model) progress.model(model);
@@ -955,7 +942,6 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
         (id) => {
           sessionId = id;
         },
-        notes,
       );
       if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
       if (result.error) throw new Error(result.error);
@@ -974,6 +960,13 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   }
 };
 
+/**
+ * The notes of the run that is running, which earlyoom's notes go to. A
+ * container serves one worktree, and runs in a worktree go one at a time,
+ * so at most one run is running.
+ */
+let runningNotes: string[] | undefined;
+
 /** What a skipped run posts in place of the message that the router posted while the run waited for its container. */
 const SKIPPED_NOTE = "> An earlier run already read these messages, so this run had nothing new to do.";
 
@@ -990,6 +983,7 @@ const execute = async (run: Run) => {
   reply.start();
   log({ run: run.id, repo: run.repo, trigger: run.trigger, worktree: run.worktree?.branch ?? "scratch", state: "started" });
   const notes: string[] = [];
+  runningNotes = notes;
   let text: string;
   try {
     const result = await perform(run, notes, reply.progress);
@@ -1004,6 +998,8 @@ const execute = async (run: Run) => {
   } catch (error) {
     log({ run: run.id, state: "failed", error: message(error), ms: Date.now() - started });
     text = `The run failed: ${message(error)}`;
+  } finally {
+    runningNotes = undefined;
   }
   try {
     const parts = [text || "(The agent finished with no message.)", ...notes.map((note) => `> ${note}`)];
@@ -1013,50 +1009,19 @@ const execute = async (run: Run) => {
   }
 };
 
-/** The notes of the runs whose agents are running, by the process id of the agent's CLI. */
-const agents = new Map<number, string[]>();
-
-/** The process id of `pid`'s parent, or undefined if the process has exited. */
-const parentOf = (pid: number) => {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    // The process's name is in parentheses, and may have spaces.
-    return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * The notes of the run whose agent started `pid`. If the process has
- * exited, so that its parents can't be read, the notes of every run whose
- * agent is running.
- */
-const notesOf = (pid: number) => {
-  for (let current: number | undefined = pid; current && current > 1; current = parentOf(current)) {
-    const notes = agents.get(current);
-    if (notes) return [notes];
-  }
-  return [...agents.values()];
-};
-
 const size = (mib: number) => (mib < 1024 ? `${mib} MiB` : `${(mib / 1024).toFixed(1)} GiB`);
 
 /**
  * earlyoom's line when it stops a process. earlyoom 1.7, which Debian 12
  * has, writes `badness`, and 1.8 writes `oom_score` and the command line.
  */
-const EARLYOOM_KILL = /^sending SIG\w+ to process (\d+) uid \d+ "(.*?)": (?:badness|oom_score) -?\d+, VmRSS (\d+) MiB/;
+const EARLYOOM_KILL = /^sending SIG\w+ to process \d+ uid \d+ "(.*?)": (?:badness|oom_score) -?\d+, VmRSS (\d+) MiB/;
 
 /**
  * Starts earlyoom, if the image has it, and logs its output. When earlyoom
- * stops a process that a run's agent started, the run's reply says so.
+ * stops a process while a run is running, the run's reply says so.
  */
-const startEarlyoom = async () => {
-  if ((await exec("sh", ["-c", "command -v earlyoom"])).code !== 0) {
-    log({ state: "earlyoom missing", detail: "The image has no earlyoom, so nothing stops a process before the container runs out of memory." });
-    return;
-  }
+const startEarlyoom = () => {
   const child = spawn("earlyoom", EARLYOOM_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
   const read = (stream: NodeJS.ReadableStream) => {
     let rest = "";
@@ -1069,16 +1034,20 @@ const startEarlyoom = async () => {
         log({ earlyoom: line });
         const kill = EARLYOOM_KILL.exec(line);
         if (!kill) continue;
-        const note = `earlyoom stopped \`${kill[2]}\` (${size(Number(kill[3]))}) because the container was out of memory.`;
-        for (const notes of notesOf(Number(kill[1]))) {
-          if (!notes.includes(note)) notes.push(note);
-        }
+        const note = `earlyoom stopped \`${kill[1]}\` (${size(Number(kill[2]))}) because the container was out of memory.`;
+        if (runningNotes && !runningNotes.includes(note)) runningNotes.push(note);
       }
     });
   };
   read(child.stdout);
   read(child.stderr);
-  child.on("error", (error) => log({ state: "earlyoom failed", error: message(error) }));
+  child.on("error", (error: NodeJS.ErrnoException) =>
+    log(
+      error.code === "ENOENT"
+        ? { state: "earlyoom missing", detail: "The image has no earlyoom, so nothing stops a process before the container runs out of memory." }
+        : { state: "earlyoom failed", error: message(error) },
+    ),
+  );
   child.on("exit", (code, signal) => log({ state: "earlyoom exited", code, signal }));
 };
 
@@ -1188,7 +1157,7 @@ process.on("SIGTERM", async () => {
 });
 
 await configureGit();
-await startEarlyoom();
+startEarlyoom();
 setInterval(() => {
   for (const run of runs.values()) void heartbeat(run, held.get(run.id));
 }, HEARTBEAT_INTERVAL_MS);

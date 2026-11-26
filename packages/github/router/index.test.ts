@@ -161,15 +161,15 @@ test("an edit matches only if it newly adds the mention", () => {
 test("on an issue with the listen label, a new comment matches without the mention", () => {
   const comment = (labels: string[]) => delivery({ body: "and the tests", before: "and the tests", labels });
   assert.equal(channel.match(selector(), comment([])), undefined);
-  assert.ok(channel.match(selector(), comment(["listen:claude"])));
+  assert.ok(channel.match(selector(), comment(["claude:listening"])));
   assert.ok(channel.match(selector({ listen: "agent" }), comment(["Agent"])));
-  assert.equal(channel.match(selector({ listen: false }), comment(["listen:claude"])), undefined);
-  assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["listen:claude"] })), undefined);
-  assert.ok(channel.match(selector(), delivery({ labels: ["listen:claude"] })));
+  assert.equal(channel.match(selector({ listen: false }), comment(["claude:listening"])), undefined);
+  assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["claude:listening"] })), undefined);
+  assert.ok(channel.match(selector(), delivery({ labels: ["claude:listening"] })));
 });
 
 test("on an issue with the listen label, a comment addressed to someone else doesn't match", () => {
-  const comment = (body: string) => delivery({ body, before: body, labels: ["listen:claude"] });
+  const comment = (body: string) => delivery({ body, before: body, labels: ["claude:listening"] });
   assert.equal(channel.match(selector(), comment("@droid do it")), undefined);
   assert.equal(channel.match(selector(), comment("what do you think, @bob?")), undefined);
   assert.equal(channel.match(selector(), comment("ping @acme/core")), undefined);
@@ -185,7 +185,9 @@ test("the default listen label is cut to GitHub's 50 characters", async () => {
     const d = await accepted("issue_comment", commentPayload);
     await keyed.acknowledge!(d, [selector({ mention: "@some-org/a-very-long-team-name-that-goes-on-and-on" })]);
     const [, , body] = writes.find(([, path]) => path.endsWith("/labels"))!;
-    assert.equal((body as { labels: string[] }).labels[0]!.length, 50);
+    const [label] = (body as { labels: string[] }).labels;
+    assert.equal(label!.length, 50);
+    assert.ok(label!.endsWith(":listening"));
   });
 });
 
@@ -236,10 +238,14 @@ const withGithub = async (
       const name = roles[decodeURIComponent(role[1]!)];
       return name ? Response.json({ permission: name, role_name: name }) : new Response("Not Found", { status: 404 });
     }
+    if (init?.method === "DELETE") {
+      writes.push(["DELETE", url.pathname, undefined]);
+      return new Response(null, { status: 204 });
+    }
     if (init?.method === "PATCH" || url.pathname.endsWith("/reactions") || url.pathname.endsWith("/labels")) {
       writes.push([init!.method!, url.pathname, JSON.parse(String(init!.body))]);
       if (deleted.some((id) => url.pathname.endsWith(`/comments/${id}`))) return new Response("Not Found", { status: 404 });
-      return Response.json({});
+      return Response.json(url.pathname.endsWith("/reactions") ? { id: 42, content: "eyes" } : {});
     }
     if (url.pathname.endsWith("/comments") && init?.method === "POST") {
       posted.push(JSON.parse(String(init.body)).body);
@@ -400,19 +406,33 @@ test("acknowledge reacts with 👀 to the comment that matched, or to the issue 
   });
 });
 
+test("unacknowledge removes the App's 👀 from the comment that matched, or from the issue for an issue event", async () => {
+  await withGithub({}, async (_, writes) => {
+    await keyed.unacknowledge!(await accepted("issue_comment", commentPayload));
+    const opened = { action: "opened", repository: commentPayload.repository, issue: commentPayload.issue };
+    await keyed.unacknowledge!(await accepted("issues", opened));
+    assert.deepEqual(writes, [
+      ["POST", "/repos/acme/api/issues/comments/99/reactions", { content: "eyes" }],
+      ["DELETE", "/repos/acme/api/issues/comments/99/reactions/42", undefined],
+      ["POST", "/repos/acme/api/issues/7/reactions", { content: "eyes" }],
+      ["DELETE", "/repos/acme/api/issues/7/reactions/42", undefined],
+    ]);
+  });
+});
+
 test("acknowledge adds the listen label of each selector that listens", async () => {
   await withGithub({}, async (_, writes) => {
     const d = await accepted("issue_comment", commentPayload);
     await keyed.acknowledge!(d, [selector(), selector({ mention: "@cursor", listen: false })]);
     const labelled = writes.filter(([, path]) => path.endsWith("/labels"));
-    assert.deepEqual(labelled, [["POST", "/repos/acme/api/issues/7/labels", { labels: ["listen:claude"] }]]);
+    assert.deepEqual(labelled, [["POST", "/repos/acme/api/issues/7/labels", { labels: ["claude:listening"] }]]);
   });
 });
 
 test("acknowledge adds no label that the issue has", async () => {
   await withGithub({}, async (_, writes) => {
     const d = await accepted("issue_comment", commentPayload);
-    await keyed.acknowledge!({ ...d, data: { ...d.data, labels: ["Listen:Claude"] } }, [selector()]);
+    await keyed.acknowledge!({ ...d, data: { ...d.data, labels: ["Claude:Listening"] } }, [selector()]);
     assert.equal(writes.filter(([, path]) => path.endsWith("/labels")).length, 0);
   });
 });

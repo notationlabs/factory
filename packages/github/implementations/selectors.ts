@@ -21,7 +21,7 @@ const from = v.union([authorSet, v.array(authorSet)]);
 /**
  * With `mention`: the label that a run started by a mention adds to the
  * issue. While the issue has the label, a new comment matches without the
- * mention. Defaults to `listen:<mention without @>`. `false` adds no label.
+ * mention. Defaults to `<mention without @>:listening`. `false` adds no label.
  * GitHub limits label names to 50 characters.
  */
 const listen = v.optional(v.union([v.pipe(v.string(), v.minLength(1), v.maxLength(50)), v.literal(false)]));

@@ -81,6 +81,10 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     await channel(context(this.env)).acknowledge?.(delivery, selectors);
   }
 
+  async unacknowledge(delivery: Delivery<unknown>) {
+    await channel(context(this.env)).unacknowledge?.(delivery);
+  }
+
   reply(thread: unknown, text: string, message?: string) {
     const { reply } = channel(context(this.env));
     if (!reply) throw new Error("This connection's channel can't reply.");

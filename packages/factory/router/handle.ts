@@ -234,7 +234,8 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  *    says the build is queued or in progress, so it doesn't mint tokens
  *    for nothing.
  * 4. Posts a notice to the thread of each dispatch that fails, if the
- *    dispatch got as far as naming the conversation.
+ *    dispatch got as far as naming the conversation, and then has the
+ *    channel take back its acknowledgment of the delivery.
  */
 export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<number | undefined> => {
   const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
@@ -284,9 +285,13 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
           Object.assign(d, { state: "failed", error: message(error) });
           console.error(JSON.stringify({ run: d.run, trigger: d.trigger, error: d.error }));
           if (d.thread === undefined) return;
-          await channel
-            .reply(d.thread, failureNotice(d), d.waiting)
-            .catch((error) => console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) })));
+          try {
+            await channel.reply(d.thread, failureNotice(d), d.waiting);
+          } catch (error) {
+            console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) }));
+            return;
+          }
+          await unacknowledge(channel, record.delivery, d.run);
         }
       }),
     );
@@ -526,14 +531,21 @@ const ticketed = async <T extends MessagesRequest>(request: Request, store: Rout
   return { body, rootKey, channel: found.channel };
 };
 
+/** Has the channel take back its acknowledgment of a delivery. A failure is only logged. */
+const unacknowledge = (channel: RemoteChannel, delivery: Delivery<unknown>, run: string) =>
+  channel
+    .unacknowledge(delivery)
+    .catch((error) => console.error(JSON.stringify({ run, state: "unacknowledge failed", error: message(error) })));
+
 /**
  * Posts a container's reply, if the router signed its ticket, through the
  * channel of the ticket's connection. For a ticket that names a run:
  * 1. Answers 409 with `lost`, and posts nothing, if the run is lost, so a
  *    run that comes back doesn't replace the lost notice.
- * 2. With `done`, stops watching the run once the reply is posted. A reply
- *    that fails leaves the run watched, so the lost notice replaces the
- *    run's last message.
+ * 2. With `done`, stops watching the run once the reply is posted, and has
+ *    the channel take back its acknowledgment of the delivery. A reply that
+ *    fails leaves the run watched, so the lost notice replaces the run's
+ *    last message.
  */
 const relay = async (request: Request, store: RouterStore) => {
   const found = await ticketed<Relay>(request, store);
@@ -549,15 +561,17 @@ const relay = async (request: Request, store: RouterStore) => {
     return json(401, { error: "bad message signature" });
   }
   const named = typeof delivery === "string" && typeof run === "string";
-  if (named && isLost(await store.inbox.record(ticket.connection, delivery), run)) {
+  const record = named ? await store.inbox.record(ticket.connection, delivery) : undefined;
+  if (named && isLost(record, run)) {
     return json(409, { error: "the router marked the run lost", lost: true });
   }
   const id = await channel.reply(ticket.thread, text, message?.id);
   if (named && done === true) {
-    // The reply is posted, so answer 200 even if the done mark fails.
+    // The reply is posted, so answer 200 even if the done mark or the unacknowledge fails.
     await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true }).catch((error) => {
       console.error(JSON.stringify({ run, relay: "done mark failed", error: String(error) }));
     });
+    if (record) await unacknowledge(channel, record.delivery, run);
   }
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };

@@ -243,6 +243,22 @@ export const reactEyes = async (auth: AppAuth, repo: string, target: { issue: nu
   await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
 };
 
+/**
+ * Removes the App's 👀 from a comment, or from an issue's opening post if
+ * there's no `comment`.
+ */
+export const unreactEyes = async (auth: AppAuth, repo: string, target: { issue: number; comment?: number }) => {
+  const token = await repoToken(auth, repo, { issues: "write" });
+  const path =
+    target.comment === undefined
+      ? `/repos/${repo}/issues/${target.issue}/reactions`
+      : `/repos/${repo}/issues/comments/${target.comment}/reactions`;
+  // GitHub answers a reaction that the App has made already with that reaction, so this finds its id without listing every reaction.
+  const response = await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
+  const { id } = (await response.json()) as { id: number };
+  await ok(await github("DELETE", `${path}/${id}`, token), `DELETE ${path}/${id}`);
+};
+
 /** Adds labels to an issue or a pull request. GitHub creates a label that the repo doesn't have yet. */
 export const addLabels = async (auth: AppAuth, repo: string, issue: number, labels: string[]) => {
   const token = await repoToken(auth, repo, { issues: "write" });

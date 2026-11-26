@@ -24,6 +24,7 @@ import {
   repoToken,
   roles,
   sourceChanges,
+  unreactEyes,
   writeCheck as writeRepoCheck,
   writeStatus as writeRepoStatus,
 } from "./repos.ts";
@@ -211,11 +212,13 @@ type Selector = {
   from: AuthorSet | AuthorSet[];
 };
 
+const LISTENING = ":listening";
+
 /** The label that keeps a mention selector listening, if it has one. Outposts deployed before `listen` existed get the default too. */
 const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
   if (!selector.mention || selector.listen === false) return undefined;
   // GitHub limits label names to 50 characters, which a team's mention can pass.
-  return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`.slice(0, 50);
+  return selector.listen ?? `${selector.mention.replace(/^@/, "").slice(0, 50 - LISTENING.length)}${LISTENING}`;
 };
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
@@ -394,6 +397,11 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
         reactEyes(a, delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id }),
         labels.size ? addLabels(a, delivery.repo, payload.issue.number, [...labels]) : undefined,
       ]);
+    },
+
+    async unacknowledge(delivery) {
+      const payload = delivery.payload as Payload;
+      await unreactEyes(await auth(), delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
     },
 
     async reply(thread, text, message) {

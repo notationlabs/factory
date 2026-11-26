@@ -45,7 +45,7 @@ Both selectors accept four optional filters alongside the required `from` field:
 | :--- | :--- |
 | `actions` | Array of webhook actions that match this trigger |
 | `mention` | Case-insensitive handle matched at word boundaries; on `"edited"`, must be newly added |
-| `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `listen:<mention without @>`; `false` turns it off |
+| `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `<mention without @>:listening`; `false` turns it off |
 | `labels` | Array of label names that must all be present on the issue, compared case-insensitively |
 | `from` | Required author rule or array of author rules controlling who can start a run |
 
@@ -110,6 +110,8 @@ Before dispatching to a container, the router reacts with 👀 (`eyes`) on the t
 - **Streaming edits** – The runner reads the agent's `stream-json` output, quotes the latest assistant text or `"Thinking..."` status, and edits a single reply comment at most once every 10 seconds while ignoring repeated identical text.
 - **Elapsed clock** – Each progress edit appends a `<sub>` footer with the model name and duration, refreshing every 60 seconds when the agent is quiet.
 - **Final replacement** – On completion, failure, or `SIGTERM` container shutdown, the runner edits that same comment with the final result or error. Runs time out after 2 hours.
+
+When the final reply is posted, the router removes the 👀. It also removes it when it posts a failure notice for a run that couldn't be dispatched. If several triggers start runs for one comment, the first run to finish removes it.
 
 Each posted comment begins with a hidden `<!-- factory:agent=<id> -->` marker so thread history attributes each reply to the agent that wrote it.
 

@@ -43,7 +43,7 @@ const fake = (
   conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, message: "p1", thread: { repo: delivery.repo } }),
   messages: async () => [],
   acknowledge: async () => {},
-  unacknowledge: async () => {},
+  answered: async () => {},
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
   repos: async () => [],
@@ -773,16 +773,16 @@ test("an error from the deployer fails the dispatch without a retry, since the r
   assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 502: bad gateway" }]);
 });
 
-test("a failed dispatch takes back the acknowledgment once its notice is posted", async () => {
+test("a failed dispatch tells the channel that the post is answered once its notice is posted", async () => {
   const events: string[] = [];
   const channel = {
     ...accepted(),
     reply: async () => void events.push("notice"),
-    unacknowledge: async (d: Delivery<FakeEvent>) => void events.push(`unacknowledge ${d.id}`),
+    answered: async (d: Delivery<FakeEvent>) => void events.push(`answered ${d.id}`),
   };
   const { record, store } = await savedRecord(runStore(channel, { run: async () => Promise.reject(new Error("refused")) }));
   await advance(record, store, 0);
-  assert.deepEqual(events, ["notice", "unacknowledge d1"]);
+  assert.deepEqual(events, ["notice", "answered d1"]);
 });
 
 test("each failed trigger of a delivery replaces its own waiting message", async () => {
@@ -961,20 +961,20 @@ test("a reply of a lost run posts nothing, so it doesn't replace the lost notice
   assert.equal(record.dispatches[0]!.state, "lost");
 });
 
-test("a run's last reply takes back the acknowledgment, and a reply before it doesn't", async () => {
+test("a run's last reply tells the channel that the post is answered, and a reply before it doesn't", async () => {
   const events: string[] = [];
   const runs: Run[] = [];
   const channel = {
     ...accepted(),
     reply: async (_thread: unknown, text: string) => (events.push(text), "n1"),
-    unacknowledge: async (d: Delivery<FakeEvent>) => void events.push(`unacknowledge ${d.id}`),
+    answered: async (d: Delivery<FakeEvent>) => void events.push(`answered ${d.id}`),
   };
   const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
   await advance(record, store, 0);
   const { reply } = runs[0]!;
   assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
   assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "done", done: true })).status, 200);
-  assert.deepEqual(events, ["working", "done", "unacknowledge d1"]);
+  assert.deepEqual(events, ["working", "done", "answered d1"]);
 });
 
 test("a run's last reply stops the router watching it, once the reply is posted", async () => {

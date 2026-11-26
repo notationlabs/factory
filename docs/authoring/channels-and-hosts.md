@@ -40,7 +40,7 @@ Export `channel(ctx: ChannelContext): Channel<E>` from a dedicated module path r
 | `messages` | Required for runs; fetches ordered `ThreadMessage` entries for a thread |
 | `reply` | Optional; posts or edits replies with hidden agent markers when shared |
 | `acknowledge` | Optional; adds an acknowledgment reaction on the incoming post; also gets the selectors of the triggers that start runs, which GitHub uses to add listen labels |
-| `unacknowledge` | Optional; removes the acknowledgment once a run's last reply or failure notice is posted |
+| `answered` | Optional; shows that the incoming post has been answered, once a run's last reply or failure notice is posted. GitHub removes its 👀 reaction |
 | `read` | Code hosts; fetches `.factory/` files at a commit ref or default branch |
 | `writeStatus` | Code hosts; updates `FACTORY_STATUS` on the repository |
 | `writeCheck` | Code hosts; creates or updates a named commit check |

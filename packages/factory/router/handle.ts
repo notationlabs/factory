@@ -235,7 +235,7 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
  *    for nothing.
  * 4. Posts a notice to the thread of each dispatch that fails, if the
  *    dispatch got as far as naming the conversation, and then has the
- *    channel take back its acknowledgment of the delivery.
+ *    channel show that the delivery's post is answered.
  */
 export const advance = async (record: DeliveryRecord, store: RouterStore, now = Date.now()): Promise<number | undefined> => {
   const due = record.dispatches.filter((d) => d.state === "pending" && (d.next ?? 0) <= now);
@@ -291,7 +291,7 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
             console.error(JSON.stringify({ run: d.run, state: "notice failed", error: message(error) }));
             return;
           }
-          await unacknowledge(channel, record.delivery, d.run);
+          await answered(channel, record.delivery, d.run);
         }
       }),
     );
@@ -531,11 +531,11 @@ const ticketed = async <T extends MessagesRequest>(request: Request, store: Rout
   return { body, rootKey, channel: found.channel };
 };
 
-/** Has the channel take back its acknowledgment of a delivery. A failure is only logged. */
-const unacknowledge = (channel: RemoteChannel, delivery: Delivery<unknown>, run: string) =>
+/** Has the channel show that a delivery's post is answered. A failure is only logged. */
+const answered = (channel: RemoteChannel, delivery: Delivery<unknown>, run: string) =>
   channel
-    .unacknowledge(delivery)
-    .catch((error) => console.error(JSON.stringify({ run, state: "unacknowledge failed", error: message(error) })));
+    .answered(delivery)
+    .catch((error) => console.error(JSON.stringify({ run, state: "answered failed", error: message(error) })));
 
 /**
  * Posts a container's reply, if the router signed its ticket, through the
@@ -543,7 +543,7 @@ const unacknowledge = (channel: RemoteChannel, delivery: Delivery<unknown>, run:
  * 1. Answers 409 with `lost`, and posts nothing, if the run is lost, so a
  *    run that comes back doesn't replace the lost notice.
  * 2. With `done`, stops watching the run once the reply is posted, and has
- *    the channel take back its acknowledgment of the delivery. A reply that
+ *    the channel show that the delivery's post is answered. A reply that
  *    fails leaves the run watched, so the lost notice replaces the run's
  *    last message.
  */
@@ -567,11 +567,11 @@ const relay = async (request: Request, store: RouterStore) => {
   }
   const id = await channel.reply(ticket.thread, text, message?.id);
   if (named && done === true) {
-    // The reply is posted, so answer 200 even if the done mark or the unacknowledge fails.
+    // The reply is posted, so answer 200 even if the done mark or the answered call fails.
     await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true }).catch((error) => {
       console.error(JSON.stringify({ run, relay: "done mark failed", error: String(error) }));
     });
-    if (record) await unacknowledge(channel, record.delivery, run);
+    if (record) await answered(channel, record.delivery, run);
   }
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };

@@ -399,7 +399,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       ]);
     },
 
-    async unacknowledge(delivery) {
+    async answered(delivery) {
       const payload = delivery.payload as Payload;
       await unreactEyes(await auth(), delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
     },

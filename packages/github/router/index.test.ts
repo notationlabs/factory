@@ -406,11 +406,11 @@ test("acknowledge reacts with 👀 to the comment that matched, or to the issue 
   });
 });
 
-test("unacknowledge removes the App's 👀 from the comment that matched, or from the issue for an issue event", async () => {
+test("answered removes the App's 👀 from the comment that matched, or from the issue for an issue event", async () => {
   await withGithub({}, async (_, writes) => {
-    await keyed.unacknowledge!(await accepted("issue_comment", commentPayload));
+    await keyed.answered!(await accepted("issue_comment", commentPayload));
     const opened = { action: "opened", repository: commentPayload.repository, issue: commentPayload.issue };
-    await keyed.unacknowledge!(await accepted("issues", opened));
+    await keyed.answered!(await accepted("issues", opened));
     assert.deepEqual(writes, [
       ["POST", "/repos/acme/api/issues/comments/99/reactions", { content: "eyes" }],
       ["DELETE", "/repos/acme/api/issues/comments/99/reactions/42", undefined],

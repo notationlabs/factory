@@ -121,10 +121,11 @@ interface ChannelBase<E> {
    */
   acknowledge?(delivery: Delivery<E>, selectors: unknown[]): Promise<void>;
   /**
-   * Takes back what `acknowledge` showed on the delivery's post, such as
-   * GitHub's 👀 reaction, once a run's last reply or failure notice is posted.
+   * Shows that the delivery's post has been answered, once a run's last
+   * reply or failure notice is posted, such as by removing GitHub's 👀
+   * reaction.
    */
-  unacknowledge?(delivery: Delivery<E>): Promise<void>;
+  answered?(delivery: Delivery<E>): Promise<void>;
   /**
    * Posts `text` to a conversation's thread, or replaces the text of
    * `message`, a message that an earlier reply to the thread posted.

@@ -69,6 +69,12 @@ case "$prompt" in
     echo "sending SIGKILL to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" >> "${calls}.oom.new"
     mv "${calls}.oom.new" "${calls}.oom"
     sleep 1 ;;
+  *"talk forever"*)
+    if [ ! -e forever.txt ]; then
+      echo forever > forever.txt
+      echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Looking."}]}}'
+      exec sleep 30
+    fi ;;
   *stall*)
     if [ ! -e draft.txt ]; then
       echo draft > draft.txt
@@ -181,8 +187,10 @@ let freshToken = "push-token";
 const tokenRequests: TokenRequest[] = [];
 /** The heartbeats that the runner has posted. */
 const heartbeats: Heartbeat[] = [];
-/** The runs that the fake router answers heartbeats for as lost. */
+/** The runs that the fake router answers heartbeats for as lost, and whose replies it refuses as lost. */
 const lostRuns = new Set<string>();
+/** The replies that the fake router refused because their run was lost. */
+const refused: Relay[] = [];
 /** How many more `done` heartbeats the fake router fails with status 503. */
 let failDone = 0;
 let waiting: (() => void) | undefined;
@@ -290,6 +298,11 @@ before(async () => {
       }
       // Like the router, it names the message that each reply posted or replaced.
       const relay = JSON.parse(Buffer.concat(chunks).toString()) as Relay;
+      if (lostRuns.has(relay.ticket.run!)) {
+        refused.push(relay);
+        response.statusCode = 409;
+        return response.end(JSON.stringify({ error: "the router marked the run lost", lost: true }));
+      }
       replies.push(relay);
       relays++;
       waiting?.();
@@ -973,19 +986,24 @@ const watched = (conversation: Run["conversation"], over: Partial<Run> = {}): Ru
 
 const beatsOf = (runId: string) => heartbeats.filter((h) => h.ticket.run === runId);
 
-test("the runner posts heartbeats for each run it holds, queued or running, with the message that its replies replace, and then says it's done", async () => {
+/** Resolves once the runner has logged that the run ended because the router marked it lost. */
+const endedLost = (runId: string) =>
+  until(() => new RegExp(`"run":"${runId}","state":"(skipped|stopped)","reason":"lost"`).test(output));
+
+test("the runner posts heartbeats for each run it holds, queued or running, with the message that its replies replace, and its last reply ends the watch", async () => {
   const id = "github:acme/api#20";
   const first = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-20" } });
   const second = watched({ id, message: say(id, "and then this") }, { worktree: { branch: "issue-20" } });
   await post(first);
   await post(second);
   await until(() => beatsOf(second.id).length >= 2);
-  // The second run is still queued behind the first.
-  assert.equal(beatsOf(first.id).some((h) => h.done), false);
+  // The first run read the second's message, so the second is skipped.
   await until(() => beatsOf(second.id).some((h) => h.done));
+  const firstReplies = replies.filter((r) => r.ticket.run === first.id);
+  assert.equal(firstReplies.at(-1)!.done, true);
+  assert.equal(firstReplies.filter((r) => r.done).length, 1);
   const firstBeats = beatsOf(first.id);
-  assert.equal(firstBeats.at(-1)!.done, true);
-  assert.equal(firstBeats.filter((h) => h.done).length, 1);
+  assert.equal(firstBeats.some((h) => h.done), false);
   assert.ok(firstBeats.some((h) => h.message?.signature === "msig"));
   assert.equal(firstBeats[0]!.signature, "sig");
   while (replies.length) replies.shift();
@@ -998,7 +1016,7 @@ test("a queued run that the router marks lost doesn't run, and posts nothing", a
   lostRuns.add(body.id);
   await post(first);
   await post(body);
-  await until(() => beatsOf(body.id).some((h) => h.done));
+  await endedLost(body.id);
   assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
   assert.match(output, new RegExp(`"run":"${body.id}","state":"lost"`));
   assert.doesNotMatch(output, new RegExp(`"run":"${body.id}","repo"`));
@@ -1013,7 +1031,7 @@ test("a running run that the router marks lost stops its agent, saves its work, 
   const worktree = join(data, "worktrees", "acme-api", "issue-62");
   await until(() => existsSync(join(worktree, "forever.txt")));
   lostRuns.add(body.id);
-  await until(() => beatsOf(body.id).some((h) => h.done));
+  await endedLost(body.id);
   assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
   // The lost run's session hasn't seen the thread, so its restart gets the lost run's messages again.
   assert.deepEqual(JSON.parse(state.get("sessions/github-acme-api-62/coder.json")!.toString()), {
@@ -1027,15 +1045,32 @@ test("a running run that the router marks lost stops its agent, saves its work, 
   assert.match(lastPrompt(), /### Messages in thread since last turn[^]*run forever[^]*carry on/);
 });
 
-test("the runner posts a run's done heartbeat again if the router fails it", async () => {
-  const id = "github:acme/api#60";
-  const body = watched({ id, message: say(id, "go") }, { worktree: { branch: "issue-60" } });
-  failDone = 2;
-  while (replies.length) replies.shift();
+test("a run whose reply the router refuses because it marked the run lost stops its agent and posts nothing more", async () => {
+  const id = "github:acme/api#63";
+  const body = watched({ id, message: say(id, "talk forever") }, { worktree: { branch: "issue-63" } });
+  // Only the replies say that the run is lost.
+  delete body.reply.heartbeat;
+  lostRuns.add(body.id);
+  const started = Date.now();
   await post(body);
+  await endedLost(body.id);
+  assert.ok(Date.now() - started < 20_000);
+  assert.equal(refused.filter((r) => r.ticket.run === body.id).length, 1);
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+});
+
+test("a skipped run that posts nothing posts its done heartbeat, again if the router fails it", async () => {
+  const id = "github:acme/api#60";
+  const first = say(id, "first");
+  const second = say(id, "second");
+  await post(watched({ id, message: first }, { worktree: { branch: "issue-60" } }));
+  const skipped = watched({ id, message: second }, { worktree: { branch: "issue-60" } });
+  failDone = 2;
+  await post(skipped);
   assert.equal((await nextReply()).text, "done");
-  await until(() => beatsOf(body.id).filter((h) => h.done).length === 3);
+  await until(() => beatsOf(skipped.id).filter((h) => h.done).length === 3);
   assert.equal(failDone, 0);
+  assert.equal(replies.filter((r) => r.ticket.run === skipped.id).length, 0);
 });
 
 test("status counts the runs that are running or queued", async () => {

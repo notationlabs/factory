@@ -17,7 +17,8 @@ export const KEEP_DELIVERY_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * One matched trigger's run, as the router hands it to the deployer.
  * `pending` dispatches are tried at `next`, or at once without it. A
- * `dispatched` run that stops sending heartbeats becomes `lost`.
+ * `dispatched` run that stops sending heartbeats becomes `lost`. A restart
+ * gives a lost dispatch a new run id, so the old run counts as lost too.
  */
 export type TriggerDispatch = {
   trigger: string;
@@ -25,8 +26,6 @@ export type TriggerDispatch = {
   state: "pending" | "dispatched" | "failed" | "lost";
   /** When the dispatch started to wait for its container's first image build. */
   since?: number;
-  /** When the router handed the run to the deployer. The router watches the run from then. */
-  dispatched?: number;
   next?: number;
   error?: string;
   /** The channel's thread of the run's conversation, once an attempt has named it. */
@@ -49,11 +48,22 @@ export type TriggerDispatch = {
 export type Watch = { at: number; message?: string } | { done: true };
 
 /**
+ * Whether the run `run` of `record` is lost: the router marked it lost, or
+ * a restart replaced it with a new run, so the record no longer has it.
+ * Without a record, the router knows nothing of the run.
+ */
+export const isLost = (record: DeliveryRecord | undefined, run: string) => {
+  if (!record) return false;
+  const dispatch = record.dispatches.find((d) => d.run === run);
+  return dispatch === undefined || dispatch.state === "lost";
+};
+
+/**
  * What a heartbeat of `run` does to the run's watch `current`. Resolves to
- * `unknown` if the record has no such run, and to `lost` if the run was
- * marked lost. `watch` is the run's new watch, if it changes: a heartbeat
- * with `done`, or of a run that failed, marks the run done, and a heartbeat
- * of a done run changes nothing.
+ * `unknown` if there's no record, and to `lost` if the run is lost. `watch`
+ * is the run's new watch, if it changes: the first heartbeat starts it, a
+ * heartbeat with `done`, or of a run that failed, marks the run done, and a
+ * heartbeat of a done run changes nothing.
  */
 export const heartbeatWatch = (
   record: DeliveryRecord | undefined,
@@ -62,9 +72,9 @@ export const heartbeatWatch = (
   beat: { message?: string; done?: boolean },
   now: number,
 ): { result: "ok" | "lost" | "unknown"; watch?: Watch } => {
-  const dispatch = record?.dispatches.find((d) => d.run === run);
-  if (!dispatch) return { result: "unknown" };
-  if (dispatch.state === "lost") return { result: "lost" };
+  if (!record) return { result: "unknown" };
+  if (isLost(record, run)) return { result: "lost" };
+  const dispatch = record.dispatches.find((d) => d.run === run)!;
   if (current && "done" in current) return { result: "ok" };
   if (beat.done || dispatch.state === "failed") return { result: "ok", watch: { done: true } };
   return { result: "ok", watch: { at: now, ...(beat.message && { message: beat.message }) } };
@@ -117,8 +127,8 @@ export type Inbox = {
   replay(connection: string, id: string, origin: string): Promise<boolean>;
   /**
    * Notes a heartbeat of the run `run` of a delivery, or with `done`, stops
-   * watching the run. Resolves to `unknown` if the delivery has no such
-   * run, and to `lost` if the run was marked lost.
+   * watching the run. See `heartbeatWatch`. Resolves to `unknown` if the
+   * inbox has no such delivery, and to `lost` if the run is lost.
    */
   heartbeat(connection: string, id: string, run: string, beat: { message?: string; done?: boolean }): Promise<"ok" | "lost" | "unknown">;
   /** The delivery with this connection and id, if the inbox has it. */
@@ -163,7 +173,6 @@ export const replayRecord = (record: DeliveryRecord, origin: string, run?: strin
     if (dispatch.state !== "lost") delete dispatch.waiting;
     Object.assign(dispatch, { state: "pending", run: crypto.randomUUID() });
     delete dispatch.since;
-    delete dispatch.dispatched;
     delete dispatch.next;
     delete dispatch.error;
   }

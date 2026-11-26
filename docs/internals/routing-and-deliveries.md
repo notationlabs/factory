@@ -26,7 +26,7 @@ stateDiagram-v2
 | Route | Caller and action |
 | :--- | :--- |
 | `POST /webhook/<key>` | Verifies delivery via channel Worker and enqueues runs or redeploys |
-| `POST /relay` | Verifies `ReplyTicket` and optional message signature, posts or edits reply |
+| `POST /relay` | Verifies `ReplyTicket` and optional message signature, refuses the reply of a lost run with 409, posts or edits reply, and stops watching the run after its last reply |
 | `POST /messages` | Verifies `ReplyTicket` and fetches ordered thread messages |
 | `POST /heartbeat` | Verifies `ReplyTicket` and optional message signature, notes the run's heartbeat in its `DeliveryInbox` |
 | `POST /tokens` | Verifies `TokenTicket` and refreshes container policy tokens |
@@ -65,21 +65,21 @@ Any failure after resolving the conversation posts an error notice instructing o
 
 ## Heartbeats and lost runs
 
-The runner posts a heartbeat to `POST /heartbeat` once a minute for each run it holds, queued or running. The heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace. When the run finishes, the runner posts a last heartbeat with `done`, and the router stops watching the run.
+The outpost Worker's `OutpostContainer.run` posts a run's first heartbeat to `POST /heartbeat` as soon as it takes the run, before it answers the deployer. While it starts the run's container or waits for a free instance, `OutpostContainer.deliver` posts the run's heartbeats with the same ticket. Once the runner holds the run, the runner posts them, once a minute for each run it holds, queued or running. Each heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace.
 
-Before the runner holds a run, the outpost Worker's `OutpostContainer.deliver` posts the run's heartbeats with the same ticket. It posts one each time it tries to deliver the run, which is every 60 seconds while it waits for a free container instance, and one every 60 seconds while the container starts. If the router answers `lost`, the Worker drops the run. If the Worker can't deliver the run, it posts the failure to the thread and then a heartbeat with `done`.
+A run is watched from its first heartbeat. An outpost Worker or runner from before heartbeats sends none, so the router never marks its runs lost. A hub deploy has the deployer deploy every repo again, and the new outpost Worker changes each container's source, so every outpost Worker is built again. But the builds take minutes, and a build can fail and leave the old Worker, so the router doesn't assume that an outpost sends heartbeats.
 
-The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. The record is saved by the alarm after it calls the deployer and channels, so a heartbeat in the record could be overwritten. `heartbeatWatch` in `packages/factory/router/deliveries.ts` decides what each heartbeat saves. A heartbeat with `done` saves `{ done: true }` in place of the last heartbeat, and the router ignores heartbeats of the run after that. So a heartbeat that arrives after the run's last one doesn't start the watch again, and the run's final reply stays on the thread.
+A run's last reply ends its watch. The runner posts it to `POST /relay` with `done`, and once the channel has posted it, the router saves `{ done: true }` in place of the run's last heartbeat. If the reply fails, the run stays watched, and 5 minutes later the lost notice replaces the run's message. A run that ends without a reply, such as a run that the runner skips, posts a heartbeat with `done` instead. The outpost Worker's reply for a run that it couldn't deliver has `done` too.
 
-Watching starts when the router dispatches the run: the dispatch records the time in `dispatched`, and a run with no heartbeat yet counts from then. A run that waits for its container's first image build is not dispatched yet, so it is not watched. Dispatches saved before `dispatched` existed are watched only from their first heartbeat.
+The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. `heartbeatWatch` in `packages/factory/router/deliveries.ts` decides what each heartbeat saves. After `{ done: true }`, the router ignores heartbeats of the run, so a heartbeat that arrives after the run's last reply doesn't start the watch again, and the run's final reply stays on the thread.
 
-The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each dispatch and heartbeat. When a dispatched run's last heartbeat, or its dispatch if it has sent none, is 5 minutes old, `watch`:
+The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. When a dispatched run's last heartbeat is 5 minutes old, `watch`:
 
 1. Marks the dispatch `lost`, with an error that operators see in `factory infra status`.
 2. Replaces the run's message on the thread with the lost notice, through the channel's `reply`. A run that had posted nothing has its lost notice posted as a new message. The notice has a restart link, and says that the person can mention the agent again instead.
 3. Lists the delivery as failed again, and keeps it for 7 days from then.
 
-`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. If the lost run's runner is still alive and posts another heartbeat, the router answers `lost`. The runner then stops the run's agent, saves its work, and posts nothing more, so the notice stays. The restarted run queues behind it in the worktree.
+`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. The restart gives the dispatch a new run ID, so the delivery record no longer has the lost run, and the router still counts it as lost (`isLost`). The router answers `lost` to a heartbeat of a lost run, and refuses its replies with status 409 and `{ lost: true }`, so the lost run's runner can't replace the lost notice if it comes back. The runner then stops the run's agent, saves its work, and posts nothing more. The restarted run queues behind it in the worktree.
 
 ## Restart links
 

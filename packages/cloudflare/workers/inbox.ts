@@ -92,8 +92,8 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
 
   /**
    * 1. Tries the delivery's due dispatches.
-   * 2. Marks lost the dispatched runs whose last heartbeat, or dispatch if
-   *    they have sent none, is `LOST_AFTER_MS` old, and stops watching them.
+   * 2. Marks lost the dispatched runs whose last heartbeat is
+   *    `LOST_AFTER_MS` old, and stops watching them.
    * 3. Sets the alarm for the next retry or heartbeat check, while the
    *    delivery isn't settled.
    * 4. Once it settles, and again when a run is lost, lists the delivery as

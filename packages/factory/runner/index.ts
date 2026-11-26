@@ -739,16 +739,33 @@ const assertCommand = async (command: string, name: string) => {
   }
 };
 
-/** Posts `text` to the run's conversation, in place of `message` if it's set. Resolves to the message the router names. */
-const relay = async (run: Run, text: string, message?: ReplyMessage) => {
-  const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text, ...(message && { message }) };
+/**
+ * Posts `text` to the run's conversation, in place of `message` if it's set.
+ * With `done`, it's the run's last reply. Resolves to the message the router
+ * names, or to `lost` if the router refused the reply because it marked the
+ * run lost.
+ */
+const relay = async (run: Run, text: string, message: ReplyMessage | undefined, done: boolean) => {
+  const body: Relay = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    text,
+    ...(message && { message }),
+    ...(done && { done }),
+  };
   const response = await fetch(run.reply.url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`The router refused the reply with status ${response.status}: ${await response.text()}`);
-  return ((await response.json().catch(() => ({}))) as Partial<RelayResult>).message;
+  const answer = await response.text();
+  let result: Partial<RelayResult> & { lost?: boolean } = {};
+  try {
+    result = JSON.parse(answer);
+  } catch {}
+  if (response.status === 409 && result.lost) return "lost";
+  if (!response.ok) throw new Error(`The router refused the reply with status ${response.status}: ${answer}`);
+  return result.message;
 };
 
 /** What the runner reads from the agent's output while it runs. */
@@ -793,12 +810,12 @@ const progressText = (text: string, ms: number, model?: string) => {
  * "Thinking..." for each part of a thought. While the agent writes no new
  * message, the shown one is posted again every `CLOCK_INTERVAL_MS`, so its
  * clock stays current. `finish` posts the final reply
- * in their place. The first post replaces the message that the router
- * posted while the run waited for the container, if there is one. Once
- * `lost` aborts, because the router has marked the run lost, the replies
- * post nothing, so they don't replace the lost notice.
+ * in their place, as the run's last reply unless `done` is false. The first
+ * post replaces the message that the router posted while the run waited for
+ * the container, if there is one. A post that the router refuses because it
+ * marked the run lost ends the run.
  */
-const replies = (run: Run, lost: AbortSignal) => {
+const replies = (run: Run, lost: AbortController) => {
   let posted: ReplyMessage | undefined = run.reply.message;
   let pending: string | undefined;
   let shown: string | undefined;
@@ -809,10 +826,11 @@ const replies = (run: Run, lost: AbortSignal) => {
   let model: string | undefined;
   // Posts go one at a time, so each one knows the message that the last one posted.
   let posting: Promise<void> = Promise.resolve();
-  const post = (text: string) => {
+  const post = (text: string, done = false) => {
     const next = posting.then(async () => {
-      if (lost.aborted) return;
-      posted = (await relay(run, text, posted)) ?? posted;
+      const result = await relay(run, text, posted, done);
+      if (result === "lost") return lose(run, lost);
+      posted = result ?? posted;
       sentAt = Date.now();
     });
     posting = next.catch(() => {});
@@ -835,7 +853,7 @@ const replies = (run: Run, lost: AbortSignal) => {
     );
     ticker = setTimeout(show, CLOCK_INTERVAL_MS);
   };
-  lost.addEventListener("abort", () => {
+  lost.signal.addEventListener("abort", () => {
     clearTimeout(timer);
     clearTimeout(ticker);
   });
@@ -856,19 +874,26 @@ const replies = (run: Run, lost: AbortSignal) => {
         model = name;
       },
     } satisfies Progress,
-    finish(text: string) {
+    finish(text: string, done = true) {
       clearTimeout(timer);
       clearTimeout(ticker);
       timer = undefined;
       ticker = undefined;
       pending = undefined;
-      return post(text);
+      return post(text, done);
     },
   };
 };
 
 /** A run that the runner holds, running or queued, with its replies, and the controller that ends it once the router marks it lost. */
 type Held = { run: Run; reply: ReturnType<typeof replies>; lost: AbortController };
+
+/** Ends a run that the router marked lost. See `execute`. */
+const lose = (run: Run, lost: AbortController) => {
+  if (lost.signal.aborted) return;
+  log({ run: run.id, state: "lost", detail: "The router marked the run lost, so the runner stops it." });
+  lost.abort();
+};
 
 /** The runs that are running or queued, by id. */
 const held = new Map<string, Held>();
@@ -987,13 +1012,15 @@ const SKIPPED_NOTE = "> An earlier run already read these messages, so this run 
 /**
  * Runs one run, and posts the agent's final message, or the error, to the
  * conversation, with notes on what couldn't be restored or saved. It
- * replaces the agent's last message. A skipped run posts nothing, unless
- * the router posted a message while the run waited for its container,
- * which the run replaces with `SKIPPED_NOTE`. A run that the router marks
- * lost is over: if it's queued, it doesn't start, and if it's running, the
- * runner stops its agent, saves its worktree and session, and posts nothing.
+ * replaces the agent's last message, and is the run's last reply. A skipped
+ * run posts nothing, and posts its done heartbeat instead, unless the router
+ * posted a message while the run waited for its container, which the run
+ * replaces with `SKIPPED_NOTE`. A run that the router marks lost is over: if
+ * it's queued, it doesn't start, and if it's running, the runner stops its
+ * agent, saves its worktree and session, and posts nothing.
  */
-const execute = async ({ run, reply, lost }: Held) => {
+const execute = async (entry: Held) => {
+  const { run, reply, lost } = entry;
   if (lost.signal.aborted) return log({ run: run.id, state: "skipped", reason: "lost" });
   const started = Date.now();
   reply.start();
@@ -1005,7 +1032,7 @@ const execute = async ({ run, reply, lost }: Held) => {
     const result = await perform(run, notes, reply.progress, lost.signal);
     if (result === undefined) {
       log({ run: run.id, state: "skipped", reason: "no new messages" });
-      if (!run.reply.message) return;
+      if (!run.reply.message) return await heartbeatDone(entry);
       text = SKIPPED_NOTE;
     } else {
       text = result;
@@ -1070,13 +1097,13 @@ const startEarlyoom = () => {
 
 /**
  * Posts a heartbeat for the run to the router, if the router watches the
- * run. With `done`, the router stops watching it. Ends the run if the router
- * answers that it marked the run lost. Returns false if the router couldn't
- * be reached or failed, so that posting it again may succeed.
+ * run. With `done`, the router stops watching it. Resolves to `lost` if the
+ * router marked the run lost, and to `retry` if the router couldn't be
+ * reached or failed. The outpost Worker's `heartbeat` posts the same body
+ * and reads the answer the same way.
  */
-const heartbeat = async ({ run, reply, lost }: Held, done = false) => {
-  if (!run.reply.heartbeat) return true;
-  const posted = reply.message();
+const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, done: boolean): Promise<"ok" | "lost" | "retry"> => {
+  if (!run.reply.heartbeat) return "ok";
   const body: Heartbeat = {
     ticket: run.reply.ticket,
     signature: run.reply.signature,
@@ -1091,37 +1118,34 @@ const heartbeat = async ({ run, reply, lost }: Held, done = false) => {
     });
     if (!response.ok) {
       log({ run: run.id, state: "heartbeat refused", status: response.status, error: await response.text() });
-      return response.status < 500;
+      return response.status < 500 ? "ok" : "retry";
     }
-    const result = (await response.json().catch(() => ({}))) as Partial<HeartbeatResult>;
-    if (result.lost && !done && !lost.signal.aborted) {
-      log({ run: run.id, state: "lost", detail: "The router marked the run lost, so the runner stops it." });
-      lost.abort();
-    }
-    return true;
+    return ((await response.json().catch(() => ({}))) as Partial<HeartbeatResult>).lost ? "lost" : "ok";
   } catch (error) {
     log({ run: run.id, state: "heartbeat failed", error: message(error) });
-    return false;
+    return "retry";
   }
 };
 
+/** Posts the run's heartbeat, and ends the run if the router marked it lost. */
+const heartbeat = async ({ run, reply, lost }: Held) => {
+  if ((await postHeartbeat(run, reply.message(), false)) === "lost") lose(run, lost);
+};
+
 /** Posts the run's `done` heartbeat, up to `DONE_ATTEMPTS` times in all, while the router can't be reached or fails. */
-const heartbeatDone = async (entry: Held) => {
-  for (let attempt = 1; !(await heartbeat(entry, true)) && attempt < DONE_ATTEMPTS; attempt++) {
+const heartbeatDone = async ({ run, reply }: Held) => {
+  for (let attempt = 1; (await postHeartbeat(run, reply.message(), true)) === "retry" && attempt < DONE_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, DONE_RETRY_MS));
   }
 };
 
 const enqueue = (run: Run) => {
   const lost = new AbortController();
-  const entry: Held = { run, reply: replies(run, lost.signal), lost };
+  const entry: Held = { run, reply: replies(run, lost), lost };
   held.set(run.id, entry);
   void heartbeat(entry);
   const key = run.worktree ? `branch:${run.repo}:${run.worktree.branch}` : `scratch:${run.conversation.id}`;
-  void worktreeLock(key, () => execute(entry)).finally(() => {
-    held.delete(run.id);
-    void heartbeatDone(entry);
-  });
+  void worktreeLock(key, () => execute(entry)).finally(() => held.delete(run.id));
 };
 
 const send = (response: ServerResponse, status: number, body: unknown) => {
@@ -1168,10 +1192,12 @@ const server = createServer(async (request, response) => {
 // that the process doesn't handle. The provider stops a sleeping container
 // with SIGTERM, and also a busy one when it rolls out a new image. The runs
 // the runner holds are lost then, so it says so on their conversations.
+// These replies aren't the runs' last, so the router goes on watching the
+// runs, and later replaces them with the lost notice and its restart link.
 process.on("SIGTERM", async () => {
   log({ state: "stopping", runs: held.size });
   const lost = [...held.values()].map(({ reply }) =>
-    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over."),
+    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over.", false),
   );
   const timeout = new Promise((resolve) => setTimeout(resolve, STOP_REPLY_TIMEOUT_MS));
   await Promise.race([Promise.allSettled(lost), timeout]);

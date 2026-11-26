@@ -34,7 +34,7 @@ Because a run may wait behind an image build or in a worktree queue before start
 | `ReplyTicket` | `POST /relay` and `POST /messages` to read threads and post or edit replies, and `POST /heartbeat` to report that the run is alive |
 | `TokenTicket` | `POST /tokens` to mint 1-hour installation tokens matching container policies |
 
-The `ReplyTicket` names the delivery and the run, so a heartbeat can only be for the run that the ticket was signed for.
+The `ReplyTicket` names the delivery and the run, so a heartbeat can only be for the run that the ticket was signed for, and the router can refuse the replies of a lost run.
 
 The router also signs each posted reply's comment ID with `router:message` over `[ticketSignature, messageId]`, preventing a compromised ticket or container from overwriting arbitrary comments on an issue.
 

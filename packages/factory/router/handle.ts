@@ -33,6 +33,7 @@ import {
   type DeliveryRecord,
   failureNotice,
   type Inbox,
+  isLost,
   KEEP_DELIVERY_MS,
   LOST_ERROR,
   lostNotice,
@@ -273,7 +274,7 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
             store,
           );
           if (building) await waitForBuild(d, building, repo, channel, store, now);
-          else Object.assign(d, { state: "dispatched", dispatched: now });
+          else d.state = "dispatched";
         } catch (error) {
           Object.assign(d, { state: "failed", error: message(error) });
           console.error(JSON.stringify({ run: d.run, trigger: d.trigger, error: d.error }));
@@ -330,23 +331,20 @@ const waitForBuild = async (
 /**
  * Marks lost each dispatched run of the record whose last heartbeat in
  * `watches` is `LOST_AFTER_MS` old, and posts the lost notice in place of
- * the run's message. A run with no heartbeat yet counts from when the router
- * dispatched it. The notice has a restart link, signed for the run, which
- * works for `KEEP_DELIVERY_MS`, as long as the inbox keeps the delivery. It
- * changes `record`, which the caller saves, and resolves to the runs to stop
- * watching, to when to check the others again, and to whether it marked a
- * run lost.
+ * the run's message. A run is watched from its first heartbeat, which the
+ * outpost posts as soon as it takes the run, so the router doesn't mark
+ * lost the runs of an outpost that sends no heartbeats. The notice has a
+ * restart link, signed for the run, which works for `KEEP_DELIVERY_MS`, as
+ * long as the inbox keeps the delivery. It changes `record`, which the
+ * caller saves, and resolves to the runs to stop watching, to when to check
+ * the others again, and to whether it marked a run lost.
  */
 export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>, store: RouterStore, now = Date.now()) => {
   const forget: string[] = [];
   let next: number | undefined;
   let lost = false;
   const channel = channels(store).find((c) => c.key === record.connection)?.channel;
-  const beats = new Map(watches);
-  for (const d of record.dispatches) {
-    if (d.state === "dispatched" && d.dispatched !== undefined && !beats.has(d.run)) beats.set(d.run, { at: d.dispatched });
-  }
-  for (const [run, beat] of beats) {
+  for (const [run, beat] of watches) {
     const d = record.dispatches.find((d) => d.run === run);
     if (!d || d.state === "failed" || d.state === "lost") {
       forget.push(run);
@@ -524,12 +522,21 @@ const ticketed = async <T extends MessagesRequest>(request: Request, store: Rout
   return { body, rootKey, channel: found.channel };
 };
 
-/** Posts a container's reply, if the router signed its ticket, through the channel of the ticket's connection. */
+/**
+ * Posts a container's reply, if the router signed its ticket, through the
+ * channel of the ticket's connection. For a ticket that names a run:
+ * 1. Answers 409 with `lost`, and posts nothing, if the run is lost, so a
+ *    run that comes back doesn't replace the lost notice.
+ * 2. With `done`, stops watching the run once the reply is posted. A reply
+ *    that fails leaves the run watched, so the lost notice replaces the
+ *    run's last message.
+ */
 const relay = async (request: Request, store: RouterStore) => {
   const found = await ticketed<Relay>(request, store);
   if (found instanceof Response) return found;
   const { body, rootKey, channel } = found;
-  const { ticket, signature, text, message } = body;
+  const { ticket, signature, text, message, done } = body;
+  const { delivery, run } = ticket;
   if (typeof text !== "string") return json(400, { error: "the body needs text" });
   if (message !== undefined && (typeof message?.id !== "string" || typeof message.signature !== "string")) {
     return json(400, { error: "the message needs id and signature" });
@@ -537,7 +544,12 @@ const relay = async (request: Request, store: RouterStore) => {
   if (message && !(await verifyMessage(rootKey, signature, message))) {
     return json(401, { error: "bad message signature" });
   }
+  const named = typeof delivery === "string" && typeof run === "string";
+  if (named && isLost(await store.inbox.record(ticket.connection, delivery), run)) {
+    return json(409, { error: "the router marked the run lost", lost: true });
+  }
   const id = await channel.reply(ticket.thread, text, message?.id);
+  if (named && done === true) await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true });
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
   return json(200, result);
@@ -560,7 +572,8 @@ const messages = async (request: Request, store: RouterStore) => {
 
 /**
  * Notes a run's heartbeat in the inbox, if the router signed its reply
- * ticket for a run. Answers `lost` if the inbox has marked the run lost.
+ * ticket for a run. Answers `lost` if the run is lost, such as when a
+ * restart replaced it with a new run.
  */
 const heartbeat = async (request: Request, store: RouterStore) => {
   const found = await ticketed<Heartbeat>(request, store);

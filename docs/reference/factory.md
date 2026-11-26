@@ -85,7 +85,7 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | :--- | :--- |
 | `handle(request, store)` | Portable HTTP request handler for webhooks, syncs, relays, and admin routes |
 | `advance(record, store, now?)` | Advances pending dispatches in a saved delivery record |
-| `watch(record, watches, store, now?)` | Marks lost the dispatched runs whose last heartbeat, or dispatch if they have sent none, is 5 minutes old, and posts their lost notices |
+| `watch(record, watches, store, now?)` | Marks lost the dispatched runs whose last heartbeat is 5 minutes old, and posts their lost notices |
 | `redeployRepo(change, store)` | Redeploys a repository outpost config after source changes |
 | `outpostKey(repo)` | Returns the lowercase store key for a repository outpost |
 | `RESTART_PATH`, `RESTART_CALLBACK_PATH` | The router's pages for a lost run's restart link and its sign-in callback |

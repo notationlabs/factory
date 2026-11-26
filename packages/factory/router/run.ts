@@ -16,21 +16,33 @@ export type ReplyTicket = { connection: string; thread: unknown; delivery?: stri
  */
 export type ReplyMessage = { id: string; signature: string };
 
-/** What the runner posts to a run's `reply.url`. With `message`, the reply replaces that message. */
-export type Relay = { ticket: ReplyTicket; signature: string; text: string; message?: ReplyMessage };
+/**
+ * What the runner posts to a run's `reply.url`. With `message`, the reply
+ * replaces that message. `done` says that this is the run's last reply, so
+ * the router stops watching the run once it posts it.
+ */
+export type Relay = { ticket: ReplyTicket; signature: string; text: string; message?: ReplyMessage; done?: boolean };
 
-/** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
+/**
+ * What the router answers to a `Relay`: the message that the reply posted or
+ * replaced, if the channel names it. If the router marked the run lost, it
+ * posts nothing and answers 409 with `{ lost: true }`.
+ */
 export type RelayResult = { ok: true; message?: ReplyMessage };
 
 /**
  * What the runner posts to a run's `reply.heartbeat` once a minute while it
  * holds the run, queued or running.
  * `message` is the message that the run's replies replace now. `done` says
- * that the run finished, so the router stops watching it.
+ * that the run finished without a last reply, so the router stops watching it.
  */
 export type Heartbeat = { ticket: ReplyTicket; signature: string; message?: ReplyMessage; done?: boolean };
 
-/** What the router answers to a `Heartbeat`. `lost` means that the router has marked the run lost, and posted a notice in place of its message. */
+/**
+ * What the router answers to a `Heartbeat`. `lost` means that the router has
+ * marked the run lost, and posted a notice in place of its message, or that
+ * a restart replaced the run with a new one.
+ */
 export type HeartbeatResult = { ok: true; lost?: boolean };
 
 /** How long the router waits for a run's next heartbeat before it marks the run lost. */

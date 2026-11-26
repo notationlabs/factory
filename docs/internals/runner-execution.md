@@ -42,6 +42,8 @@ For each run it holds, queued or running, the runner posts a heartbeat to the ru
 
 If the router answers a heartbeat with `lost`, or refuses a reply with status 409 and `{ lost: true }`, the run is over. The router does this for a run that it marked lost, and for a lost run that someone restarted. A queued run doesn't start. A running run's agent gets `SIGTERM`, and the runner saves the worktree and the session as it does after any run. The saved session keeps the messages it had seen before the run, so a restart of the run gets the lost run's messages again. The runner posts nothing more for a lost run, so it doesn't replace the router's lost notice. Once the agent has stopped, the next run in the worktree can start.
 
+The runner starts each command, such as the agent's CLI, in its own process group. To stop the agent, because the run was lost or took longer than 2 hours, the runner sends `SIGTERM` to the whole group, so the processes that the agent started, such as `tsc` or a dev server, stop too and free their memory. 10 seconds later, it sends `SIGKILL` to the group, for any process that is still running.
+
 ## Container logs
 
 The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.
@@ -56,7 +58,7 @@ Claude Code's log includes its subagents' tool calls. Cursor Agent logs a tool c
 
 ## earlyoom
 
-At startup, the runner starts `earlyoom -r 60 -s 100,100 --avoid '^bun$'`. If the image has no `earlyoom`, the start fails with `ENOENT`, and the runner logs `earlyoom missing` and carries on. Otherwise it logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. `--avoid '^bun$'` lowers the score of the runner, which bun runs, so earlyoom stops the runner last.
+At startup, the runner starts `earlyoom -r 60 -s 100,100`. If the image has no `earlyoom`, the start fails with `ENOENT`, and the runner logs `earlyoom missing` and carries on. Otherwise it logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. earlyoom stops the process with the highest OOM score, and the agents' processes have a higher score than the runner, as the next paragraph describes. The runner passes no `--avoid` for `bun`: the score already protects the runner, and the pattern would also protect an agent's own `bun` processes, such as `bun test`.
 
 The runner runs as `factory`, without the privilege to lower its own OOM score. Instead, it starts each agent's CLI through `sh`, which writes `500` to `/proc/self/oom_score_adj` and then runs the CLI with `exec`. The CLI and every process it starts inherit the score, so earlyoom and the kernel's OOM killer prefer them to the runner. Debian 12's earlyoom 1.7 has no `--ignore` or `--ignore-root-user`, so the runner doesn't use them. The runner doesn't pass `-g`, which would stop the whole process group.
 

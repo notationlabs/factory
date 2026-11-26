@@ -69,6 +69,13 @@ case "$prompt" in
     echo "sending SIGKILL to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" >> "${calls}.oom.new"
     mv "${calls}.oom.new" "${calls}.oom"
     sleep 1 ;;
+  *"leave a child"*)
+    if [ ! -e child.pid ]; then
+      sleep 30 >/dev/null 2>&1 &
+      echo $! > child.pid
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      wait
+    fi ;;
   *"talk forever"*)
     if [ ! -e forever.txt ]; then
       echo forever > forever.txt
@@ -965,7 +972,7 @@ test("during a long run, the runner refreshes the tokens that gh and git read", 
 });
 
 test("the runner starts earlyoom, logs its output, and says in a run's reply when earlyoom stopped its agent's process", async () => {
-  assert.equal(readFileSync(`${calls}.earlyoom`, "utf8"), "-r 60 -s 100,100 --avoid ^bun$");
+  assert.equal(readFileSync(`${calls}.earlyoom`, "utf8"), "-r 60 -s 100,100");
   const id = "github:acme/api#14";
   await post(run({ id, message: say(id, "use memory") }, { worktree: { branch: "issue-14" } }));
   // earlyoom's SIGTERM and SIGKILL for one process make one note.
@@ -1043,6 +1050,27 @@ test("a running run that the router marks lost stops its agent, saves its work, 
   assert.equal((await nextReply()).text, "done");
   assert.match(lastCall()[2]!, /--resume s-issue-62/);
   assert.match(lastPrompt(), /### Messages in thread since last turn[^]*run forever[^]*carry on/);
+});
+
+test("stopping a run's agent stops the processes that the agent started too", async () => {
+  const id = "github:acme/api#64";
+  const body = watched({ id, message: say(id, "leave a child") }, { worktree: { branch: "issue-64" } });
+  await post(body);
+  const pidFile = join(data, "worktrees", "acme-api", "issue-64", "child.pid");
+  await until(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim() !== "");
+  const child = Number(readFileSync(pidFile, "utf8"));
+  const alive = () => {
+    try {
+      process.kill(child, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  assert.ok(alive());
+  lostRuns.add(body.id);
+  await endedLost(body.id);
+  await until(() => !alive());
 });
 
 test("a run whose reply the router refuses because it marked the run lost stops its agent and posts nothing more", async () => {

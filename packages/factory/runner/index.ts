@@ -60,10 +60,11 @@ const SAVE_INTERVAL_MS = Number(process.env.FACTORY_SAVE_INTERVAL_MS ?? 60 * 100
  * earlyoom's options. It stops the process with the highest OOM score once
  * less than 10% of memory is available, and logs a memory report every 60
  * seconds. `-s 100,100` has it act on memory alone, so swap can't delay it
- * until the container thrashes. It avoids bun, which runs the runner, and
- * so the runner is the last process it would stop.
+ * until the container thrashes. The agents' processes have a higher OOM
+ * score than the runner, so earlyoom stops them first. See
+ * `AGENT_OOM_SCORE_ADJ`.
  */
-const EARLYOOM_ARGS = ["-r", "60", "-s", "100,100", "--avoid", "^bun$"];
+const EARLYOOM_ARGS = ["-r", "60", "-s", "100,100"];
 
 /**
  * The OOM score adjustment of the agents' processes and the processes they
@@ -75,6 +76,9 @@ const AGENT_OOM_SCORE_ADJ = 500;
 
 /** The longest a run's agent may take. */
 const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+/** How long a stopped command's processes have to exit after SIGTERM, before they get SIGKILL. */
+const STOP_GRACE_MS = Number(process.env.FACTORY_STOP_GRACE_MS ?? 10 * 1000);
 
 /**
  * The system prompt every agent gets, before its own `systemPrompt`.
@@ -134,7 +138,9 @@ const tail = (text: string) => (text.length > MAX_OUTPUT_BYTES ? text.slice(-MAX
  * Runs `command`, and resolves with its exit code and output. Rejects only
  * if it can't start. `input` is written to its stdin. `onLine` gets each
  * line of its stdout as it's written. Once `signal` aborts, it stops the
- * command with SIGTERM, as it does once `timeout` passes.
+ * command, as it does once `timeout` passes. The command runs in its own
+ * process group, so stopping it sends SIGTERM to every process it started,
+ * such as an agent's `tsc`, and SIGKILL `STOP_GRACE_MS` later.
  */
 const exec = (
   command: string,
@@ -156,7 +162,7 @@ const exec = (
   } = {},
 ) =>
   new Promise<Result>((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     // A command that exits without reading all its input closes the pipe, and its exit code says why.
     child.stdin.on("error", () => {});
     child.stdin.end(input);
@@ -178,7 +184,18 @@ const exec = (
       stderr += chunk;
       if (stderr.length > 2 * MAX_OUTPUT_BYTES) stderr = tail(stderr);
     });
-    const stop = () => child.kill("SIGTERM");
+    const signalGroup = (name: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, name);
+      } catch {}
+    };
+    let killer: ReturnType<typeof setTimeout> | undefined;
+    // The SIGKILL isn't cancelled when the command exits, since the processes it started may outlive it.
+    const stop = () => {
+      if (killer) return;
+      signalGroup("SIGTERM");
+      killer = setTimeout(() => signalGroup("SIGKILL"), STOP_GRACE_MS);
+    };
     const timer = timeout ? setTimeout(stop, timeout) : undefined;
     if (signal?.aborted) stop();
     else signal?.addEventListener("abort", stop, { once: true });
@@ -564,31 +581,28 @@ const saveSession = async (run: Run, transcripts: string, session: Session, prev
  */
 const saver = (run: Run, worktree: Worktree, transcripts: string, session: () => Session | undefined) => {
   const last: { worktree?: string; session?: string } = {};
-  let saving: Promise<void> = Promise.resolve();
-  let busy = false;
-  const save = () => {
-    const next = saving.then(async () => {
-      last.worktree = await saveWorktree(worktree, last.worktree);
-      const current = session();
-      if (current) last.session = await saveSession(run, transcripts, current, last.session);
-    });
-    saving = next.catch(() => {});
-    return next;
+  let inflight: Promise<void> | undefined;
+  const save = async () => {
+    last.worktree = await saveWorktree(worktree, last.worktree);
+    const current = session();
+    if (current) last.session = await saveSession(run, transcripts, current, last.session);
   };
   return {
     during() {
       const timer = setInterval(() => {
-        if (busy) return;
-        busy = true;
-        save()
+        if (inflight) return;
+        inflight = save()
           .catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }))
           .finally(() => {
-            busy = false;
+            inflight = undefined;
           });
       }, SAVE_INTERVAL_MS);
       return () => clearInterval(timer);
     },
-    final: save,
+    async final() {
+      await inflight;
+      await save();
+    },
   };
 };
 

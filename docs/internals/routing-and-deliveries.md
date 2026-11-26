@@ -26,15 +26,15 @@ stateDiagram-v2
 | Route | Caller and action |
 | :--- | :--- |
 | `POST /webhook/<key>` | Verifies delivery via channel Worker and enqueues runs or redeploys |
-| `POST /relay` | Verifies `ReplyTicket` and optional message signature, refuses the reply of a lost run with 409, posts or edits reply, and stops watching the run after its last reply |
+| `POST /relay` | Verifies `ReplyTicket` and optional message signature, then posts or edits the reply. Refuses replies from lost runs with 409 |
 | `POST /messages` | Verifies `ReplyTicket` and fetches ordered thread messages |
-| `POST /heartbeat` | Verifies `ReplyTicket` and optional message signature, notes the run's heartbeat in its `DeliveryInbox` |
+| `POST /heartbeat` | Verifies `ReplyTicket` and records the run's heartbeat |
 | `POST /tokens` | Verifies `TokenTicket` and refreshes container policy tokens |
 | `POST /builds` | Verifies `BuildReport`, logs latest build, updates commit check |
 | `POST /sync` | Syncs connection webhooks and queues allowed repositories |
-| `GET /restart` | Verifies a lost run's restart link and sends the browser to the channel's sign-in |
-| `GET /restart/callback` | Signs the person in, checks them against the trigger's `from`, restarts the lost run, and redirects to `/restart/started` |
-| `GET /restart/started` | Says that the run is starting again |
+| `GET /restart` | Checks a restart link and redirects to sign-in |
+| `GET /restart/callback` | Signs the person in, checks them against `from`, and restarts the run |
+| `GET /restart/started` | Confirms the restart |
 | `POST /admin/sign-in` | Starts GitHub OAuth sign-in for the `factory` CLI |
 | `POST /admin/session` | Exchanges an OAuth code for a 4-hour operator session token |
 | `GET /admin/repos` | Lists each repository's last deploy and container builds |
@@ -62,39 +62,39 @@ Before responding 202, the router calls `store.inbox.receive(record)`. Because `
 
 If an outpost container is still on its initial build, its placeholder Worker returns HTTP 503. On the first wait, `waitForBuild` posts a booting notice to the thread and schedules the next alarm 30 seconds later (`BUILD_POLL_MS`). Subsequent alarms skip token minting while `BuildWatch` reports a queued or active build.
 
-`advance` and `watch` wait on the deployer and the channels, and a restart or replay can save the record in the meantime. So the alarm saves `mergeRecord` of the two: each dispatch that the alarm changed, and the others as they were saved. The alarm changes only pending and dispatched dispatches, and a restart or replay only failed and lost ones. The alarm then saves the record, sets the next alarm and lists the delivery inside `blockConcurrencyWhile`, since those steps wait only on storage and KV. The alarm doesn't block other calls while it waits on the deployer: the outpost Worker posts a run's first heartbeat to this inbox before the deployer's call returns.
+`advance` and `watch` wait on the deployer and the channels, and a restart or replay can save the record during that wait. So the alarm saves the result of `mergeRecord`. The alarm only changes pending and dispatched dispatches, and a restart or replay only changes failed and lost ones, so the two never change the same dispatch.
+
+The alarm must not block other calls while it waits on the deployer, because the outpost Worker posts the run's first heartbeat to this inbox before that call returns.
 
 Any failure after resolving the conversation posts an error notice instructing operators to run `factory infra replay`. Once every dispatch settles, failed deliveries remain indexed in KV for 7 days (`KEEP_DELIVERY_MS`) before Durable Object cleanup. Operators can re-queue failed dispatches with fresh run IDs through `/admin/replay`.
 
 ## Heartbeats and lost runs
 
-The outpost Worker's `OutpostContainer.run` posts a run's first heartbeat to `POST /heartbeat` as soon as it takes the run, before it answers the deployer. While it starts the run's container or waits for a free instance, `OutpostContainer.deliver` posts the run's heartbeats with the same ticket, and those of the other runs that wait for the same container. Once the runner holds the run, the runner posts them, once a minute for each run it holds, queued or running. Each heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace.
+Factory sends a heartbeat for each run to `POST /heartbeat` every minute:
 
-A run is watched from its first heartbeat. An outpost Worker from before heartbeats sends none, so the router never marks its runs lost. A new outpost Worker whose container still runs an old runner does start the watch, and the old runner sends no heartbeats after that. Cloudflare replaces a Worker's running containers when the container's image or config changes, so this lasts only until the old container stops. A hub deploy has the deployer deploy every repo again, and the new outpost Worker changes each container's source, so every outpost Worker is built again. But the builds take minutes, and a build can fail and leave the old Worker, so the router doesn't assume that an outpost sends heartbeats.
+1. The outpost Worker sends the first heartbeat when it takes the run. It keeps sending them while it starts the container.
+2. Once the runner has the run, the runner sends them, whether the run is queued or running.
 
-A run's last reply ends its watch. The runner posts it to `POST /relay` with `done`, and once the channel has posted it, the router saves `{ done: true }` in place of the run's last heartbeat. If the reply fails, the run stays watched, and 5 minutes later the lost notice replaces the run's message. A run that ends without a reply, such as a run that the runner skips, posts a heartbeat with `done` instead. The outpost Worker's reply for a run that it couldn't deliver has `done` too.
+The router starts watching a run at its first heartbeat. An outpost Worker built before heartbeats existed sends none, so its runs are never marked lost.
 
-The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. `heartbeatWatch` in `packages/factory/router/deliveries.ts` decides what each heartbeat saves. After `{ done: true }`, the router ignores heartbeats of the run, so a heartbeat that arrives after the run's last reply doesn't start the watch again, and the run's final reply stays on the thread.
+A reply posted with `done` ends the watch. The router records `done` only after the channel has posted the reply, so a failed final reply leaves the run watched. Heartbeats that arrive after `done` are ignored.
 
-The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. When a dispatched run's last heartbeat is 5 minutes old, `watch`:
+The inbox alarm runs `watch` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. For each run with no heartbeat in the last 5 minutes, `watch`:
 
-1. Marks the dispatch `lost`, with an error that operators see in `factory infra status`.
-2. Replaces the run's message on the thread with the lost notice, through the channel's `reply`. A run that had posted nothing has its lost notice posted as a new message. The notice has a restart link, and says that the person can mention the agent again instead.
-3. Lists the delivery as failed again, and keeps it for 7 days from then.
+1. Marks the dispatch `lost`.
+2. Replaces the run's message with a notice that has a restart link.
+3. Lists the delivery as failed again, and keeps it for 7 more days.
 
-`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. The restart gives the dispatch a new run ID, so the delivery record no longer has the lost run, and the router still counts it as lost (`isLost`). The router answers `lost` to a heartbeat of a lost run, and refuses its replies with status 409 and `{ lost: true }`, so the lost run's runner can't replace the lost notice if it comes back. The runner then stops the run's agent, saves its work, and posts nothing more. The restarted run queues behind it in the worktree.
+A restart, from the link or from `factory infra replay`, gives the dispatch a new run ID. The router treats the old ID as lost too (`isLost`). If the old run's runner comes back, the router answers its heartbeats with `lost` and its replies with 409, so it can't overwrite the notice. The runner then stops the old run.
 
 ## Restart links
 
-A lost notice's restart link is `<router>/restart?run=<token>`. The token is the ticket `{ connection, delivery, run, expires }` as base64url JSON, a dot, and the ticket's signature with the `router:restart` key. It expires after 7 days (`KEEP_DELIVERY_MS`), when the inbox deletes the delivery. A token can't be changed to name another run.
+A restart link is `<router>/restart?run=<token>`. The token is a signed ticket that names one run. It expires after 7 days (`KEEP_DELIVERY_MS`). See [Security & Tickets](./security-and-tickets.md#restart-links) for how it is signed.
 
-The router doesn't know which platform the delivery came from, so the channel of the token's connection signs the person in and checks them:
+1. `GET /restart` checks the token and that the run is still lost, then redirects to the channel's sign-in.
+2. `GET /restart/callback` checks the token again and signs the person in.
+3. The channel's `canTrigger` checks the person against the trigger's `from` in the current outpost config. GitHub uses the person's role on the repo. `team` entries don't match yet.
+4. The inbox's `restart` sets that dispatch back to `pending` with a new run ID.
+5. The router redirects to `GET /restart/started`. Reloading that page doesn't reuse the sign-in code.
 
-1. `GET /restart` checks the token and that the run is still `lost`, and redirects the browser to the channel's `signInUrl`, with the token as the OAuth state and `<router>/restart/callback` as the redirect. For GitHub, this is the connection's App's web sign-in, which operators use too.
-2. GitHub sends the browser to `GET /restart/callback` with a code. The router checks the token again, and has the channel exchange the code for the person's login and ID with `signIn`.
-3. The router reads the delivery from the inbox, and checks that the token's run is still `lost`.
-4. The router reads the run's trigger from the repo's outpost config as it is now, and has the channel's `canTrigger` check the person against the trigger's `from`. For GitHub, a person matches `collaborators` if their role on the repo can push. A `team` doesn't match yet, since the router doesn't check teams.
-5. The inbox's `restart` sets that dispatch to `pending` with a new run ID, the way `factory infra replay` does, and leaves the delivery's other dispatches as they are. The new run's first reply replaces the lost notice.
-6. The router redirects the browser to `GET /restart/started`, which says that the run is starting again. Reloading that page doesn't send GitHub's code again.
-
-A second visit to the link finds the run no longer lost, says so, and doesn't send the person to sign in. The new run is dispatched like any other, so it checks again that the trigger matches the delivery and its author.
+The channel handles sign-in because the router doesn't know which platform a delivery came from.

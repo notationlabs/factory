@@ -38,30 +38,34 @@ Each update passes the router-signed `ReplyMessage` ID so progress overwrites th
 
 ## Heartbeats
 
-For each run it holds, queued or running, the runner posts a heartbeat to the run's `reply.heartbeat` URL when it takes the run and then every 60 seconds (`HEARTBEAT_INTERVAL_MS`). Each heartbeat has the ID of the message that the run's replies replace. The run's final reply has `done`, and the router stops watching the run once it posts it. A run that the runner skips without a reply posts a heartbeat with `done` instead. If the router can't be reached or answers with a 5xx status, the runner posts the `done` heartbeat again after 10 seconds (`FACTORY_DONE_RETRY_MS`), up to 3 times in all. The router marks a run lost after 5 minutes without a heartbeat. See [Routing & Deliveries](./routing-and-deliveries.md#heartbeats-and-lost-runs).
+The runner posts a heartbeat for each run it holds. It posts one when it takes the run and then one every 60 seconds (`HEARTBEAT_INTERVAL_MS`). The run's final reply carries `done`. A run that ends without a reply, such as a skipped run, sends a `done` heartbeat instead. If that heartbeat fails with a network error or a 5xx status, the runner tries again after 10 seconds, up to 3 times in total.
 
-If the router answers a heartbeat with `lost`, or refuses a reply with status 409 and `{ lost: true }`, the run is over. The router does this for a run that it marked lost, and for a lost run that someone restarted. A queued run doesn't start. A running run's agent gets `SIGTERM`, and the runner saves the worktree and the session as it does after any run. The saved session keeps the messages it had seen before the run, so a restart of the run gets the lost run's messages again. The runner posts nothing more for a lost run, so it doesn't replace the router's lost notice. Once the agent has stopped, the next run in the worktree can start.
+If the router answers a heartbeat with `lost`, or refuses a reply with 409, the runner ends the run. A queued run doesn't start. For a running run, the runner stops the agent and saves the worktree and session. It posts nothing more for that run.
 
-The runner starts each command, such as the agent's CLI, in its own process group. To stop the agent, because the run was lost or took longer than 2 hours, the runner sends `SIGTERM` to the whole group, so the processes that the agent started, such as `tsc` or a dev server, stop too and free their memory. 10 seconds later, it sends `SIGKILL` to the group, for any process that is still running.
+## Stopping the agent
+
+The runner starts each command in its own process group. To stop the agent, it sends `SIGTERM` to the group, and `SIGKILL` 10 seconds later. This also stops the processes that the agent started, such as `tsc` or a dev server. The runner stops the agent when the run is lost or when it has run for 2 hours.
 
 ## Container logs
 
-The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.
+The runner writes one JSON object per line to stdout, which is the container's log. It logs when each run starts, finishes, fails or is skipped.
 
-The runner also logs each tool that the agent calls, if the runtime's runner module has a `tools` function. The line has the run's ID, the worktree's branch or `scratch`, the tool's name, and its main argument, such as the shell command or the file's path. The runtime returns each tool's name and input, and the runner picks the argument: the first of the input's `command`, `file_path`, `directory_path`, `path`, `pattern`, `globPattern`, `url`, `query`, `description` and `prompt` that is a string, or else the whole input as JSON. The argument is put on one line and cut to 200 characters:
+It also logs each tool call the agent makes, using the runtime's `tools` function. The line has the run ID, the worktree's branch, the tool name and the tool's main argument:
 
 ```json
-{"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"issue-42","tool":"Bash","argument":"pnpm typecheck"}
+{"at":"2026-11-26T10:04:12.551Z","run":"5f0c…","worktree":"<branch>","tool":"Bash","argument":"pnpm typecheck"}
 ```
 
-Claude Code's log includes its subagents' tool calls. Cursor Agent logs a tool call once, when it starts.
+The main argument is the first string field among `command`, `file_path`, `path`, `pattern`, `url` and similar names. If there is none, it is the whole input as JSON. The runner cuts it to 200 characters.
 
 ## earlyoom
 
-At startup, the runner starts `earlyoom -r 60 -s 100,100`. If the image has no `earlyoom`, the start fails with `ENOENT`, and the runner logs `earlyoom missing` and carries on. Otherwise it logs each line of its output as `{"earlyoom": "<line>"}`. `-s 100,100` has earlyoom act on available memory alone. earlyoom stops the process with the highest OOM score, and the agents' processes have a higher score than the runner, as the next paragraph describes. The runner passes no `--avoid` for `bun`: the score already protects the runner, and the pattern would also protect an agent's own `bun` processes, such as `bun test`.
+At startup, the runner runs `earlyoom -r 60 -s 100,100` and logs its output. `-s 100,100` makes earlyoom ignore swap. If earlyoom isn't installed, the runner logs `earlyoom missing` and carries on.
 
-The runner runs as `factory`, without the privilege to lower its own OOM score. Instead, it starts each agent's CLI through `sh`, which writes `500` to `/proc/self/oom_score_adj` and then runs the CLI with `exec`. The CLI and every process it starts inherit the score, so earlyoom and the kernel's OOM killer prefer them to the runner. Debian 12's earlyoom 1.7 has no `--ignore` or `--ignore-root-user`, so the runner doesn't use them. The runner doesn't pass `-g`, which would stop the whole process group.
+The runner runs as `factory`, so it can't lower its own OOM score. Instead, it starts the agent's CLI through `sh`, which sets `oom_score_adj` to 500 and then runs the CLI. Every process the agent starts inherits that score, so earlyoom kills them before the runner. Debian 12 ships earlyoom 1.7, which has no `--ignore` option, so the runner relies on the score alone.
 
-The runner reads earlyoom's `sending SIGTERM to process <pid> ...` and `sending SIGKILL ...` lines, and adds a note to the reply of the run that is running. A container serves one worktree, and the runs in a worktree go one at a time, so at most one run is running in a container. If no run is running, the runner only logs the line.
+When earlyoom kills a process, the runner adds a note to the reply of the active run. Each container serves one worktree and runs one run at a time, so the note always belongs to that run.
 
-Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep. Those replies don't have `done`, so 5 minutes later the router replaces each one's message with the lost notice and its restart link.
+## Container shutdown
+
+Linux ignores unhandled signals sent to PID 1, so the runner handles `SIGTERM` itself. When Cloudflare stops the container, the runner posts to each run's thread that the run was lost, with a 5-second timeout. These replies don't carry `done`, so 5 minutes later the router replaces them with the lost notice and its restart link.

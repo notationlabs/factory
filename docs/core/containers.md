@@ -29,20 +29,13 @@ const dev = new Container("dev", {
 
 ## Instances and worktrees
 
-Each worktree gets its own instance of the container. Runs on the branch `issue-42` go to one instance, and runs on `issue-43` go to another, so they run in parallel. Runs without a branch get a scratch worktree for each conversation, and each of those conversations gets its own instance too. Runs in the same worktree queue on that worktree's instance and run one at a time.
+Each worktree gets its own instance of the container, so work on different worktrees happens in parallel. Within one worktree, the runner handles one run at a time and queues the rest.
 
-A container runs at most `maxInstances` instances at once, set on `cloudflare.Deployer`, which defaults to `5`. An instance sleeps after `sleepAfter` elapses with no run in progress, which defaults to `"10m"`. Active runs keep the instance awake until they finish. A sleeping instance does not count towards `maxInstances`.
+`maxInstances` on `cloudflare.Deployer` limits how many instances of a container can be awake at once. It defaults to `5`. An instance with no active run sleeps after `sleepAfter`, which defaults to `"10m"`. Sleeping instances don't count towards the limit.
 
-A new instance starts with an empty disk. It clones the repo and restores the worktree and the agent's session from the saved state, which all instances of a container share. See [Persistence across container sleep](#persistence-across-container-sleep).
+A new instance starts with an empty disk. It clones the repo and restores the worktree and the agent's session from saved state. See [Persistence across container sleep](#persistence-across-container-sleep).
 
-When all `maxInstances` instances are awake, Cloudflare refuses to start another one. A run that needs a new instance then waits:
-
-1. The run tries to start an instance for up to 5 minutes.
-2. If no instance is free, it posts a notice on the thread that it is waiting, and tries again every minute.
-3. When an instance starts, the run's reply replaces the notice.
-4. If no instance is free after 30 minutes, the run fails and replaces the notice with a message that says so. Mention the agent again to retry.
-
-Cloudflare gives the same error while it provisions a new image, so the notice says that too. An instance stays awake for `sleepAfter` after its last run, so a waiting run usually gets an instance within that time.
+When the limit is reached, Factory holds a new run until an instance is free. It posts a notice on the thread and checks again every minute. After 30 minutes, it gives up and says so on the thread. Cloudflare gives the same error while it provisions a new image, so the notice mentions both causes.
 
 ## Cloudflare instance types
 
@@ -59,7 +52,7 @@ On Cloudflare, `instanceType` selects the container size and defaults to `"stand
 
 Passing any unrecognized instance type fails the outpost deploy.
 
-For a size between or above the named types, give the resources instead of a name. The deployer passes them to Wrangler as a custom `instance_type`:
+For a size that the named types don't offer, give the resources instead of a name:
 
 ```ts [.factory/infra.ts]
 const dev = new Container("dev", {
@@ -74,7 +67,7 @@ const dev = new Container("dev", {
 | `memoryMib` | MiB | `256` |
 | `diskMb` | MB | `2000` |
 
-A size under a minimum fails the outpost deploy. The maximums are the account's per-instance limits, by default 4 vCPU, 12 GiB of memory, and 20 GB of disk. Cloudflare can raise them on request. Wrangler checks a size against the account's limits when the image builds, and a size over them fails the build. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
+A value under its minimum fails the outpost deploy. The maximums are your account's per-instance limits: by default 4 vCPU, 12 GiB of memory and 20 GB of disk. Cloudflare can raise them on request. A value over your account's limit fails the image build. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
 
 ## Default image and custom Dockerfiles
 
@@ -108,27 +101,31 @@ The outpost Worker overrides the image entrypoint and command to fetch `http://r
 
 ## Memory limits and earlyoom
 
-A container that runs out of memory can stop responding for many minutes before the kernel stops a process. While it doesn't respond, the run can't save its work or post a reply. To prevent this, the runner starts [earlyoom](https://github.com/rfjakob/earlyoom) when the container starts. earlyoom stops the process with the highest OOM score once less than 10% of the container's memory is available. Swap doesn't delay it.
+A container that runs out of memory can stop responding for many minutes before the kernel kills a process. During that time the run can't save its work or reply. To prevent this, the runner starts [earlyoom](https://github.com/rfjakob/earlyoom). When less than 10% of memory is available, earlyoom kills the process with the highest OOM score.
 
-The runner gives the agent's CLI, and every process the agent starts, a higher OOM score than its own. So earlyoom stops the agent's processes, such as a `tsc` or a test run that uses too much memory, before the runner. The run's reply then ends with a note such as:
+The agent's processes have a higher OOM score than the runner, so earlyoom kills a process such as `tsc` before the runner. The run's reply then ends with a note:
 
 > earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.
 
-The agent usually sees its command fail, and can carry on. If earlyoom stops the agent's CLI, the run fails, and its reply has the error and the note.
-
-earlyoom writes a memory report to the container's logs every 60 seconds, and a line for each process it stops. Debian 12 has earlyoom 1.7 and Debian 13 has 1.8. The runner reads the output of both.
-
-If the image has no `earlyoom`, because it has no `apt-get`, the runner logs `earlyoom missing` and runs without it.
+earlyoom also logs a memory report every 60 seconds. If the image has no `apt-get`, Factory can't install earlyoom, and the runner works without it.
 
 ### Node's heap limit
 
-earlyoom protects every container. Factory doesn't set `NODE_OPTIONS`. If a repo has a Node tool that needs more memory than Node allows by default, or that should fail before it fills the container, set the heap limit in the container's own Dockerfile:
+Factory doesn't set `NODE_OPTIONS`. If a Node tool in your repo needs a different heap limit, set it in the container's Dockerfile:
 
 ```dockerfile [.factory/Dockerfile]
 ENV NODE_OPTIONS=--max-old-space-size=4096
 ```
 
-The value is in MiB. Leave room for the agent's CLI and the other processes in the container.
+The value is in MiB. It applies to each Node process separately, so leave room for everything else in the container.
+
+## Lost runs
+
+The router expects a heartbeat from each run every minute. If a run sends none for 5 minutes, for example because its container stopped responding, the router marks the run lost. It replaces the run's status message with a notice that has a restart link.
+
+The restart link asks you to sign in with GitHub and checks that you are in the trigger's `from`. It then starts the run again from its last save. The link works for 7 days. You can also mention the agent again.
+
+If the container recovers, the runner stops the old run so that it doesn't hold up the new one.
 
 ## Image builds and commit checks
 
@@ -182,11 +179,9 @@ GitHub's runner setup configures a global `git` credential helper and a `/data/b
 
 ## Persistence across container sleep
 
-When a container sleeps, everything on its local filesystem is discarded. Every 60 seconds during a run, and after every run – whether it succeeds or fails – the runner persists worktree and session state to the hub's R2 bucket through `http://state.factory`. A save uploads nothing when the worktree and the session's transcript haven't changed since the last save.
+When a container sleeps, everything on its local filesystem is discarded. The runner saves the worktree and the agent's session to the hub's R2 bucket through `http://state.factory`. It saves every 60 seconds during a run, and again when the run ends, whether it succeeded or failed. A save with no changes uploads nothing.
 
-If the container stops or fails during a run, the work up to the last save is kept. The next run in the same worktree and conversation restores it, resumes the agent's session, and gives the agent the lost run's messages again.
-
-The runner sends the router a heartbeat every minute for each run it holds, and the outpost Worker sends them while it starts the run's container or waits for a free instance. If a run sends none for 5 minutes, such as when its container stops responding, the router marks the run lost and replaces the run's message on the thread with a notice that says so. If the container recovers and the run is still going, the runner stops the run's agent and saves its work. The notice has a link that restarts the run. The link signs you in with GitHub, checks that the trigger's `from` lets you start a run, and starts the run again from the last save. It works for 7 days. You can also mention the agent again.
+If a container fails during a run, the work up to the last save is kept. The next run in that worktree restores it and resumes the agent's session. See [Lost runs](#lost-runs).
 
 ```text [/data/]
 /data/

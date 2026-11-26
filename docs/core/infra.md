@@ -104,6 +104,7 @@ export default {
 | `accountId` | Cloudflare account for outpost Workers; defaults to `CLOUDFLARE_ACCOUNT_ID` |
 | `regions` | Allowed Cloudflare container regions such as `["WEUR"]` |
 | `sleepAfter` | Idle duration before sleeping containers; defaults to `"10m"` |
+| `maxInstances` | How many instances of each container run at once, one for each worktree; defaults to `5` |
 | `secrets` | Array of `OutpostSecret` entries scoped to matching repositories |
 
 Use `OutpostSecret` from `@notation/factory` to pass repository-specific environment variables through the vault without sharing them across other outposts. See [Secrets](./secrets.md) and [Cloudflare Provider](./cloudflare.md).

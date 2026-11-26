@@ -1,7 +1,17 @@
-import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
-import type { Relay, Run } from "@notation/factory/router";
+import { Container } from "@cloudflare/containers";
+import type { Relay, RelayResult, Run } from "@notation/factory/router";
 import runner from "factory:runner";
-import { type DeployerService, RUN_HEADERS } from "./outpost-api.ts";
+import {
+  CAPACITY_RETRY_S,
+  CAPACITY_WAIT_MS,
+  capacityFailure,
+  capacityNotice,
+  type DeployerService,
+  instanceName,
+  isCapacityError,
+  RUN_HEADERS,
+  STATE_INSTANCE,
+} from "./outpost-api.ts";
 
 // Outbound interception calls the handlers through this entrypoint.
 export { ContainerProxy } from "@cloudflare/containers";
@@ -13,12 +23,19 @@ type Env = {
   WORKER_NAME: string;
   /** How long the container stays up with no run in progress, such as `"10m"`. */
   SLEEP_AFTER: string;
+  /** The Worker's `max_instances`, as a string. */
+  MAX_INSTANCES: string;
 };
 
+type DurableObjectId = { toString(): string };
+
 type DurableObjectNamespace = {
-  idFromName(name: string): unknown;
-  get(id: unknown): { run(run: Run): Promise<void> };
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): { run(run: Run): Promise<void> };
 };
+
+/** A run that waits for its container. `since` is when the Worker took it, and `noticed` whether it posted `capacityNotice`. */
+type Delivery = { run: Run; since: number; noticed?: boolean };
 
 /** How old a signed run may be. */
 const RUN_MAX_AGE_MS = 5 * 60 * 1000;
@@ -51,22 +68,24 @@ const runnerSource = async (request: Request, env: Env) => {
 
 /**
  * A container's state store: `GET` and `PUT` of objects, which the deployer
- * keeps under the container's id. So a container outlives its `/data`, and
- * reads only its own objects.
+ * keeps under the id of the Worker's `STATE_INSTANCE`. So a container
+ * outlives its `/data`, and reads only the objects of its Worker's
+ * containers, which share them.
  */
-const stateStore = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
+const stateStore = async (request: Request, env: Env) => {
+  const namespace = env.OUTPOSTS.idFromName(STATE_INSTANCE).toString();
   const key = new URL(request.url).pathname.slice(1);
   if (!/^[\w.%/-]+$/.test(key) || key.split("/").some((part) => part === "" || part === "." || part === "..")) {
     return new Response("not a key", { status: 400 });
   }
   if (request.method === "GET") {
-    const found = await env.DEPLOYER.getState(ctx.containerId, key);
+    const found = await env.DEPLOYER.getState(namespace, key);
     return found ? new Response(found) : new Response("not found", { status: 404 });
   }
   if (request.method === "PUT") {
     const length = Number(request.headers.get("content-length"));
     if (!Number.isInteger(length)) return new Response("needs content-length", { status: 411 });
-    await env.DEPLOYER.putState(ctx.containerId, key, request.body, length);
+    await env.DEPLOYER.putState(namespace, key, request.body, length);
     return new Response(null, { status: 204 });
   }
   return new Response("method not allowed", { status: 405 });
@@ -74,9 +93,18 @@ const stateStore = async (request: Request, env: Env, ctx: OutboundHandlerContex
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Posts `text` to the run's conversation, through the router. */
+/**
+ * Posts `text` to the run's conversation, through the router, in place of
+ * the message the router posted while the run waited, if there is one.
+ * Returns the message it posted, if the channel names it.
+ */
 const relay = async (run: Run, text: string) => {
-  const body: Relay = { ticket: run.reply.ticket, signature: run.reply.signature, text };
+  const body: Relay = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    text,
+    ...(run.reply.message && { message: run.reply.message }),
+  };
   const response = await fetch(run.reply.url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -84,13 +112,15 @@ const relay = async (run: Run, text: string) => {
   });
   if (!response.ok) {
     console.error(JSON.stringify({ run: run.id, relay: response.status, error: await response.text() }));
+    return undefined;
   }
+  return ((await response.json()) as RelayResult).message;
 };
 
 /**
- * The outpost container, which this Worker's image runs. The runner in the
- * container queues the runs it's given. The container sleeps once it's idle
- * for `SLEEP_AFTER`.
+ * The outpost container, which this Worker's image runs. Each worktree has
+ * its own, named by `instanceName`. The runner in the container queues the
+ * runs it's given. The container sleeps once it's idle for `SLEEP_AFTER`.
  */
 export class OutpostContainer extends Container<Env> {
   defaultPort = RUNNER_PORT;
@@ -112,10 +142,19 @@ export class OutpostContainer extends Container<Env> {
    * longer to start than the caller waits.
    */
   async run(run: Run) {
-    await this.schedule(0, "deliver", run);
+    await this.schedule(0, "deliver", { run, since: Date.now() } satisfies Delivery);
   }
 
-  async deliver(run: Run) {
+  /**
+   * Starts the container and hands it the run. When Cloudflare has no
+   * instance for the container, such as when the Worker has
+   * `MAX_INSTANCES` containers running, the run tries again every
+   * `CAPACITY_RETRY_S` until `CAPACITY_WAIT_MS` has passed. It posts
+   * `capacityNotice` once, which the run's first reply replaces.
+   */
+  async deliver(delivery: Delivery | Run) {
+    // A schedule from before deliveries had `since` holds the run itself.
+    const { run, since, noticed } = "since" in delivery ? delivery : { run: delivery, since: Date.now(), noticed: false };
     try {
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
@@ -132,6 +171,19 @@ export class OutpostContainer extends Container<Env> {
       if (!response.ok) throw new Error(`The runner refused the run with status ${response.status}: ${body}`);
       console.log(JSON.stringify({ run: run.id, repo: run.repo, container: run.container, delivered: true }));
     } catch (error) {
+      const max = Number(this.env.MAX_INSTANCES);
+      if (isCapacityError(error)) {
+        const waited = Date.now() - since;
+        console.error(JSON.stringify({ run: run.id, waiting: true, ms: waited, error: message(error) }));
+        if (waited < CAPACITY_WAIT_MS) {
+          const posted = noticed ? undefined : await relay(run, capacityNotice(run.container, max));
+          const next = posted ? { ...run, reply: { ...run.reply, message: posted } } : run;
+          await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies Delivery);
+          return;
+        }
+        await relay(run, capacityFailure(run.container, max));
+        return;
+      }
       console.error(JSON.stringify({ run: run.id, error: message(error) }));
       await relay(run, `The container \`${run.container}\` couldn't take the run: ${message(error)}`);
     }
@@ -173,7 +225,7 @@ export default {
       return new Response("bad signature", { status: 401 });
     }
     const run = JSON.parse(body) as Run;
-    await env.OUTPOSTS.get(env.OUTPOSTS.idFromName("outpost")).run(run);
+    await env.OUTPOSTS.get(env.OUTPOSTS.idFromName(instanceName(run))).run(run);
     return new Response(null, { status: 202 });
   },
 };

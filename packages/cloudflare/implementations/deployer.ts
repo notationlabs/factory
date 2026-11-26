@@ -58,6 +58,15 @@ const deployerConfig = v.object({
     ),
     "10m",
   ),
+  /**
+   * How many instances of each outpost container run at once. Each
+   * worktree gets its own instance, so runs in this many worktrees go at
+   * once, and the others wait for an instance to be free.
+   */
+  maxInstances: v.optional(
+    v.pipe(v.number(), v.integer("maxInstances is a whole number."), v.minValue(1, "maxInstances is at least 1.")),
+    5,
+  ),
 });
 export type DeployerConfig = v.InferInput<typeof deployerConfig>;
 
@@ -161,6 +170,7 @@ export class Deployer
     const {
       regions,
       sleepAfter,
+      maxInstances,
       accountId = process.env.CLOUDFLARE_ACCOUNT_ID,
     } = v.parse(deployerConfig, config);
     if (!accountId) {
@@ -244,6 +254,7 @@ export class Deployer
           router: router.url,
           compatibilityDate: COMPATIBILITY_DATE,
           sleepAfter,
+          maxInstances,
           ...(regions && { regions }),
         },
       }),

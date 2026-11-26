@@ -27,7 +27,7 @@ Using `isomorphic-git` over an in-memory `memfs` volume in `packages/cloudflare/
 | `.factory/*` | Repository outpost files untouched |
 | `factory-runtimes/<id>.sh` | Runtime `setup` scripts from bound `accounts` |
 | `Dockerfile` | Container `image` or default Debian Dockerfile plus injected `factoryLayers` |
-| `wrangler.json` | Worker and container config with `no_bundle`, `max_instances`, `regions`, and `sleepAfter` |
+| `wrangler.json` | Worker and container config with `no_bundle`, `max_instances` from `maxInstances`, `regions`, and `sleepAfter` |
 | `outpost.js` | Pre-bundled `outpost.gen.ts` hosting `OutpostContainer` |
 
 Repository Dockerfiles only need project toolchains because `factoryLayers` appends the runtime environment in four steps:
@@ -52,3 +52,11 @@ On status transitions, it posts a signed `BuildReport` to `/builds` and clears `
 Removed containers have their outpost Worker, Cloudflare Container application, Artifacts repository, and KV hash deleted via `deleteOutpostWorker`.
 
 At runtime, `OutpostContainer` checks the runner status endpoint inside `onActivityExpired`, preventing idle sleep while active runs remain even after `sleepAfter` elapses.
+
+## Durable Objects and state
+
+The outpost Worker sends each run to the Durable Object named by `instanceName` in `packages/cloudflare/workers/outpost-api.ts`: `worktree:<branch>` for a branch worktree, or `scratch:<conversation id>` for a scratch worktree. Each Durable Object has at most one container instance, so each worktree has its own.
+
+The state store keys every instance's objects under the id of the Durable Object named `outpost`, which was the only Durable Object before each worktree had its own. All instances of a container read and write the same worktree bundles and sessions, and state saved before the change stays readable.
+
+When Cloudflare has no instance to give a Durable Object, `@cloudflare/containers` retries for the start timeout (5 minutes) and then throws `there is no container instance that can be provided to this durable object`. `OutpostContainer.deliver` treats that error, and the rate-limit error `you are requesting too many containers per second`, as a capacity error. It posts `capacityNotice` once, schedules itself again after 60 seconds, and gives up after 30 minutes with `capacityFailure`. The 30 minutes stay within the hour that the run's GitHub clone token lasts.

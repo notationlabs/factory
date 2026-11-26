@@ -52,6 +52,7 @@ new cloudflare.Deployer("deployer", {
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
   regions: ["WEUR"],
   sleepAfter: "10m",
+  maxInstances: 5,
 });
 ```
 
@@ -64,6 +65,7 @@ new cloudflare.Deployer("deployer", {
 | `accountId` | Optional Cloudflare account ID defaulting to `CLOUDFLARE_ACCOUNT_ID` |
 | `regions` | Optional array from `ENAM`, `WNAM`, `EEUR`, `WEUR`, `APAC`, `SAM`, `ME`, `OC`, `AFR` |
 | `sleepAfter` | Optional idle container duration matching `/^[1-9]\d*[smh]$/`, defaults to `"10m"` |
+| `maxInstances` | Optional whole number of at least 1, defaults to `5`; becomes `max_instances` of each outpost container |
 
 ## `OperatorAuth` status
 

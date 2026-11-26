@@ -17,6 +17,8 @@ export const OutpostSettingsSchema = v.object({
   router: v.string(),
   compatibilityDate: v.string(),
   sleepAfter: v.string(),
+  /** How many containers each outpost Worker runs at once. Settings from before it existed get 5. */
+  maxInstances: v.optional(v.number(), 5),
   regions: v.optional(v.array(v.string())),
 });
 

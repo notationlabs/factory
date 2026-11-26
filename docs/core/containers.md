@@ -27,7 +27,22 @@ const dev = new Container("dev", {
 | `policies` | List of policy objects whose short-lived tokens the container may request |
 | `files` | Map of `~/...` target paths to `.factory/` file paths or inline JSON objects |
 
-Each container runs at most one instance at a time and sleeps after `sleepAfter` elapses on `cloudflare.Deployer`, which defaults to `"10m"`. Active runs keep the container awake until they finish.
+## Instances and worktrees
+
+Each worktree gets its own instance of the container. Runs on the branch `issue-127` go to one instance, and runs on `issue-128` go to another, so they run in parallel. Runs without a branch get a scratch worktree for each conversation, and each of those conversations gets its own instance too. Runs in the same worktree queue on that worktree's instance and run one at a time.
+
+A container runs at most `maxInstances` instances at once, set on `cloudflare.Deployer`, which defaults to `5`. An instance sleeps after `sleepAfter` elapses with no run in progress, which defaults to `"10m"`. Active runs keep the instance awake until they finish. A sleeping instance does not count towards `maxInstances`.
+
+A new instance starts with an empty disk. It clones the repo and restores the worktree and the agent's session from the saved state, which all instances of a container share. See [Persistence across container sleep](#persistence-across-container-sleep).
+
+When all `maxInstances` instances are awake, Cloudflare refuses to start another one. A run that needs a new instance then waits:
+
+1. The run tries to start an instance for up to 5 minutes.
+2. If no instance is free, it posts a notice on the thread that it is waiting, and tries again every minute.
+3. When an instance starts, the run's reply replaces the notice.
+4. If no instance is free after 30 minutes, the run fails and replaces the notice with a message that says so. Mention the agent again to retry.
+
+Cloudflare gives the same error while it provisions a new image, so the notice says that too. An instance stays awake for `sleepAfter` after its last run, so a waiting run usually gets an instance within that time.
 
 ## Cloudflare instance types
 

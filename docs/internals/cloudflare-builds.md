@@ -57,9 +57,9 @@ At runtime, `OutpostContainer` checks the runner status endpoint inside `onActiv
 
 The outpost Worker sends each run to the Durable Object named by `instanceName` in `packages/cloudflare/workers/outpost-api.ts`. The name is `worktree:<branch>` or `scratch:<conversation id>`. Each Durable Object has one container instance.
 
-All instances of a container share one state store. It is keyed by the ID of the Durable Object named `outpost`, which every run used before each worktree had its own instance. So state saved earlier stays readable.
+All instances of a container read and write the same saved state. The state store doesn't key state by each instance's own Durable Object ID. It uses one fixed key: the ID of the Durable Object named `outpost`. Before each worktree had its own instance, every run went to that Durable Object, so state saved then is under the same key and stays readable.
 
-When no instance is free, `@cloudflare/containers` retries for 5 minutes and then throws. `OutpostContainer.deliver` treats that error, and Cloudflare's rate-limit error, as a capacity error. It posts `capacityNotice` once, retries every 60 seconds, and gives up after 30 minutes with `capacityFailure`. The run's GitHub clone token lasts an hour, so 30 minutes leaves enough time to clone.
+When no instance is free, `@cloudflare/containers` retries for 5 minutes and then throws. `OutpostContainer.deliver` treats that error, and Cloudflare's rate-limit error, as a capacity error. It posts `capacityNotice` once, retries every 60 seconds, and gives up after 30 minutes with `capacityFailure`. The router creates the run's GitHub clone token when it dispatches the run. The token lasts an hour, and nothing refreshes it before the run starts. Capping the wait at 30 minutes leaves the other 30 minutes for the runner to clone the repo with that token.
 
 `OutpostContainer.run` stores each run under `pending/<run id>` until `deliver` hands it to the runner or gives up. `@cloudflare/containers` runs scheduled calls one at a time, so a second run in the same worktree can wait behind the first. While `deliver` runs, it posts a heartbeat every 60 seconds for every pending run.
 

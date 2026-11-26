@@ -61,3 +61,16 @@ export const capacityNotice = (container: string, maxInstances: number) =>
 /** What a run that found no free container instance in time posts. */
 export const capacityFailure = (container: string, maxInstances: number) =>
   `The container \`${container}\` had no free instance for ${CAPACITY_WAIT_MS / 60_000} minutes, so this run didn't start. It runs at most ${maxInstances} at once (\`maxInstances\` on the deployer). Mention the agent again to try again.`;
+
+/** Resolves as `promise` does, or rejects with `reason` once `ms` have passed. */
+export const within = async <T>(promise: Promise<T>, ms: number, reason: string) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(reason)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+};

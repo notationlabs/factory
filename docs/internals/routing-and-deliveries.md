@@ -65,7 +65,7 @@ Any failure after resolving the conversation posts an error notice instructing o
 
 ## Heartbeats and lost runs
 
-The outpost Worker's `OutpostContainer.run` posts a run's first heartbeat to `POST /heartbeat` as soon as it takes the run, before it answers the deployer. While it starts the run's container or waits for a free instance, `OutpostContainer.deliver` posts the run's heartbeats with the same ticket. Once the runner holds the run, the runner posts them, once a minute for each run it holds, queued or running. Each heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace.
+The outpost Worker's `OutpostContainer.run` posts a run's first heartbeat to `POST /heartbeat` as soon as it takes the run, before it answers the deployer. While it starts the run's container or waits for a free instance, `OutpostContainer.deliver` posts the run's heartbeats with the same ticket, and those of the other runs that wait for the same container. Once the runner holds the run, the runner posts them, once a minute for each run it holds, queued or running. Each heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace.
 
 A run is watched from its first heartbeat. An outpost Worker or runner from before heartbeats sends none, so the router never marks its runs lost. A hub deploy has the deployer deploy every repo again, and the new outpost Worker changes each container's source, so every outpost Worker is built again. But the builds take minutes, and a build can fail and leave the old Worker, so the router doesn't assume that an outpost sends heartbeats.
 

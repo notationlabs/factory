@@ -11,6 +11,7 @@ import {
   isCapacityError,
   RUN_HEADERS,
   STATE_INSTANCE,
+  within,
 } from "./outpost-api.ts";
 
 // Outbound interception calls the handlers through this entrypoint.
@@ -40,8 +41,14 @@ type PendingRun = { run: Run; since: number; noticed?: boolean };
 /** How old a signed run may be. */
 const RUN_MAX_AGE_MS = 5 * 60 * 1000;
 
-/** How often the Worker posts a heartbeat for a run while it starts the run's container. */
+/** How often the Worker posts a heartbeat for each run that it holds while it starts a run's container. */
 const HEARTBEAT_MS = 60 * 1000;
+
+/** How long the runner may take to answer a run's handoff. A runner that works answers 202 at once. */
+const HANDOFF_TIMEOUT_MS = 60 * 1000;
+
+/** The prefix of each run that the Durable Object holds but hasn't handed to the runner, as a `Run` under `pending/<run id>`. */
+const PENDING = "pending/";
 
 /** The port that the runner listens on. */
 const RUNNER_PORT = 8080;
@@ -172,10 +179,12 @@ export class OutpostContainer extends Container<Env> {
 
   /**
    * Hands `run` to the runner in an alarm, so that the container may take
-   * longer to start than the caller waits. It posts the run's first
-   * heartbeat first, which has the router start watching the run.
+   * longer to start than the caller waits. It holds the run under `PENDING`
+   * until `deliver` is done with it, and posts the run's first heartbeat,
+   * which has the router start watching the run.
    */
   async run(run: Run) {
+    await this.ctx.storage.put(`${PENDING}${run.id}`, run);
     await heartbeat(run);
     await this.schedule(0, "deliver", { run, since: Date.now() } satisfies PendingRun);
   }
@@ -187,28 +196,42 @@ export class OutpostContainer extends Container<Env> {
    * `CAPACITY_RETRY_S` until `CAPACITY_WAIT_MS` has passed. It posts
    * `capacityNotice` once, which the run's first reply replaces.
    * It posts the run's heartbeats until the runner takes the run, which
-   * posts them from then on. It drops a run that the router marked lost. Its
-   * reply for a run that it couldn't deliver is the run's last.
+   * posts them from then on. The scheduled calls of `deliver` run one at a
+   * time, so while it starts the container it also posts the heartbeats of
+   * the other runs under `PENDING`, which wait for their turn. It drops a
+   * run that the router marked lost. Its reply for a run that it couldn't
+   * deliver is the run's last.
    */
   async deliver({ run, since, noticed }: PendingRun) {
+    const key = `${PENDING}${run.id}`;
     if ((await heartbeat(run)) === "lost") {
       console.error(JSON.stringify({ run: run.id, lost: true }));
+      await this.ctx.storage.delete(key);
       return;
     }
-    const beating = setInterval(() => void heartbeat(run), HEARTBEAT_MS);
+    const beating = setInterval(() => void this.beatPending(), HEARTBEAT_MS);
+    let retrying = false;
     try {
       await this.startAndWaitForPorts({
         startOptions: { envVars: await this.env.DEPLOYER.credentials(run.runtimes, run.repo) },
         cancellationOptions: { instanceGetTimeoutMS: START_TIMEOUT_MS, portReadyTimeoutMS: START_TIMEOUT_MS },
       });
-      const response = await this.containerFetch("http://runner/runs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(run),
-      });
-      // `containerFetch` counts the request as in flight until its body is read,
-      // and the container never sleeps while a request is in flight.
-      const body = await response.text();
+      const handoff = async () => {
+        const response = await this.containerFetch("http://runner/runs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(run),
+          signal: AbortSignal.timeout(HANDOFF_TIMEOUT_MS),
+        });
+        // `containerFetch` counts the request as in flight until its body is read,
+        // and the container never sleeps while a request is in flight.
+        return { response, body: await response.text() };
+      };
+      const { response, body } = await within(
+        handoff(),
+        HANDOFF_TIMEOUT_MS,
+        `The runner didn't answer within ${HANDOFF_TIMEOUT_MS / 1000} seconds.`,
+      );
       if (!response.ok) throw new Error(`The runner refused the run with status ${response.status}: ${body}`);
       console.log(JSON.stringify({ run: run.id, repo: run.repo, container: run.container, delivered: true }));
     } catch (error) {
@@ -219,7 +242,9 @@ export class OutpostContainer extends Container<Env> {
         if (waited < CAPACITY_WAIT_MS) {
           const posted = noticed ? undefined : await relay(run, capacityNotice(run.container, max));
           const next = posted ? { ...run, reply: { ...run.reply, message: posted } } : run;
+          await this.ctx.storage.put(key, next);
           await this.schedule(CAPACITY_RETRY_S, "deliver", { run: next, since, noticed: true } satisfies PendingRun);
+          retrying = true;
           return;
         }
         await relay(run, capacityFailure(run.container, max), true);
@@ -229,7 +254,14 @@ export class OutpostContainer extends Container<Env> {
       }
     } finally {
       clearInterval(beating);
+      if (!retrying) await this.ctx.storage.delete(key);
     }
+  }
+
+  /** Posts a heartbeat for each run under `PENDING`. */
+  private async beatPending() {
+    const pending = (await this.ctx.storage.list({ prefix: PENDING })) as Map<string, Run>;
+    await Promise.all([...pending.values()].map((run) => heartbeat(run)));
   }
 
   // A run can last longer than `sleepAfter` without a request to the object.

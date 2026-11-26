@@ -48,7 +48,7 @@ const post = async <T>(router: string, path: string, body: unknown): Promise<T> 
 
 /**
  * Signs in to the hub at `router` in the browser:
- * 1. Listens for the browser on the callback URL that the App allows.
+ * 1. Listens for the browser on the redirect URL that the App allows.
  * 2. Asks the router for its sign-in page, and opens it.
  * 3. Takes the code that the page sends to the callback, and exchanges it
  *    with the router for an admin session.

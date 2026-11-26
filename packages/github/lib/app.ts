@@ -203,15 +203,15 @@ export const requestAppDeletion = async (key: { id: string; org?: string }): Pro
 };
 
 /**
- * GitHub has no API for an App's callback URLs, so this opens the App's
+ * GitHub has no API for an App's redirect URLs, so this opens the App's
  * settings page and prints the URL to add there. It doesn't wait, since
- * GitHub's API doesn't show the callback URLs either.
+ * GitHub's API doesn't show the redirect URLs either.
  */
 export const requestCallbackUrl = async (key: { id: string; org?: string }, url: string): Promise<void> => {
   const slug = await appSlug(key.id);
   const owner = key.org ? `/organizations/${key.org}` : "";
   const settings = `${GITHUB_WEB}${owner}/settings/apps/${slug}`;
-  console.error(`Add ${url} as a callback URL of the GitHub App ${slug} on ${settings}, and save. Restart links of lost runs sign people in through it.`);
+  console.error(`Add ${url} as a redirect URL of the GitHub App ${slug} on ${settings}, and save. Restart links of lost runs sign people in through it.`);
   openBrowser(settings);
 };
 

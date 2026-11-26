@@ -10,14 +10,14 @@ const headers = (token: string) => ({
 
 /**
  * Where GitHub sends an operator's browser after they sign in to the hub.
- * GitHub only redirects to an App's callback URLs, port included, so the
+ * GitHub only redirects to an App's redirect URLs, port included, so the
  * CLI listens on this fixed port.
  */
 export const OPERATOR_CALLBACK_URL = "http://127.0.0.1:47219/callback";
 
 /**
  * GitHub's page that signs a user in to the App, and sends their browser to
- * `redirect`, which must be one of the App's callback URLs.
+ * `redirect`, which must be one of the App's redirect URLs.
  */
 export const signInUrl = (client: string, state: string, redirect = OPERATOR_CALLBACK_URL) => {
   const url = new URL("/login/oauth/authorize", GITHUB_WEB);

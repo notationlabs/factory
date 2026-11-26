@@ -66,7 +66,7 @@ export const App = defineResource<AppApi>({
       value: v.string(),
     },
     hookUrl: { propertyType: "param", presence: "required", value: v.string() },
-    /** The router's page that the sign-in of a lost run's restart link returns to, which the App allows as a callback URL. */
+    /** The router's page that the sign-in of a lost run's restart link returns to, which the App allows as a redirect URL. */
     restartUrl: { propertyType: "param", presence: "optional", value: v.string() },
     events: {
       propertyType: "param",

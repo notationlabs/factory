@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { instanceName, isCapacityError, within } from "./outpost-api.ts";
 
-const conversation = { id: "acme/api#127" };
+const conversation = { id: "acme/api#42" };
 
 test("runs in a branch worktree go to that worktree's container", () => {
-  assert.equal(instanceName({ conversation, worktree: { branch: "issue-127" } }), "worktree:issue-127");
+  assert.equal(instanceName({ conversation, worktree: { branch: "issue-42" } }), "worktree:issue-42");
   assert.equal(
-    instanceName({ conversation: { id: "acme/api#200" }, worktree: { branch: "issue-127", base: "main" } }),
-    "worktree:issue-127",
+    instanceName({ conversation: { id: "acme/api#200" }, worktree: { branch: "issue-42", base: "main" } }),
+    "worktree:issue-42",
   );
 });
 
 test("runs in a scratch worktree go to their conversation's container", () => {
-  assert.equal(instanceName({ conversation }), "scratch:acme/api#127");
+  assert.equal(instanceName({ conversation }), "scratch:acme/api#42");
 });
 
 test("Cloudflare's errors for no free instance are capacity errors, and others aren't", () => {

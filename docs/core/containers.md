@@ -29,7 +29,7 @@ const dev = new Container("dev", {
 
 ## Instances and worktrees
 
-Each worktree gets its own instance of the container. Runs on the branch `issue-127` go to one instance, and runs on `issue-128` go to another, so they run in parallel. Runs without a branch get a scratch worktree for each conversation, and each of those conversations gets its own instance too. Runs in the same worktree queue on that worktree's instance and run one at a time.
+Each worktree gets its own instance of the container. Runs on the branch `issue-42` go to one instance, and runs on `issue-43` go to another, so they run in parallel. Runs without a branch get a scratch worktree for each conversation, and each of those conversations gets its own instance too. Runs in the same worktree queue on that worktree's instance and run one at a time.
 
 A container runs at most `maxInstances` instances at once, set on `cloudflare.Deployer`, which defaults to `5`. An instance sleeps after `sleepAfter` elapses with no run in progress, which defaults to `"10m"`. Active runs keep the instance awake until they finish. A sleeping instance does not count towards `maxInstances`.
 

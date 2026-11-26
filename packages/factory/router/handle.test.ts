@@ -2,10 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
-import { BUILD_POLL_MS, BUILD_WAIT_MS, type DeliveryRecord, failedDelivery, type Inbox, replayRecord } from "./deliveries.ts";
+import {
+  BUILD_POLL_MS,
+  BUILD_WAIT_MS,
+  type DeliveryRecord,
+  failedDelivery,
+  type Inbox,
+  LOST_ERROR,
+  lostNotice,
+  replayRecord,
+  type Watch,
+} from "./deliveries.ts";
 import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
-import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { advance, handle, type RemoteDeployer, type RouterStore, watch } from "./handle.ts";
+import { LOST_AFTER_MS, type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
 import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
@@ -83,6 +93,7 @@ const atOnce: Inbox = {
   receive: async (record) => (await advance(record, calling), true),
   failed: async () => [],
   replay: async () => false,
+  heartbeat: async () => "unknown",
 };
 
 const entry = (channel: string) => ({ provider: "fake", source: "1", credentials: {}, channel });
@@ -568,6 +579,7 @@ test("tokens refuses a container that the repo's outpost no longer has", async (
 /** An inbox that keeps records in memory, by connection and id. It dispatches only when a test calls `advance`. */
 const memoryInbox = () => {
   const records = new Map<string, DeliveryRecord>();
+  const watches = new Map<string, Watch>();
   const inbox: Inbox = {
     receive: async (record) => {
       const key = `${record.connection}/${record.id}`;
@@ -577,8 +589,16 @@ const memoryInbox = () => {
     },
     failed: async () => [],
     replay: async () => false,
+    heartbeat: async (connection, id, run, beat) => {
+      const dispatch = records.get(`${connection}/${id}`)?.dispatches.find((d) => d.run === run);
+      if (!dispatch) return "unknown";
+      if (dispatch.state === "lost") return "lost";
+      if (beat.done) watches.delete(run);
+      else watches.set(run, { at: Date.now(), ...(beat.message && { message: beat.message }) });
+      return "ok";
+    },
   };
-  return { inbox, records };
+  return { inbox, records, watches };
 };
 
 test("with an inbox, a delivery is saved before the router answers, and a second delivery with its id is a duplicate", async () => {
@@ -631,9 +651,9 @@ const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<str
 };
 
 const savedRecord = async (s: RouterStore) => {
-  const { inbox, records } = memoryInbox();
+  const { inbox, records, watches } = memoryInbox();
   await call({ ...s, inbox });
-  return { record: [...records.values()][0]!, store: { ...s, inbox } };
+  return { record: [...records.values()][0]!, store: { ...s, inbox }, watches };
 };
 
 test("a dispatch whose container's first image build hasn't finished waits for it, and its run replaces the waiting message", async () => {
@@ -818,6 +838,79 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.match(record.dispatches[0]!.error!, /no longer has the trigger `mention`/);
   assert.equal(runs.length, 2);
+});
+
+const beat = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/heartbeat", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("a run's ticket names its dispatch, and its heartbeats note the message that its replies replace", async () => {
+  const runs: Run[] = [];
+  const { record, store, watches } = await savedRecord(runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store);
+  const { reply, id } = runs[0]!;
+  assert.equal(reply.heartbeat, "https://router.test/heartbeat");
+  assert.equal(reply.ticket.delivery, "d1");
+  assert.equal(reply.ticket.run, id);
+
+  const message = { id: "m1", signature: await signMessage(ROOT_KEY, reply.signature, "m1") };
+  const response = await beat(store, { ticket: reply.ticket, signature: reply.signature, message });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(watches.get(id)?.message, "m1");
+
+  // A run can't have the lost notice replace a message that it didn't post.
+  const other = { id: "m2", signature: message.signature };
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, message: other })).status, 401);
+  const forged = { ...reply.ticket, run: "other" };
+  assert.equal((await beat(store, { ticket: forged, signature: reply.signature })).status, 401);
+  const unnamed = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
+  assert.equal((await beat(store, { ticket: unnamed, signature: await signTicket(ROOT_KEY, unnamed) })).status, 400);
+  const unknown = { ...reply.ticket, run: "other" };
+  assert.equal((await beat(store, { ticket: unknown, signature: await signTicket(ROOT_KEY, unknown) })).status, 404);
+
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, done: true })).status, 200);
+  assert.equal(watches.has(id), false);
+});
+
+test("a run without a heartbeat for 5 minutes is marked lost, and the lost notice replaces its message", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const run = runs[0]!.id;
+  watches.set(run, { at: 1_000, message: "m1" });
+
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS - 1), { forget: [], next: 1_000 + LOST_AFTER_MS });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined });
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.deepEqual(replies, [[lostNotice(), "m1"]]);
+  assert.equal(record.dispatches[0]!.waiting, "m1");
+  assert.deepEqual(failedDelivery(record, 2)?.triggers, [{ trigger: "mention", error: LOST_ERROR }]);
+  assert.equal(await store.inbox.heartbeat("fake/main", "d1", run, {}), "lost");
+
+  // The run that replaces a lost one replaces the lost notice.
+  assert.equal(replayRecord(record, ORIGIN), true);
+  await advance(record, store, 3);
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.equal(runs[1]!.reply.message?.id, "m1");
+});
+
+test("watching forgets runs that the record no longer has or that failed, and leaves runs that aren't dispatched yet", async () => {
+  const { record, store } = await savedRecord(runStore(accepted(), {}));
+  const watches = new Map<string, Watch>([
+    [record.dispatches[0]!.run, { at: 0 }],
+    ["gone", { at: 0 }],
+  ]);
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: ["gone"], next: LOST_AFTER_MS });
+  assert.equal(record.dispatches[0]!.state, "pending");
+  record.dispatches[0]!.state = "failed";
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: [record.dispatches[0]!.run, "gone"], next: undefined });
 });
 
 const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({
@@ -1009,6 +1102,7 @@ test("replay replays one failed delivery, or all of them, against the router's o
       { connection: "fake/main", id: "d2", repo: "acme/api", event: "post", received: 1, failed: 2, triggers: [] },
     ],
     replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
+    heartbeat: async () => "unknown",
   };
   const s: RouterStore = { ...adminStore(adminChannel()), inbox };
   const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });

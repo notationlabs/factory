@@ -12,8 +12,11 @@ stateDiagram-v2
   WaitingBuild --> Dispatched: Image live & run queued
   Pending --> Failed: Dispatch throws
   Failed --> Pending: factory infra replay
+  Dispatched --> Lost: No heartbeat for 5 min
+  Lost --> Pending: factory infra replay
   Dispatched --> [*]
   Failed --> [*]: Deleted after 7d
+  Lost --> [*]: Deleted after 7d
 ```
 
 ## Router endpoints
@@ -25,6 +28,7 @@ stateDiagram-v2
 | `POST /webhook/<key>` | Verifies delivery via channel Worker and enqueues runs or redeploys |
 | `POST /relay` | Verifies `ReplyTicket` and optional message signature, posts or edits reply |
 | `POST /messages` | Verifies `ReplyTicket` and fetches ordered thread messages |
+| `POST /heartbeat` | Verifies `ReplyTicket` and optional message signature, notes the run's heartbeat in its `DeliveryInbox` |
 | `POST /tokens` | Verifies `TokenTicket` and refreshes container policy tokens |
 | `POST /builds` | Verifies `BuildReport`, logs latest build, updates commit check |
 | `POST /sync` | Syncs connection webhooks and queues allowed repositories |
@@ -56,3 +60,19 @@ Before responding 202, the router calls `store.inbox.receive(record)`. Because `
 If an outpost container is still on its initial build, its placeholder Worker returns HTTP 503. On the first wait, `waitForBuild` posts a booting notice to the thread and schedules the next alarm 30 seconds later (`BUILD_POLL_MS`). Subsequent alarms skip token minting while `BuildWatch` reports a queued or active build.
 
 Any failure after resolving the conversation posts an error notice instructing operators to run `factory infra replay`. Once every dispatch settles, failed deliveries remain indexed in KV for 7 days (`KEEP_DELIVERY_MS`) before Durable Object cleanup. Operators can re-queue failed dispatches with fresh run IDs through `/admin/replay`.
+
+## Heartbeats and lost runs
+
+The runner posts a heartbeat to `POST /heartbeat` once a minute for each run it holds, queued or running. The heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace. When the run finishes, the runner posts a last heartbeat with `done`, and the router stops watching the run.
+
+The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. The record is saved by the alarm after it calls the deployer and channels, so a heartbeat in the record could be overwritten.
+
+Watching starts with a run's first heartbeat. A run that waits for its container's first image build, or for a free container instance, is not watched, because no runner holds it yet. A runner from before heartbeats never sends one, so its runs are never watched.
+
+The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. When a dispatched run's last heartbeat is 5 minutes old, `watch`:
+
+1. Marks the dispatch `lost`, with an error that operators see in `factory infra status`.
+2. Replaces the run's message on the thread with the lost notice, through the channel's `reply`. A run that had posted nothing has its lost notice posted as a new message.
+3. Lists the delivery as failed again, and keeps it for 7 days from then.
+
+`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. If the lost run's runner is still alive and posts another heartbeat, the router answers `lost`, and the runner stops posting the run's replies, so they don't replace the notice.

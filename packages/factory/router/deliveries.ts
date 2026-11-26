@@ -1,4 +1,5 @@
 import type { Delivery } from "./channel.ts";
+import { LOST_AFTER_MS } from "./run.ts";
 
 /** How often the router tries again a dispatch whose container's first image build hasn't finished. */
 export const BUILD_POLL_MS = 30_000;
@@ -15,12 +16,13 @@ export const KEEP_DELIVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One matched trigger's run, as the router hands it to the deployer.
- * `pending` dispatches are tried at `next`, or at once without it.
+ * `pending` dispatches are tried at `next`, or at once without it. A
+ * `dispatched` run that stops sending heartbeats becomes `lost`.
  */
 export type TriggerDispatch = {
   trigger: string;
   run: string;
-  state: "pending" | "dispatched" | "failed";
+  state: "pending" | "dispatched" | "failed" | "lost";
   /** When the dispatch started to wait for its container's first image build. */
   since?: number;
   next?: number;
@@ -29,10 +31,18 @@ export type TriggerDispatch = {
   thread?: unknown;
   /**
    * The id of the message that shows on the thread while the dispatch waits
-   * for the build. The run's first reply, or the failure notice, replaces it.
+   * for the build, or the lost notice of a lost run. The run's first reply,
+   * or the failure notice, replaces it.
    */
   waiting?: string;
 };
+
+/**
+ * A run's last heartbeat, which the inbox keeps apart from its record.
+ * `at` is in ms since the epoch. `message` is the id of the message that
+ * the run's replies replace, which the lost notice replaces too.
+ */
+export type Watch = { at: number; message?: string };
 
 /**
  * A verified delivery that matched triggers whose authors may start runs,
@@ -79,14 +89,22 @@ export type Inbox = {
    * to false if the inbox has no such failed delivery.
    */
   replay(connection: string, id: string, origin: string): Promise<boolean>;
+  /**
+   * Notes a heartbeat of the run `run` of a delivery, or with `done`, stops
+   * watching the run. Resolves to `unknown` if the delivery has no such
+   * run, and to `lost` if the run was marked lost.
+   */
+  heartbeat(connection: string, id: string, run: string, beat: { message?: string; done?: boolean }): Promise<"ok" | "lost" | "unknown">;
 };
 
 /** Whether a record has no dispatch left to try. */
 export const settled = (record: DeliveryRecord) => record.dispatches.every((d) => d.state !== "pending");
 
-/** The record as an operator lists it, if one of its dispatches failed. */
+const isFailed = (d: TriggerDispatch) => d.state === "failed" || d.state === "lost";
+
+/** The record as an operator lists it, if one of its dispatches failed or was lost. */
 export const failedDelivery = (record: DeliveryRecord, now: number): FailedDelivery | undefined => {
-  const failed = record.dispatches.filter((d) => d.state === "failed");
+  const failed = record.dispatches.filter(isFailed);
   if (!failed.length) return undefined;
   return {
     connection: record.connection,
@@ -99,16 +117,20 @@ export const failedDelivery = (record: DeliveryRecord, now: number): FailedDeliv
   };
 };
 
-/** Sets a record's failed dispatches to be tried again, each as a new run. Resolves to false if none failed. */
+/**
+ * Sets a record's failed and lost dispatches to be tried again, each as a
+ * new run. Resolves to false if none failed. A lost run's new run replaces
+ * the lost notice.
+ */
 export const replayRecord = (record: DeliveryRecord, origin: string) => {
-  const failed = record.dispatches.filter((d) => d.state === "failed");
+  const failed = record.dispatches.filter(isFailed);
   if (!failed.length) return false;
   for (const dispatch of failed) {
+    if (dispatch.state !== "lost") delete dispatch.waiting;
     Object.assign(dispatch, { state: "pending", run: crypto.randomUUID() });
     delete dispatch.since;
     delete dispatch.next;
     delete dispatch.error;
-    delete dispatch.waiting;
   }
   record.origin = origin;
   return true;
@@ -121,6 +143,14 @@ export const REPLAY_COMMAND = "factory infra replay";
 export const failureNotice = (failed: TriggerDispatch) =>
   `Couldn't start the run of trigger \`${failed.trigger}\`: ${failed.error ?? "no reason given"}\n\n` +
   `Factory kept the event. An operator can run \`${REPLAY_COMMAND}\` to start the run again.`;
+
+/** Why a lost dispatch failed, as operators list it. */
+export const LOST_ERROR = `The run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes.`;
+
+/** The message that replaces a lost run's message on the thread. */
+export const lostNotice = () =>
+  `This run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes, so Factory marked it as lost. Its container may have stopped or run out of memory.\n\n` +
+  "Mention the agent again to start a new run. It starts from the worktree and session as this run last saved them, up to a minute before it was lost.";
 
 /** The message that shows on the thread while a dispatch waits for its container's first image build. */
 export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

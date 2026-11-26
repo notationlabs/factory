@@ -36,6 +36,7 @@ const inbox = (env: RouterEnv): Inbox => {
   return {
     receive: (record) => object(record.connection, record.id).receive(record),
     replay: (connection, id, origin) => object(connection, id).replay(origin),
+    heartbeat: (connection, id, run, beat) => object(connection, id).heartbeat(run, beat),
     failed: async () => (await listJson<FailedDelivery>(env.FACTORY_KV, FAILED_PREFIX)).map(({ value }) => value),
   };
 };

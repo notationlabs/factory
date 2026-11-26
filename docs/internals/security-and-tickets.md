@@ -8,7 +8,7 @@ Notation Factory derives every internal signing secret from a single hub `Random
 
 | Purpose string | Used to sign and verify |
 | :--- | :--- |
-| `router:relay` | `ReplyTicket` payloads for `/relay` and `/messages` |
+| `router:relay` | `ReplyTicket` payloads for `/relay`, `/messages` and `/heartbeat` |
 | `router:message` | `ReplyMessage` IDs bound to a specific ticket signature |
 | `router:tokens` | `TokenTicket` payloads for `/tokens` refresh requests |
 | `router:builds` | `BuildReport` payloads from `BuildWatch` to `/builds` |
@@ -30,8 +30,10 @@ Because a run may wait behind an image build or in a worktree queue before start
 
 | Ticket | Route and scope |
 | :--- | :--- |
-| `ReplyTicket` | `POST /relay` and `POST /messages` to read threads and post or edit replies |
+| `ReplyTicket` | `POST /relay` and `POST /messages` to read threads and post or edit replies, and `POST /heartbeat` to report that the run is alive |
 | `TokenTicket` | `POST /tokens` to mint 1-hour installation tokens matching container policies |
+
+The `ReplyTicket` names the delivery and the run, so a heartbeat can only be for the run that the ticket was signed for.
 
 The router also signs each posted reply's comment ID with `router:message` over `[ticketSignature, messageId]`, preventing a compromised ticket or container from overwriting arbitrary comments on an issue.
 

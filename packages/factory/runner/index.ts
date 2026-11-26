@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import type { CodeHostRunner, RuntimeRunner } from "../contracts/runner.ts";
 import type { ThreadMessage } from "../router/channel.ts";
 import type {
+  Heartbeat,
+  HeartbeatResult,
   MessagesRequest,
   MessagesResult,
   Relay,
@@ -38,6 +40,9 @@ const PROGRESS_INTERVAL_MS = Number(process.env.FACTORY_PROGRESS_INTERVAL_MS ?? 
 
 /** How often the runner edits the run's message to update its clock, while the agent writes no new message. */
 const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1000);
+
+/** How often the runner posts a heartbeat to the router for each run it holds. The router marks a run lost after 5 minutes without one. */
+const HEARTBEAT_INTERVAL_MS = Number(process.env.FACTORY_HEARTBEAT_INTERVAL_MS ?? 60 * 1000);
 
 /** The longest the runner waits, once it's told to stop, for the replies that say its runs were lost. */
 const STOP_REPLY_TIMEOUT_MS = 5000;
@@ -787,10 +792,13 @@ const progressText = (text: string, ms: number, model?: string) => {
  * message, the shown one is posted again every `CLOCK_INTERVAL_MS`, so its
  * clock stays current. `finish` posts the final reply
  * in their place. The first post replaces the message that the router
- * posted while the run waited for the container, if there is one.
+ * posted while the run waited for the container, if there is one. Once the
+ * router has marked the run lost, its replies post nothing, so they don't
+ * replace the lost notice.
  */
 const replies = (run: Run) => {
   let posted: ReplyMessage | undefined = run.reply.message;
+  let lost = false;
   let pending: string | undefined;
   let shown: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -802,6 +810,7 @@ const replies = (run: Run) => {
   let posting: Promise<void> = Promise.resolve();
   const post = (text: string) => {
     const next = posting.then(async () => {
+      if (lost) return;
       posted = (await relay(run, text, posted)) ?? posted;
       sentAt = Date.now();
     });
@@ -829,6 +838,14 @@ const replies = (run: Run) => {
     /** Starts the clock, when the run leaves the queue. */
     start() {
       startedAt = Date.now();
+    },
+    /** The message that the run's next reply replaces. */
+    message: () => posted,
+    /** Stops the run's replies, once the router has marked the run lost. */
+    lose() {
+      lost = true;
+      clearTimeout(timer);
+      clearTimeout(ticker);
     },
     progress: {
       message(text: string) {
@@ -1058,13 +1075,54 @@ const startEarlyoom = async () => {
   child.on("exit", (code, signal) => log({ state: "earlyoom exited", code, signal }));
 };
 
+/**
+ * Posts a heartbeat for the run to the router, if the router watches the
+ * run. With `done`, the router stops watching it. Stops the run's replies if
+ * the router answers that it marked the run lost.
+ */
+const heartbeat = async (run: Run, reply: ReturnType<typeof replies> | undefined, done = false) => {
+  if (!run.reply.heartbeat) return;
+  const posted = reply?.message();
+  const body: Heartbeat = {
+    ticket: run.reply.ticket,
+    signature: run.reply.signature,
+    ...(posted && { message: posted }),
+    ...(done && { done }),
+  };
+  try {
+    const response = await fetch(run.reply.heartbeat, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      log({ run: run.id, state: "heartbeat refused", status: response.status, error: await response.text() });
+      return;
+    }
+    if (((await response.json().catch(() => ({}))) as Partial<HeartbeatResult>).lost && reply && !done) {
+      log({ run: run.id, state: "lost", detail: "The router marked the run lost, so the runner stops posting its replies." });
+      reply.lose();
+    }
+  } catch (error) {
+    log({ run: run.id, state: "heartbeat failed", error: message(error) });
+  }
+};
+
+/** The runs that are running or queued, by id. */
+const runs = new Map<string, Run>();
+
 const enqueue = (run: Run) => {
   active++;
-  held.set(run.id, replies(run));
+  const reply = replies(run);
+  runs.set(run.id, run);
+  held.set(run.id, reply);
+  void heartbeat(run, reply);
   const key = run.worktree ? `branch:${run.repo}:${run.worktree.branch}` : `scratch:${run.conversation.id}`;
   void worktreeLock(key, () => execute(run)).finally(() => {
     active--;
+    runs.delete(run.id);
     held.delete(run.id);
+    void heartbeat(run, reply, true);
   });
 };
 
@@ -1124,4 +1182,7 @@ process.on("SIGTERM", async () => {
 
 await configureGit();
 await startEarlyoom();
+setInterval(() => {
+  for (const run of runs.values()) void heartbeat(run, held.get(run.id));
+}, HEARTBEAT_INTERVAL_MS);
 server.listen(PORT, () => log({ state: "listening", port: PORT }));

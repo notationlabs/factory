@@ -186,6 +186,8 @@ When a container sleeps, everything on its local filesystem is discarded. Every 
 
 If the container stops or fails during a run, the work up to the last save is kept. The next run in the same worktree and conversation restores it, resumes the agent's session, and gives the agent the lost run's messages again.
 
+The runner sends the router a heartbeat every minute for each run it holds. If a run sends none for 5 minutes, such as when its container stops responding, the router marks the run lost and replaces the run's message on the thread with a notice that says so.
+
 ```text [/data/]
 /data/
 ├── home/                                # Shared $HOME for non-config startup files

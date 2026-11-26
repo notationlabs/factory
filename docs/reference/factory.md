@@ -85,14 +85,16 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | :--- | :--- |
 | `handle(request, store)` | Portable HTTP request handler for webhooks, syncs, relays, and admin routes |
 | `advance(record, store, now?)` | Advances pending dispatches in a saved delivery record |
+| `watch(record, watches, store, now?)` | Marks lost the dispatched runs whose last heartbeat is 5 minutes old, and posts their lost notices |
 | `redeployRepo(change, store)` | Redeploys a repository outpost config after source changes |
 | `outpostKey(repo)` | Returns the lowercase store key for a repository outpost |
 | `webhookPath(key)` | Returns the webhook URL path for a connection key |
 | `allowsRepo(allow, repo)` | Checks whether a repository matches a `RepoPattern[]` allowlist |
 | `failedDelivery` | Formats a settled failed `DeliveryRecord` into a `FailedDelivery` |
-| `replayRecord` | Resets failed dispatches on a delivery record for replay |
-| `settled` | Returns `true` when all dispatches in a record have succeeded or failed |
+| `replayRecord` | Resets failed and lost dispatches on a delivery record for replay |
+| `settled` | Returns `true` when no dispatch in a record is pending |
 | `KEEP_DELIVERY_MS` | Retention duration for settled deliveries in milliseconds, 7 days |
+| `LOST_AFTER_MS` | How long a run may go without a heartbeat before the router marks it lost, 5 minutes |
 | `deriveKey` | Derives a purpose-scoped HMAC key from the router root key |
 | `hmacHex` | Computes a lowercase hex HMAC-SHA256 digest |
 | `timingSafeEqual` | Constant-time string equality check for signatures |
@@ -100,7 +102,7 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `signSync` | Signs a `POST /sync` header value with timestamp and origin |
 | `SYNC_HEADER` | Header name `x-factory-sync` carrying signed sync credentials |
 | `RouterStore` | Storage and binding interface required by the router |
-| `Inbox` | Delivery persistence and retry queue interface |
+| `Inbox` | Delivery persistence, retry queue and heartbeat interface |
 | `DeployLog` | Persistence interface for latest repository deploy results |
 | `RemoteDeployer` | Deployer RPC contract called by the router |
 | `ChannelModule` | Interface implemented by channel webhook modules |

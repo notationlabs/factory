@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ThreadMessage } from "../router/channel.ts";
-import type { MessagesRequest, Relay, Run, TokenRequest } from "../router/run.ts";
+import type { Heartbeat, MessagesRequest, Relay, Run, TokenRequest } from "../router/run.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "factory-runner-")));
 const bin = join(root, "bin");
@@ -171,6 +171,10 @@ let relays = 0;
 /** The token that the fake router mints when the runner asks for new tokens. */
 let freshToken = "push-token";
 const tokenRequests: TokenRequest[] = [];
+/** The heartbeats that the runner has posted. */
+const heartbeats: Heartbeat[] = [];
+/** The runs that the fake router answers heartbeats for as lost. */
+const lostRuns = new Set<string>();
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
@@ -257,6 +261,11 @@ before(async () => {
         }
         return response.end(JSON.stringify({ messages: threads.get(conversation) ?? [] }));
       }
+      if (pathname === "/heartbeat") {
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as Heartbeat;
+        heartbeats.push(body);
+        return response.end(JSON.stringify({ ok: true, ...(lostRuns.has(body.ticket.run!) && { lost: true }) }));
+      }
       if (pathname === "/tokens") {
         const body = JSON.parse(Buffer.concat(chunks).toString()) as TokenRequest;
         tokenRequests.push(body);
@@ -295,6 +304,7 @@ const startRunner = async () => {
       FACTORY_TOKEN_REFRESH_MS: "300",
       FACTORY_PROGRESS_INTERVAL_MS: "100",
       FACTORY_SAVE_INTERVAL_MS: "200",
+      FACTORY_HEARTBEAT_INTERVAL_MS: "200",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
@@ -923,6 +933,44 @@ test("the runner starts earlyoom, logs its output, and says in a run's reply whe
     "done\n\n> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.",
   );
   assert.match(output, /\{"at":"[^"]+","earlyoom":"sending SIGTERM to process \d+ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB"\}/);
+});
+
+/** A run whose reply ticket names it, with the router's heartbeat route. */
+const watched = (conversation: Run["conversation"], over: Partial<Run> = {}): Run => {
+  const body = run(conversation, over);
+  body.reply.ticket.run = body.id;
+  body.reply.heartbeat = `${serverUrl()}/heartbeat`;
+  return body;
+};
+
+const beatsOf = (runId: string) => heartbeats.filter((h) => h.ticket.run === runId);
+
+test("the runner posts heartbeats for each run it holds, queued or running, with the message that its replies replace, and then says it's done", async () => {
+  const id = "github:acme/api#20";
+  const first = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-20" } });
+  const second = watched({ id, message: say(id, "and then this") }, { worktree: { branch: "issue-20" } });
+  await post(first);
+  await post(second);
+  await until(() => beatsOf(second.id).length >= 2);
+  // The second run is still queued behind the first.
+  assert.equal(beatsOf(first.id).some((h) => h.done), false);
+  await until(() => beatsOf(second.id).some((h) => h.done));
+  const firstBeats = beatsOf(first.id);
+  assert.equal(firstBeats.at(-1)!.done, true);
+  assert.equal(firstBeats.filter((h) => h.done).length, 1);
+  assert.ok(firstBeats.some((h) => h.message?.signature === "msig"));
+  assert.equal(firstBeats[0]!.signature, "sig");
+  while (replies.length) replies.shift();
+});
+
+test("a run that the router marks lost posts no more replies", async () => {
+  const id = "github:acme/api#21";
+  const body = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-21" } });
+  lostRuns.add(body.id);
+  await post(body);
+  await until(() => beatsOf(body.id).some((h) => h.done));
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+  assert.match(output, new RegExp(`"run":"${body.id}","state":"lost"`));
 });
 
 test("status counts the runs that are running or queued", async () => {

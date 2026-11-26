@@ -47,14 +47,14 @@ In the router's HTTP entrypoint, build a `RouterStore` adapter for `@notation/fa
 
 | Property | Purpose |
 | :--- | :--- |
-| `inbox` | `Inbox` instance deduplicating deliveries, advancing them asynchronously, and supporting replay |
+| `inbox` | `Inbox` instance deduplicating deliveries, advancing them asynchronously, noting runs' heartbeats, and supporting replay |
 | `deploys` | `DeployLog` persisting latest deploy statuses and container build states |
 | `rootKey` | Async getter returning the bound `FACTORY_ROOT_KEY` value |
 | `syncKey` | Optional async getter returning the bound `FACTORY_SYNC_KEY` value |
 | `channel` | Lookup returning a `RemoteChannel` for a connection's channel binding |
 | `deployer` | Optional `RemoteDeployer` RPC client for deploys, worktrees, and runs |
 
-The inbox triggers `advance(record, store)` asynchronously via alarms or queues and retains seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`.
+The inbox triggers `advance(record, store)` asynchronously via alarms or queues and retains seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`. It saves each run's last heartbeat apart from the record, and calls `watch(record, watches, store)` within `LOST_AFTER_MS` of each one, so that runs without a heartbeat are marked lost.
 
 ## Implementing `Deployer`
 

@@ -2,8 +2,12 @@ import type { AgentEntry, ContainerEntry } from "../contracts/outpost.ts";
 import type { ThreadMessage } from "./channel.ts";
 import { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 
-/** Where a run's reply goes: the connection whose channel posts it, and the channel's thread. `expires` is in ms since the epoch. */
-export type ReplyTicket = { connection: string; thread: unknown; expires: number };
+/**
+ * Where a run's reply goes: the connection whose channel posts it, and the
+ * channel's thread. `delivery` and `run` name the run's dispatch in the
+ * inbox, for its heartbeats. `expires` is in ms since the epoch.
+ */
+export type ReplyTicket = { connection: string; thread: unknown; delivery?: string; run?: string; expires: number };
 
 /**
  * A message that a run's reply posted, which a later reply of the run
@@ -17,6 +21,20 @@ export type Relay = { ticket: ReplyTicket; signature: string; text: string; mess
 
 /** What the router answers to a `Relay`: the message that the reply posted or replaced, if the channel names it. */
 export type RelayResult = { ok: true; message?: ReplyMessage };
+
+/**
+ * What the runner posts to a run's `reply.heartbeat` once a minute while it
+ * holds the run, queued or running.
+ * `message` is the message that the run's replies replace now. `done` says
+ * that the run finished, so the router stops watching it.
+ */
+export type Heartbeat = { ticket: ReplyTicket; signature: string; message?: ReplyMessage; done?: boolean };
+
+/** What the router answers to a `Heartbeat`. `lost` means that the router has marked the run lost, and posted a notice in place of its message. */
+export type HeartbeatResult = { ok: true; lost?: boolean };
+
+/** How long the router waits for a run's next heartbeat before it marks the run lost. */
+export const LOST_AFTER_MS = 5 * 60 * 1000;
 
 /** What the runner posts to the router's `/messages` route, next to `reply.url`. The router answers with `MessagesResult`. */
 export type MessagesRequest = { ticket: ReplyTicket; signature: string };
@@ -74,9 +92,10 @@ export type Run = {
   /**
    * The runner posts a `Relay` with this ticket and signature to `url`.
    * `message` is a message that the router posted while the run waited for
-   * its container, which the run's first reply replaces.
+   * its container, which the run's first reply replaces. The runner posts a
+   * `Heartbeat` with the same ticket to `heartbeat`, if it's set.
    */
-  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage };
+  reply: { url: string; ticket: ReplyTicket; signature: string; message?: ReplyMessage; heartbeat?: string };
 };
 
 /**

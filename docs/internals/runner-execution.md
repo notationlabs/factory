@@ -36,6 +36,12 @@ While streaming CLI output, `replies` throttles `POST /relay` edits to every 10 
 
 Each update passes the router-signed `ReplyMessage` ID so progress overwrites the same comment throughout the run.
 
+## Heartbeats
+
+For each run it holds, queued or running, the runner posts a heartbeat to the run's `reply.heartbeat` URL when it takes the run and then every 60 seconds (`HEARTBEAT_INTERVAL_MS`). Each heartbeat has the ID of the message that the run's replies replace. When the run finishes, the runner posts a heartbeat with `done`. The router marks a run lost after 5 minutes without a heartbeat. See [Routing & Deliveries](./routing-and-deliveries.md#heartbeats-and-lost-runs).
+
+If the router answers that it has marked the run lost, the runner logs it and stops posting the run's replies, so they don't replace the router's lost notice. The agent keeps running.
+
 ## Container logs
 
 The runner writes one JSON object per line to stdout, which is the container's log. Each line has an `at` timestamp. Runs log when they start, finish, fail, or are skipped.

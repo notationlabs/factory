@@ -33,12 +33,18 @@ import {
   type DeliveryRecord,
   failureNotice,
   type Inbox,
+  LOST_ERROR,
+  lostNotice,
   type TriggerDispatch,
   waitingNotice,
+  type Watch,
 } from "./deliveries.ts";
 import {
   type BuildReportRequest,
+  type Heartbeat,
+  type HeartbeatResult,
   isBranchName,
+  LOST_AFTER_MS,
   type MessagesRequest,
   type MessagesResult,
   type Relay,
@@ -244,7 +250,17 @@ export const advance = async (record: DeliveryRecord, store: RouterStore, now = 
             return;
           }
           const building = await dispatch(
-            { dispatch: d, key: record.connection, provider: entry.provider, name, channel, delivery: record.delivery, outpost, origin: record.origin },
+            {
+              dispatch: d,
+              id: record.id,
+              key: record.connection,
+              provider: entry.provider,
+              name,
+              channel,
+              delivery: record.delivery,
+              outpost,
+              origin: record.origin,
+            },
             store,
           );
           if (building) await waitForBuild(d, building, repo, channel, store, now);
@@ -302,8 +318,47 @@ const waitForBuild = async (
   }
 };
 
+/**
+ * Marks lost each dispatched run of the record whose last heartbeat in
+ * `watches` is `LOST_AFTER_MS` old, and posts the lost notice in place of
+ * the run's message. Watching starts with a run's first heartbeat, so a run
+ * that waits for a container instance isn't watched. It changes `record`,
+ * which the caller saves, and resolves to the runs to stop watching, and to
+ * when to check the others again.
+ */
+export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>, store: RouterStore, now = Date.now()) => {
+  const forget: string[] = [];
+  let next: number | undefined;
+  const channel = channels(store).find((c) => c.key === record.connection)?.channel;
+  for (const [run, beat] of watches) {
+    const d = record.dispatches.find((d) => d.run === run);
+    if (!d || d.state === "failed" || d.state === "lost") {
+      forget.push(run);
+      continue;
+    }
+    const due = beat.at + LOST_AFTER_MS;
+    if (d.state !== "dispatched" || due > now) {
+      next = Math.min(next ?? due, due);
+      continue;
+    }
+    Object.assign(d, { state: "lost", error: LOST_ERROR });
+    forget.push(run);
+    console.error(JSON.stringify({ run, trigger: d.trigger, state: "lost", heartbeat: beat.at }));
+    if (!channel || d.thread === undefined) continue;
+    try {
+      const posted = await channel.reply(d.thread, lostNotice(), beat.message ?? d.waiting);
+      if (posted !== undefined) d.waiting = posted;
+    } catch (error) {
+      console.error(JSON.stringify({ run, state: "lost notice failed", error: message(error) }));
+    }
+  }
+  return { forget, next };
+};
+
 type Dispatch = {
   dispatch: TriggerDispatch;
+  /** The delivery's id in the inbox. */
+  id: string;
   /** The delivery's connection, and its provider and name. */
   key: string;
   provider: string;
@@ -349,8 +404,8 @@ const mintTokens = async (store: RouterStore, outpost: OutpostConfig, repo: stri
  * 1. Checks that the outpost still has the trigger, and that it still
  *    matches the delivery and its author. Has the delivery's channel name
  *    the conversation, and signs a ticket for reading and replying to its
- *    thread. The run's first reply replaces the thread's waiting message,
- *    if there is one.
+ *    thread, and for the run's heartbeats. The run's first reply replaces
+ *    the thread's waiting message, if there is one.
  * 2. Has the deployer call the trigger's worktree function, if it has one.
  * 3. Has the code host's channel mint a read-only token for the clone, and a
  *    token for each of the container's code host policies. Signs a ticket
@@ -371,10 +426,10 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undef
   }
   const conversation = await d.channel.conversation(delivery, { selector: trigger.match, agent: trigger.agent });
   d.dispatch.thread = conversation.thread;
-  const ticket = { connection: d.key, thread: conversation.thread, expires: Date.now() + REPLY_TTL_MS };
+  const ticket = { connection: d.key, thread: conversation.thread, delivery: d.id, run: runId, expires: Date.now() + REPLY_TTL_MS };
   const rootKey = await store.rootKey();
   const signature = await signTicket(rootKey, ticket);
-  const reply: Run["reply"] = { url: `${d.origin}/relay`, ticket, signature };
+  const reply: Run["reply"] = { url: `${d.origin}/relay`, ticket, signature, heartbeat: `${d.origin}/heartbeat` };
   if (waiting) reply.message = { id: waiting, signature: await signMessage(rootKey, signature, waiting) };
   const { deployer } = store;
   if (!deployer) throw new Error("The hub has no deployer.");
@@ -481,6 +536,33 @@ const messages = async (request: Request, store: RouterStore) => {
   } catch (error) {
     return json(502, { error: message(error) });
   }
+};
+
+/**
+ * Notes a run's heartbeat in the inbox, if the router signed its reply
+ * ticket for a run. Answers `lost` if the inbox has marked the run lost.
+ */
+const heartbeat = async (request: Request, store: RouterStore) => {
+  const found = await ticketed<Heartbeat>(request, store);
+  if (found instanceof Response) return found;
+  const { body, rootKey } = found;
+  const { ticket, signature, message: posted, done } = body;
+  if (typeof ticket.delivery !== "string" || typeof ticket.run !== "string") {
+    return json(400, { error: "the ticket names no run" });
+  }
+  if (posted !== undefined && (typeof posted?.id !== "string" || typeof posted.signature !== "string")) {
+    return json(400, { error: "the message needs id and signature" });
+  }
+  if (posted && !(await verifyMessage(rootKey, signature, posted))) {
+    return json(401, { error: "bad message signature" });
+  }
+  const result = await store.inbox.heartbeat(ticket.connection, ticket.delivery, ticket.run, {
+    ...(posted && { message: posted.id }),
+    ...(done === true && { done: true }),
+  });
+  if (result === "unknown") return json(404, { error: "the inbox has no such run" });
+  const answer: HeartbeatResult = { ok: true, ...(result === "lost" && { lost: true }) };
+  return json(200, answer);
 };
 
 /**
@@ -840,7 +922,7 @@ const admin = async (request: Request, route: string, store: RouterStore) => {
 
 /**
  * The router's routes. `POST /sync` takes requests that deploy signed with
- * the sync key. `POST /relay`, `POST /messages`
+ * the sync key. `POST /relay`, `POST /messages`, `POST /heartbeat`
  * and `POST /tokens` take tickets that the router signed when it started a
  * run. `POST /builds` takes reports that the deployer signed. The routes
  * under `/admin/` are for operators.
@@ -855,6 +937,9 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/messages") {
     return messages(request, store);
+  }
+  if (request.method === "POST" && pathname === "/heartbeat") {
+    return heartbeat(request, store);
   }
   if (request.method === "POST" && pathname === "/tokens") {
     return tokens(request, store);

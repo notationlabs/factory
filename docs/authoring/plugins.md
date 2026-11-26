@@ -67,3 +67,4 @@ Third-party packages work without SDK changes for hub resources and server modul
 | [Hub Providers](./providers.md) | `Vault`, `Router`, `Deployer` |
 | [Channels & Code Hosts](./channels-and-hosts.md) | `Connection`, `Channel`, `CodeHost`, `PolicyContract`, `OperatorAuth` |
 | [Agent Runtimes](./runtimes.md) | `Runtime`, `Account`, `Agent`, `RuntimeRunner` |
+| [Services](./services.md) | `Service` |

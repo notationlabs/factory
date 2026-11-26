@@ -20,6 +20,9 @@ flowchart LR
   Runner -->|POST /messages, /relay, /tokens| Router
   Runner -->|http://state.factory| Outpost
   Outpost -->|RPC getState / putState| Deployer
+  Runner -->|http://name.factory| Outpost
+  Outpost -->|ServiceGateway binding| Router
+  Router -->|service binding| Service["Service Worker"]
 ```
 
 ## Control plane vs data plane
@@ -28,10 +31,11 @@ The hub keeps platform credentials out of container environments. Outpost contai
 
 | Worker | Role and credentials |
 | :--- | :--- |
-| `Router` | Holds root and sync keys; reaches channel Workers, `Deployer`, and `DeliveryInbox` |
+| `Router` | Holds root and sync keys; reaches channel Workers, `Deployer`, `DeliveryInbox`, and service Workers |
 | `Channel` | Holds App private key, client secret, and webhook secret; reaches GitHub API and OAuth |
 | `Deployer` | Holds root key, builds token, and account and outpost secrets; reaches Loader, Builds, R2, and KV |
-| `Outpost` | Verifies signed runs via `Deployer` RPC; proxies state RPC and container HTTP traffic |
+| `Outpost` | Verifies signed runs via `Deployer` RPC; proxies state RPC, container HTTP traffic, and requests to services through the router |
+| Service | Holds its own bindings; reached only through the router's `ServiceGateway` |
 
 ## Three runtime flows
 

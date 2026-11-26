@@ -10,6 +10,7 @@ Runs a Notation Factory hub on Cloudflare Workers, Durable Objects, KV, R2, Secr
 | `CloudflareSecret` | Single `SecretsStoreSecret` declaration class inside a `Vault` |
 | `Router` | Hub router Worker, KV namespace, R2 bucket, and Durable Objects class |
 | `Deployer` | Outpost evaluator, Artifacts builder, and container host manager class |
+| `Service` | A hub service that a Worker runs, which containers reach at `http://<name>.factory` |
 | `OperatorAuth` | Cloudflare Access resource group class, currently unimplemented at runtime |
 
 ## `Vault`
@@ -40,6 +41,9 @@ Takes `{ vault: Vault }` and automatically attaches `RouterSync` on deploy.
 | `syncKey` | Vault secret holding the 32-byte deploy sync key |
 | `bind(secret, name?)` | Binds a `VaultSecret` onto the router Worker and returns its binding name |
 | `channel(options)` | Attaches a connection's channel Worker as a router service binding |
+| `service(name, worker)` | Binds a hub service's Worker as `SERVICE_<name>` and records it in the router's `services` |
+
+The router Worker exports a `ServiceGateway` entrypoint, which each outpost Worker binds as `ROUTER`. The entrypoint forwards each request to `<name>.factory` to the binding of the service `name`.
 
 ## `Deployer`
 
@@ -64,6 +68,19 @@ new cloudflare.Deployer("deployer", {
 | `accountId` | Optional Cloudflare account ID defaulting to `CLOUDFLARE_ACCOUNT_ID` |
 | `regions` | Optional array from `ENAM`, `WNAM`, `EEUR`, `WEUR`, `APAC`, `SAM`, `ME`, `OC`, `AFR` |
 | `sleepAfter` | Optional idle container duration matching `/^[1-9]\d*[smh]$/`, defaults to `"10m"` |
+
+## `Service`
+
+```ts [factory.infra.ts]
+new cloudflare.Service("drafts", { router, worker: drafts });
+```
+
+| Option | Details |
+| :--- | :--- |
+| `router` | Required `cloudflare.Router` instance |
+| `worker` | Required Notation `worker()` whose default export handles the containers' requests. Give it `url: false` |
+
+The id is the service's name, which must pass `isServiceName`. The constructor throws on an invalid name and on a second service with the same name. See [Services](../authoring/services.md).
 
 ## `OperatorAuth` status
 

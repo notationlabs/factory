@@ -58,6 +58,7 @@ export default {
             { label: "Hub Providers", slug: "authoring/providers" },
             { label: "Channels & Code Hosts", slug: "authoring/channels-and-hosts" },
             { label: "Agent Runtimes", slug: "authoring/runtimes" },
+            { label: "Hub Services", slug: "authoring/services" },
           ],
         },
       ],

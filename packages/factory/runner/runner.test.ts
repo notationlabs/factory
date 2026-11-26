@@ -20,7 +20,7 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called, the prompt on its stdin
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
-// exits with no result after it reports its session,
+// exits with no result after it reports its session, runs until it's stopped the first time,
 // waits for the runner to refresh its tokens, hangs, writes messages
 // before its result, has the fake earlyoom stop it, or stalls after it edits the worktree and reports its
 // session the first time, when the prompt says so.
@@ -37,6 +37,12 @@ projects="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 mkdir -p "$projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
+  *"run forever"*)
+    if [ ! -e forever.txt ]; then
+      echo forever > forever.txt
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      exec sleep 30
+    fi ;;
   *"crash now"*) echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"; echo "killed" >&2; exit 137 ;;
   *"fail now"*) echo "{\\"type\\":\\"result\\",\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   *"edit the code"*)
@@ -177,6 +183,8 @@ const tokenRequests: TokenRequest[] = [];
 const heartbeats: Heartbeat[] = [];
 /** The runs that the fake router answers heartbeats for as lost. */
 const lostRuns = new Set<string>();
+/** How many more `done` heartbeats the fake router fails with status 503. */
+let failDone = 0;
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
@@ -205,6 +213,8 @@ const nextReply = () =>
     const check = () => {
       const reply = replies.shift();
       if (!reply) return void (waiting = check);
+      // A reply that comes while no test waits stays for the next one.
+      waiting = undefined;
       clearTimeout(timer);
       resolve(reply);
     };
@@ -266,6 +276,11 @@ before(async () => {
       if (pathname === "/heartbeat") {
         const body = JSON.parse(Buffer.concat(chunks).toString()) as Heartbeat;
         heartbeats.push(body);
+        if (body.done && failDone > 0) {
+          failDone--;
+          response.statusCode = 503;
+          return response.end("unavailable");
+        }
         return response.end(JSON.stringify({ ok: true, ...(lostRuns.has(body.ticket.run!) && { lost: true }) }));
       }
       if (pathname === "/tokens") {
@@ -307,6 +322,7 @@ const startRunner = async () => {
       FACTORY_PROGRESS_INTERVAL_MS: "100",
       FACTORY_SAVE_INTERVAL_MS: "200",
       FACTORY_HEARTBEAT_INTERVAL_MS: "200",
+      FACTORY_DONE_RETRY_MS: "50",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
@@ -975,14 +991,51 @@ test("the runner posts heartbeats for each run it holds, queued or running, with
   while (replies.length) replies.shift();
 });
 
-test("a run that the router marks lost posts no more replies", async () => {
-  const id = "github:acme/api#21";
-  const body = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-21" } });
+test("a queued run that the router marks lost doesn't run, and posts nothing", async () => {
+  const id = "github:acme/api#61";
+  const first = watched({ id, message: say(id, "wait for it") }, { worktree: { branch: "issue-61" } });
+  const body = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-61" } });
   lostRuns.add(body.id);
+  await post(first);
   await post(body);
   await until(() => beatsOf(body.id).some((h) => h.done));
   assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
   assert.match(output, new RegExp(`"run":"${body.id}","state":"lost"`));
+  assert.doesNotMatch(output, new RegExp(`"run":"${body.id}","repo"`));
+  assert.equal((await nextReply()).text, "done");
+});
+
+test("a running run that the router marks lost stops its agent, saves its work, and posts nothing, so its restart resumes it", async () => {
+  const id = "github:acme/api#62";
+  const first = say(id, "run forever");
+  const body = watched({ id, message: first }, { worktree: { branch: "issue-62" } });
+  await post(body);
+  const worktree = join(data, "worktrees", "acme-api", "issue-62");
+  await until(() => existsSync(join(worktree, "forever.txt")));
+  lostRuns.add(body.id);
+  await until(() => beatsOf(body.id).some((h) => h.done));
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+  // The lost run's session hasn't seen the thread, so its restart gets the lost run's messages again.
+  assert.deepEqual(JSON.parse(state.get("sessions/github-acme-api-62/coder.json")!.toString()), {
+    id: "s-issue-62",
+    cwd: worktree,
+    seen: {},
+  });
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-62" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--resume s-issue-62/);
+  assert.match(lastPrompt(), /### Messages in thread since last turn[^]*run forever[^]*carry on/);
+});
+
+test("the runner posts a run's done heartbeat again if the router fails it", async () => {
+  const id = "github:acme/api#60";
+  const body = watched({ id, message: say(id, "go") }, { worktree: { branch: "issue-60" } });
+  failDone = 2;
+  while (replies.length) replies.shift();
+  await post(body);
+  assert.equal((await nextReply()).text, "done");
+  await until(() => beatsOf(body.id).filter((h) => h.done).length === 3);
+  assert.equal(failDone, 0);
 });
 
 test("status counts the runs that are running or queued", async () => {

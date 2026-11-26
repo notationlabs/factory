@@ -77,7 +77,7 @@ The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes
 2. Replaces the run's message on the thread with the lost notice, through the channel's `reply`. A run that had posted nothing has its lost notice posted as a new message. The notice has a restart link, and says that the person can mention the agent again instead.
 3. Lists the delivery as failed again, and keeps it for 7 days from then.
 
-`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. If the lost run's runner is still alive and posts another heartbeat, the router answers `lost`, and the runner stops posting the run's replies, so they don't replace the notice.
+`factory infra replay` dispatches lost runs again, like failed ones. The new run's first reply replaces the lost notice. If the lost run's runner is still alive and posts another heartbeat, the router answers `lost`. The runner then stops the run's agent, saves its work, and posts nothing more, so the notice stays. The restarted run queues behind it in the worktree.
 
 ## Restart links
 

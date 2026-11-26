@@ -38,9 +38,9 @@ Each update passes the router-signed `ReplyMessage` ID so progress overwrites th
 
 ## Heartbeats
 
-For each run it holds, queued or running, the runner posts a heartbeat to the run's `reply.heartbeat` URL when it takes the run and then every 60 seconds (`HEARTBEAT_INTERVAL_MS`). Each heartbeat has the ID of the message that the run's replies replace. When the run finishes, the runner posts a heartbeat with `done`. The router marks a run lost after 5 minutes without a heartbeat. See [Routing & Deliveries](./routing-and-deliveries.md#heartbeats-and-lost-runs).
+For each run it holds, queued or running, the runner posts a heartbeat to the run's `reply.heartbeat` URL when it takes the run and then every 60 seconds (`HEARTBEAT_INTERVAL_MS`). Each heartbeat has the ID of the message that the run's replies replace. When the run finishes, the runner posts a heartbeat with `done`. If the router can't be reached or answers with a 5xx status, the runner posts the `done` heartbeat again after 10 seconds (`FACTORY_DONE_RETRY_MS`), up to 3 times in all. The router marks a run lost after 5 minutes without a heartbeat. See [Routing & Deliveries](./routing-and-deliveries.md#heartbeats-and-lost-runs).
 
-If the router answers that it has marked the run lost, the runner logs it and stops posting the run's replies, so they don't replace the router's lost notice. The agent keeps running.
+If the router answers that it has marked the run lost, the run is over. A queued run doesn't start. A running run's agent gets `SIGTERM`, and the runner saves the worktree and the session as it does after any run. The saved session keeps the messages it had seen before the run, so a restart of the run gets the lost run's messages again. The runner posts nothing more for a lost run, so it doesn't replace the router's lost notice. Once the agent has stopped, the next run in the worktree can start.
 
 ## Container logs
 

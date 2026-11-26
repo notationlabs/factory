@@ -131,13 +131,19 @@ interface ChannelBase<E> {
   /** For a code host's channel: every repo that the hub can read, as `owner/name`. */
   repos?(): Promise<string[]>;
   /**
-   * For operator sign-in through the channel's platform: the page that
-   * signs the operator in, and then sends the browser to the CLI's callback
-   * with a code and `state`.
+   * For sign-in through the channel's platform: the page that signs a person
+   * in, and then sends the browser to `redirect` with a code and `state`.
+   * Without `redirect`, the browser goes to the CLI's callback, for operator
+   * sign-in.
    */
-  signInUrl?(state: string): Promise<string>;
-  /** For operator sign-in: exchanges the code that the callback got for the operator's identity. */
-  signIn?(code: string): Promise<Operator>;
+  signInUrl?(state: string, redirect?: string): Promise<string>;
+  /** For sign-in: exchanges the code that the callback at `redirect` got for the person's identity. */
+  signIn?(code: string, redirect?: string): Promise<Operator>;
+  /**
+   * Whether `selector`'s `from` lets `person`, who signed in with `signIn`,
+   * start a run for the delivery. The restart link of a lost run checks it.
+   */
+  canTrigger?(selector: unknown, delivery: Delivery<E>, person: Operator): Promise<boolean>;
 }
 
 /** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */

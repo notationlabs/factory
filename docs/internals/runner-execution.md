@@ -62,4 +62,4 @@ The runner runs as `factory`, without the privilege to lower its own OOM score. 
 
 The runner reads earlyoom's `sending SIGTERM to process <pid> ...` and `sending SIGKILL ...` lines. It follows the process's parents in `/proc` to the agent's CLI, and adds a note to that run's reply. If the process has already exited, so its parents can't be read, the note goes to every run whose agent is running.
 
-Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep.
+Because Linux ignores unhandled signals on PID 1, the runner installs a `SIGTERM` handler that notifies active and queued threads with a 5-second timeout before exiting cleanly when Cloudflare puts the container to sleep. It posts no `done` heartbeat for those runs, so 5 minutes later the router replaces each one's message with the lost notice and its restart link.

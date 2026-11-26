@@ -95,6 +95,14 @@ export type Inbox = {
    * run, and to `lost` if the run was marked lost.
    */
   heartbeat(connection: string, id: string, run: string, beat: { message?: string; done?: boolean }): Promise<"ok" | "lost" | "unknown">;
+  /** The delivery with this connection and id, if the inbox has it. */
+  record(connection: string, id: string): Promise<DeliveryRecord | undefined>;
+  /**
+   * Dispatches the lost run `run` of a delivery again, as a new run that
+   * replies to `origin`. Resolves to false if the delivery has no such lost
+   * run, such as when someone restarted it already.
+   */
+  restart(connection: string, id: string, run: string, origin: string): Promise<boolean>;
 };
 
 /** Whether a record has no dispatch left to try. */
@@ -119,11 +127,11 @@ export const failedDelivery = (record: DeliveryRecord, now: number): FailedDeliv
 
 /**
  * Sets a record's failed and lost dispatches to be tried again, each as a
- * new run. Resolves to false if none failed. A lost run's new run replaces
- * the lost notice.
+ * new run, or with `run`, only that lost run. Resolves to false if there was
+ * none. A lost run's new run replaces the lost notice.
  */
-export const replayRecord = (record: DeliveryRecord, origin: string) => {
-  const failed = record.dispatches.filter(isFailed);
+export const replayRecord = (record: DeliveryRecord, origin: string, run?: string) => {
+  const failed = record.dispatches.filter((d) => (run === undefined ? isFailed(d) : d.run === run && d.state === "lost"));
   if (!failed.length) return false;
   for (const dispatch of failed) {
     if (dispatch.state !== "lost") delete dispatch.waiting;
@@ -147,10 +155,14 @@ export const failureNotice = (failed: TriggerDispatch) =>
 /** Why a lost dispatch failed, as operators list it. */
 export const LOST_ERROR = `The run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes.`;
 
-/** The message that replaces a lost run's message on the thread. */
-export const lostNotice = () =>
+/**
+ * The message that replaces a lost run's message on the thread. `restart`
+ * is the link that restarts the run.
+ */
+export const lostNotice = (restart: string) =>
   `This run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes, so Factory marked it as lost. Its container may have stopped or run out of memory.\n\n` +
-  "Mention the agent again to start a new run. It starts from the worktree and session as this run last saved them, up to a minute before it was lost.";
+  `[Restart the run](${restart}), or mention the agent again. The link works for ${KEEP_DELIVERY_MS / 86_400_000} days, for anyone who may trigger the agent. ` +
+  "A new run starts from the worktree and session as this run last saved them, up to a minute before it was lost.";
 
 /** The message that shows on the thread while a dispatch waits for its container's first image build. */
 export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

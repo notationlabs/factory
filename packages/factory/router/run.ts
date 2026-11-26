@@ -140,6 +140,36 @@ export const signBuildReport = (rootKey: string, report: BuildReport) => sign(ro
 export const verifyBuildReport = (rootKey: string, report: BuildReport, signature: string) =>
   verify(rootKey, "router:builds", report, signature);
 
+/** A lost run that a restart link starts again: the run `run` of the delivery `delivery` of `connection`. `expires` is in ms since the epoch. */
+export type RestartTicket = { connection: string; delivery: string; run: string; expires: number };
+
+// encodeURIComponent leaves dots as they are.
+const encodePart = (part: string) => encodeURIComponent(part).replaceAll(".", "%2E");
+
+/**
+ * A restart link's token: `<connection>.<delivery>.<run>.<expires>.<signature>`,
+ * with each part URI-encoded so that none can hold a dot.
+ */
+export const signRestart = async (rootKey: string, ticket: RestartTicket) =>
+  [ticket.connection, ticket.delivery, ticket.run, String(ticket.expires), await sign(rootKey, "router:restart", ticket)]
+    .map(encodePart)
+    .join(".");
+
+/** The ticket in a restart link's token, if the router signed it and it hasn't expired. */
+export const verifyRestart = async (rootKey: string, token: string): Promise<RestartTicket | undefined> => {
+  const parts = token.split(".");
+  if (parts.length !== 5) return undefined;
+  let decoded: string[];
+  try {
+    decoded = parts.map(decodeURIComponent);
+  } catch {
+    return undefined;
+  }
+  const [connection, delivery, run, expires, signature] = decoded as [string, string, string, string, string];
+  const ticket = { connection, delivery, run, expires: Number(expires) };
+  return (await verify(rootKey, "router:restart", ticket, signature)) ? ticket : undefined;
+};
+
 /** A git branch name the runner can check out: no `..`, no leading `-` or `/`, and only letters, digits and `._/-`. */
 export const isBranchName = (name: string) =>
   /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(name) &&

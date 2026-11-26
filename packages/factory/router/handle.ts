@@ -33,6 +33,7 @@ import {
   type DeliveryRecord,
   failureNotice,
   type Inbox,
+  KEEP_DELIVERY_MS,
   LOST_ERROR,
   lostNotice,
   type TriggerDispatch,
@@ -53,12 +54,14 @@ import {
   type Run,
   type RunResult,
   signMessage,
+  signRestart,
   signTicket,
   signTokenTicket,
   type TokenRequest,
   type Tokens,
   verifyBuildReport,
   verifyMessage,
+  verifyRestart,
   verifyTicket,
   verifyTokenTicket,
 } from "./run.ts";
@@ -113,6 +116,12 @@ export const FACTORY_DIR = ".factory";
 
 /** A trigger that a delivery matched. `run` is the id of the run it started, if its author may start one. */
 export type TriggerMatch = { trigger: string; author: AuthorCheck; run?: string };
+
+/** The router's page that a lost run's restart link opens. */
+export const RESTART_PATH = "/restart";
+
+/** The router's page that the sign-in of a restart link sends the browser back to. A code host's App must allow it as a callback URL. */
+export const RESTART_CALLBACK_PATH = "/restart/callback";
 
 /** The path that a connection's platform delivers to. `key` is the connection's key, such as `github/gh`. */
 export const webhookPath = (key: string) => `/webhook/${key}`;
@@ -321,7 +330,8 @@ const waitForBuild = async (
 /**
  * Marks lost each dispatched run of the record whose last heartbeat in
  * `watches` is `LOST_AFTER_MS` old, and posts the lost notice in place of
- * the run's message. Watching starts with a run's first heartbeat, so a run
+ * the run's message. The notice has a restart link, signed for the run, which
+ * works for `KEEP_DELIVERY_MS`, as long as the inbox keeps the delivery. Watching starts with a run's first heartbeat, so a run
  * that waits for a container instance isn't watched. It changes `record`,
  * which the caller saves, and resolves to the runs to stop watching, and to
  * when to check the others again.
@@ -346,7 +356,9 @@ export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>,
     console.error(JSON.stringify({ run, trigger: d.trigger, state: "lost", heartbeat: beat.at }));
     if (!channel || d.thread === undefined) continue;
     try {
-      const posted = await channel.reply(d.thread, lostNotice(), beat.message ?? d.waiting);
+      const ticket = { connection: record.connection, delivery: record.id, run, expires: now + KEEP_DELIVERY_MS };
+      const link = `${record.origin}${RESTART_PATH}?run=${encodeURIComponent(await signRestart(await store.rootKey(), ticket))}`;
+      const posted = await channel.reply(d.thread, lostNotice(link), beat.message ?? d.waiting);
       if (posted !== undefined) d.waiting = posted;
     } catch (error) {
       console.error(JSON.stringify({ run, state: "lost notice failed", error: message(error) }));
@@ -798,6 +810,80 @@ const sync = async (request: Request, store: RouterStore) => {
   return json(failed ? 502 : 200, { connections: results });
 };
 
+const escapeHtml = (text: string) =>
+  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+
+/** A page for a person's browser, with one paragraph of text. */
+const page = (status: number, text: string) =>
+  new Response(`<!doctype html><meta charset="utf-8"><title>Notation Factory</title><p>${escapeHtml(text)}</p>`, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+
+/** The ticket of a restart link's token, and the channel of its connection, or a page that says why there's none. */
+const restartTicket = async (token: string, store: RouterStore) => {
+  const ticket = token ? await verifyRestart(await store.rootKey(), token) : undefined;
+  if (!ticket) return page(401, "This restart link isn't valid, or it has expired.");
+  const channel = channels(store).find((c) => c.key === ticket.connection)?.channel;
+  if (!channel) return page(404, `The hub has no channel for connection ${ticket.connection}.`);
+  return { ticket, channel };
+};
+
+/** Sends the browser to the sign-in page of the lost run's channel, which sends it to the callback with the link's token as the state. */
+const restartLink = async (request: Request, store: RouterStore) => {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("run") ?? "";
+  const found = await restartTicket(token, store);
+  if (found instanceof Response) return found;
+  try {
+    const location = await found.channel.signInUrl(token, `${url.origin}${RESTART_CALLBACK_PATH}`);
+    return new Response(null, { status: 302, headers: { location } });
+  } catch (error) {
+    return page(502, `Factory couldn't start the sign-in: ${message(error)}`);
+  }
+};
+
+const NOT_LOST = "This run isn't lost any more. Someone may have restarted it already.";
+
+/**
+ * Restarts a lost run for the person who signed in:
+ * 1. Checks the restart link's token, which comes back as the sign-in's state.
+ * 2. Has the channel of the token's connection sign the person in with the code.
+ * 3. Finds the lost run in the inbox, and its trigger in the outpost config
+ *    that the repo has now.
+ * 4. Has the channel check that the trigger's `from` lets the person start a run.
+ * 5. Has the inbox dispatch the run again, as a new run.
+ */
+const restartCallback = async (request: Request, store: RouterStore) => {
+  const url = new URL(request.url);
+  const found = await restartTicket(url.searchParams.get("state") ?? "", store);
+  if (found instanceof Response) return found;
+  const { ticket, channel } = found;
+  const code = url.searchParams.get("code");
+  if (!code) return page(400, "The sign-in returned no code.");
+  let person: Operator;
+  try {
+    person = await channel.signIn(code, `${url.origin}${RESTART_CALLBACK_PATH}`);
+  } catch (error) {
+    return page(401, `Signing in failed: ${message(error)}`);
+  }
+  const record = await store.inbox.record(ticket.connection, ticket.delivery);
+  const dispatch = record?.dispatches.find((d) => d.run === ticket.run);
+  if (!record || dispatch?.state !== "lost") return page(409, NOT_LOST);
+  const trigger = (await store.outpost(record.delivery.repo))?.triggers?.[dispatch.trigger];
+  if (!trigger) return page(404, `The outpost of ${record.delivery.repo} no longer has the trigger ${dispatch.trigger}.`);
+  let allowed: boolean;
+  try {
+    allowed = await channel.canTrigger(trigger.match, record.delivery, person);
+  } catch (error) {
+    return page(502, `Factory couldn't check who may trigger the agent: ${message(error)}`);
+  }
+  if (!allowed) return page(403, `${person.login} may not trigger this agent, so the run wasn't restarted.`);
+  if (!(await store.inbox.restart(ticket.connection, ticket.delivery, ticket.run, url.origin))) return page(409, NOT_LOST);
+  console.log(JSON.stringify({ run: ticket.run, delivery: ticket.delivery, state: "restarted", by: person.login, id: person.id }));
+  return page(200, "The run is starting again. Its replies will show on the thread.");
+};
+
 /** Reads a JSON object body, or answers 400. */
 const readJson = async <T>(request: Request): Promise<T | Response> => {
   try {
@@ -925,7 +1011,9 @@ const admin = async (request: Request, route: string, store: RouterStore) => {
  * the sync key. `POST /relay`, `POST /messages`, `POST /heartbeat`
  * and `POST /tokens` take tickets that the router signed when it started a
  * run. `POST /builds` takes reports that the deployer signed. The routes
- * under `/admin/` are for operators.
+ * under `/admin/` are for operators. `GET /restart` and `GET
+ * /restart/callback` are the pages of a lost run's restart link, which the
+ * router signed.
  */
 export const handle = (request: Request, store: RouterStore) => {
   const { pathname } = new URL(request.url);
@@ -949,6 +1037,12 @@ export const handle = (request: Request, store: RouterStore) => {
   }
   if (request.method === "POST" && pathname === "/sync") {
     return sync(request, store);
+  }
+  if (request.method === "GET" && pathname === RESTART_PATH) {
+    return restartLink(request, store);
+  }
+  if (request.method === "GET" && pathname === RESTART_CALLBACK_PATH) {
+    return restartCallback(request, store);
   }
   if (pathname.startsWith("/admin/")) {
     return admin(request, pathname.slice("/admin/".length), store);

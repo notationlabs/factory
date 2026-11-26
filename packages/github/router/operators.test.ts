@@ -26,6 +26,24 @@ test("signInUrl names the App's client, the CLI's callback and the state", () =>
   );
 });
 
+test("signInUrl and signIn take another callback, such as the router's restart page", async () => {
+  const redirect = "https://router.test/restart/callback";
+  assert.equal(new URL(signInUrl("Iv1.abc", "s1", redirect)).searchParams.get("redirect_uri"), redirect);
+  await withFetch(
+    (url, init) => {
+      if (url.endsWith("/login/oauth/access_token")) {
+        assert.equal(JSON.parse(String(init?.body)).redirect_uri, redirect);
+        return Response.json({ access_token: "ghu_1" });
+      }
+      if (url.endsWith("/user")) return Response.json({ login: "alice", id: 42 });
+      return new Response(null, { status: 204 });
+    },
+    async () => {
+      assert.deepEqual(await signIn(app, "c1", redirect), { login: "alice", id: "42" });
+    },
+  );
+});
+
 test("signIn exchanges the code, reads the user's login and id, and revokes the token", async () => {
   await withFetch(
     (url, init) => {

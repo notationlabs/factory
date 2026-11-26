@@ -53,6 +53,24 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
     return true;
   }
 
+  async record() {
+    return (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
+  }
+
+  /**
+   * Dispatches the lost run `run` again, as a new run, while the delivery's
+   * other dispatches go on. Resolves to false if the run isn't lost.
+   */
+  async restart(run: string, origin: string) {
+    const record = (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
+    if (!record || !replayRecord(record, origin, run)) return false;
+    await this.ctx.storage.put(RECORD, record);
+    await this.ctx.storage.delete(LISTED);
+    await this.env.FACTORY_KV.delete(failedKey(record.connection, record.id));
+    await this.ctx.storage.setAlarm(Date.now());
+    return true;
+  }
+
   /**
    * Notes a heartbeat of `run`, and has the alarm check it within
    * `LOST_AFTER_MS`. With `done`, stops watching the run. Heartbeats are

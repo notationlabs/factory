@@ -88,6 +88,7 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `watch(record, watches, store, now?)` | Marks lost the dispatched runs whose last heartbeat is 5 minutes old, and posts their lost notices |
 | `redeployRepo(change, store)` | Redeploys a repository outpost config after source changes |
 | `outpostKey(repo)` | Returns the lowercase store key for a repository outpost |
+| `RESTART_PATH`, `RESTART_CALLBACK_PATH` | The router's pages for a lost run's restart link and its sign-in callback |
 | `webhookPath(key)` | Returns the webhook URL path for a connection key |
 | `allowsRepo(allow, repo)` | Checks whether a repository matches a `RepoPattern[]` allowlist |
 | `failedDelivery` | Formats a settled failed `DeliveryRecord` into a `FailedDelivery` |

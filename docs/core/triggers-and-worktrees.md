@@ -134,4 +134,4 @@ factory infra replay
 factory infra replay github/gh/<delivery-id>
 ```
 
-`factory infra replay` re-dispatches failed triggers against the repository's current outpost configuration and mints fresh tokens. See [CLI reference](../reference/cli.md) for operator sign-in and command flags.
+`factory infra replay` re-dispatches failed triggers against the repository's current outpost configuration and mints fresh tokens. It also re-dispatches lost runs, which stopped sending heartbeats. The notice of a lost run also has a restart link, which anyone whom the trigger's `from` allows can use without the CLI. See [Persistence across container sleep](./containers.md#persistence-across-container-sleep). See [CLI reference](../reference/cli.md) for operator sign-in and command flags.

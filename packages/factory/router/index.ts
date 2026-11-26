@@ -34,7 +34,18 @@ export {
   settled,
   type Watch,
 } from "./deliveries.ts";
-export { advance, handle, outpostKey, redeployRepo, type RemoteDeployer, type RouterStore, watch, webhookPath } from "./handle.ts";
+export {
+  advance,
+  handle,
+  outpostKey,
+  redeployRepo,
+  type RemoteDeployer,
+  RESTART_CALLBACK_PATH,
+  RESTART_PATH,
+  type RouterStore,
+  watch,
+  webhookPath,
+} from "./handle.ts";
 export { deriveKey, hmacHex, timingSafeEqual } from "./keys.ts";
 export { allowsRepo } from "../lib/repos.ts";
 export {

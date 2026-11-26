@@ -15,7 +15,7 @@ import {
 } from "./deliveries.ts";
 import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
 import { advance, handle, type RemoteDeployer, type RouterStore, watch } from "./handle.ts";
-import { LOST_AFTER_MS, type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { LOST_AFTER_MS, type Run, signBuildReport, signMessage, signRestart, signTicket, signTokenTicket } from "./run.ts";
 import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
@@ -43,12 +43,14 @@ const fake = (
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
   repos: async () => [],
-  signInUrl: async (state) => `https://sign-in.test/?state=${state}`,
+  signInUrl: async (state, redirect) => `https://sign-in.test/?state=${encodeURIComponent(state)}${redirect ? `&redirect=${redirect}` : ""}`,
   // A code of `code-<login>-<id>` signs in as that user.
   signIn: async (code) => {
     const [login = "", id = "0"] = code.replace(/^code-/, "").split("-");
     return { login, id };
   },
+  // Only alice may trigger the agent.
+  canTrigger: async (_selector, _delivery, person) => person.login === "alice",
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -94,6 +96,8 @@ const atOnce: Inbox = {
   failed: async () => [],
   replay: async () => false,
   heartbeat: async () => "unknown",
+  record: async () => undefined,
+  restart: async () => false,
 };
 
 const entry = (channel: string) => ({ provider: "fake", source: "1", credentials: {}, channel });
@@ -597,6 +601,11 @@ const memoryInbox = () => {
       else watches.set(run, { at: Date.now(), ...(beat.message && { message: beat.message }) });
       return "ok";
     },
+    record: async (connection, id) => records.get(`${connection}/${id}`),
+    restart: async (connection, id, run, origin) => {
+      const record = records.get(`${connection}/${id}`);
+      return record ? replayRecord(record, origin, run) : false;
+    },
   };
   return { inbox, records, watches };
 };
@@ -889,7 +898,12 @@ test("a run without a heartbeat for 5 minutes is marked lost, and the lost notic
 
   assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined });
   assert.equal(record.dispatches[0]!.state, "lost");
-  assert.deepEqual(replies, [[lostNotice(), "m1"]]);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]![1], "m1");
+  assert.match(replies[0]![0] as string, /^This run sent no heartbeat for 5 minutes, so Factory marked it as lost\./);
+  const link = new URL((replies[0]![0] as string).match(/\[Restart the run\]\((.+?)\)/)![1]!);
+  assert.equal(`${link.origin}${link.pathname}`, "https://router.test/restart");
+  assert.equal(replies[0]![0], lostNotice(link.toString()));
   assert.equal(record.dispatches[0]!.waiting, "m1");
   assert.deepEqual(failedDelivery(record, 2)?.triggers, [{ trigger: "mention", error: LOST_ERROR }]);
   assert.equal(await store.inbox.heartbeat("fake/main", "d1", run, {}), "lost");
@@ -899,6 +913,55 @@ test("a run without a heartbeat for 5 minutes is marked lost, and the lost notic
   await advance(record, store, 3);
   assert.equal(record.dispatches[0]!.state, "dispatched");
   assert.equal(runs[1]!.reply.message?.id, "m1");
+});
+
+const open = async (s: RouterStore, url: string) => {
+  const response = await handle(new Request(url), s);
+  return { status: response.status, location: response.headers.get("location"), text: await response.text() };
+};
+
+test("a lost run's restart link signs the person in, checks them against the trigger's from, and restarts only that run", async () => {
+  const replies: string[] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push(text), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const lost = runs[0]!.id;
+  watches.set(lost, { at: Date.now() - LOST_AFTER_MS });
+  await watch(record, watches, store);
+  const link = replies[0]!.match(/\[Restart the run\]\((.+?)\)/)![1]!;
+  const token = new URL(link).searchParams.get("run")!;
+
+  const signIn = await open(store, link);
+  assert.equal(signIn.status, 302);
+  const location = new URL(signIn.location!);
+  assert.equal(location.searchParams.get("state"), token);
+  assert.equal(location.searchParams.get("redirect"), "https://router.test/restart/callback");
+
+  const callback = (code: string, state = token) =>
+    open(store, `https://router.test/restart/callback?code=${code}&state=${encodeURIComponent(state)}`);
+  const denied = await callback("code-bob-2");
+  assert.equal(denied.status, 403);
+  assert.match(denied.text, /bob may not trigger this agent/);
+  assert.equal(record.dispatches[0]!.state, "lost");
+
+  // A link can't be changed to restart another run, or used after it expires.
+  assert.equal((await callback("code-alice-1", token.replace(lost, crypto.randomUUID()))).status, 401);
+  assert.equal((await open(store, `https://router.test/restart?run=${encodeURIComponent(`${token}0`)}`)).status, 401);
+  const expired = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: lost, expires: Date.now() - 1 });
+  assert.equal((await callback("code-alice-1", expired)).status, 401);
+
+  const restarted = await callback("code-alice-1");
+  assert.equal(restarted.status, 200);
+  assert.equal(record.dispatches[0]!.state, "pending");
+  await advance(record, store, 1);
+  assert.notEqual(runs[1]!.id, lost);
+  assert.equal(runs[1]!.reply.message?.id, "n1");
+
+  assert.equal((await callback("code-alice-1")).status, 409);
 });
 
 test("watching forgets runs that the record no longer has or that failed, and leaves runs that aren't dispatched yet", async () => {
@@ -1103,6 +1166,8 @@ test("replay replays one failed delivery, or all of them, against the router's o
     ],
     replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
     heartbeat: async () => "unknown",
+    record: async () => undefined,
+    restart: async () => false,
   };
   const s: RouterStore = { ...adminStore(adminChannel()), inbox };
   const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });

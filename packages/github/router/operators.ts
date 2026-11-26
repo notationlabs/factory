@@ -15,26 +15,30 @@ const headers = (token: string) => ({
  */
 export const OPERATOR_CALLBACK_URL = "http://127.0.0.1:47219/callback";
 
-/** GitHub's page that signs a user in to the App, and sends their browser to `OPERATOR_CALLBACK_URL`. */
-export const signInUrl = (client: string, state: string) => {
+/**
+ * GitHub's page that signs a user in to the App, and sends their browser to
+ * `redirect`, which must be one of the App's callback URLs.
+ */
+export const signInUrl = (client: string, state: string, redirect = OPERATOR_CALLBACK_URL) => {
   const url = new URL("/login/oauth/authorize", GITHUB_WEB);
   url.searchParams.set("client_id", client);
-  url.searchParams.set("redirect_uri", OPERATOR_CALLBACK_URL);
+  url.searchParams.set("redirect_uri", redirect);
   url.searchParams.set("state", state);
   return url.toString();
 };
 
 /**
- * The login and account id of the user who signed in:
+ * The login and account id of the user who signed in, whose browser GitHub
+ * sent to `redirect` with `code`:
  * 1. Exchanges the code for a user access token, with the App's client secret.
  * 2. Asks GitHub whose token it is.
  * 3. Revokes the token, which the router has no other use for.
  */
-export const signIn = async (app: { clientId: string; clientSecret: string }, code: string) => {
+export const signIn = async (app: { clientId: string; clientSecret: string }, code: string, redirect = OPERATOR_CALLBACK_URL) => {
   const exchanged = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": "notation-factory-router" },
-    body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code, redirect_uri: OPERATOR_CALLBACK_URL }),
+    body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code, redirect_uri: redirect }),
   });
   // GitHub answers a bad code with a 200 and an `error`.
   const result = (await exchanged.json().catch(() => ({}))) as { access_token?: string; error?: string; error_description?: string };

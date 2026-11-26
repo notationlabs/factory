@@ -12,6 +12,7 @@ Notation Factory derives every internal signing secret from a single hub `Random
 | `router:message` | `ReplyMessage` IDs bound to a specific ticket signature |
 | `router:tokens` | `TokenTicket` payloads for `/tokens` refresh requests |
 | `router:builds` | `BuildReport` payloads from `BuildWatch` to `/builds` |
+| `router:restart` | Restart links in the notices of lost runs, for `/restart` and `/restart/callback` |
 | `operator:session` | Signed CLI bearer tokens returned by `/admin/session` |
 | `outpost:<worker>` | Outpost `POST /runs` requests from deployer to outpost Worker |
 | `github:webhook:<appId>` | Webhook `X-Hub-Signature-256` secret configured on GitHub |
@@ -52,3 +53,9 @@ Operators authenticate through `/admin/sign-in` and `/admin/session` using GitHu
 The router checks `github.OperatorAuth.users` by case-insensitive login or numeric ID, then signs a 4-hour session token formatted as `<login>.<id>.<expires>.<sig>` using `SESSION_TTL_MS`.
 
 Every `/admin/*` call verifies that signature and re-checks `users` live against the current router config, so removing a user revokes active sessions on the next request.
+
+## Restart links
+
+The notice of a lost run is a public comment, so its restart link is signed and does nothing on its own. Its token is `<connection>.<delivery>.<run>.<expires>.<sig>`, signed with `router:restart`, and it expires after 7 days. It names one run, so it can only restart that run, and only while the run is lost.
+
+The person who opens the link signs in with GitHub through the connection's App. The router checks the signed token again when GitHub returns, so it doesn't need a session or cookie. It then checks the person against the trigger's `from`, with their role on the repo as GitHub reports it, and revokes their access token, as for operators. Someone who signs in and isn't in `from` can't restart the run.

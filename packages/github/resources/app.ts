@@ -4,6 +4,7 @@ import {
   createApp,
   readApp,
   requestAppChange,
+  requestCallbackUrl,
   requestAppDeletion,
 } from "../lib/app.ts";
 import {
@@ -21,11 +22,13 @@ type AppApi = {
     name: string;
     org?: string;
     hookUrl: string;
+    restartUrl?: string;
     events?: GithubEvent[];
     permissions?: Permissions;
   };
   UpdateParams: {
     hookUrl: string;
+    restartUrl?: string;
     events?: GithubEvent[];
     permissions?: Permissions;
   };
@@ -63,6 +66,8 @@ export const App = defineResource<AppApi>({
       value: v.string(),
     },
     hookUrl: { propertyType: "param", presence: "required", value: v.string() },
+    /** The router's page that the sign-in of a lost run's restart link returns to, which the App allows as a callback URL. */
+    restartUrl: { propertyType: "param", presence: "optional", value: v.string() },
     events: {
       propertyType: "param",
       presence: "optional",
@@ -110,6 +115,7 @@ export const App = defineResource<AppApi>({
           permissions: params.permissions,
         });
       }
+      if (patch.restartUrl !== undefined) await requestCallbackUrl({ ...key, org: params.org }, patch.restartUrl);
       // A new hookUrl reaches GitHub through the router's sync, which signs
       // in as the App with its private key.
     },

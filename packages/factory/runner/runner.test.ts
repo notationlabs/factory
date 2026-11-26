@@ -21,7 +21,7 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
 // waits for the runner to refresh its tokens, hangs, writes messages
-// before its result, or stalls after it edits the worktree and reports its
+// before its result, has the fake earlyoom stop it, or stalls after it edits the worktree and reports its
 // session the first time, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$(cat)"
@@ -56,6 +56,11 @@ case "$prompt" in
     echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/a.ts"}}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
+  *"use memory"*)
+    echo "sending SIGTERM to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" > "${calls}.oom.new"
+    echo "sending SIGKILL to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" >> "${calls}.oom.new"
+    mv "${calls}.oom.new" "${calls}.oom"
+    sleep 1 ;;
   *stall*)
     if [ ! -e draft.txt ]; then
       echo draft > draft.txt
@@ -134,6 +139,20 @@ esac
 echo "{\\"type\\":\\"completion\\",\\"finalText\\":\\"done\\",\\"numTurns\\":1,\\"session_id\\":\\"$session\\"}"
 `;
 
+// A fake earlyoom: it records its arguments, and writes the lines that a
+// fake agent leaves for it to stderr, as earlyoom does, until the runner exits.
+const FAKE_EARLYOOM = `#!/bin/sh
+printf '%s' "$*" > "${calls}.earlyoom"
+echo "earlyoom v1.7" >&2
+while kill -0 $PPID 2>/dev/null; do
+  if [ -e "${calls}.oom" ]; then
+    cat "${calls}.oom" >&2
+    rm -f "${calls}.oom"
+  fi
+  sleep 0.1
+done
+`;
+
 /** The hub's runner modules, by the path the runner fetches them at. */
 const MODULES: Record<string, string> = {
   "runtimes/claude.ts": join(import.meta.dirname, "../../claude/runtime/runner.ts"),
@@ -193,6 +212,7 @@ before(async () => {
   writeFileSync(join(bin, "agent"), FAKE_CURSOR, { mode: 0o755 });
   writeFileSync(join(bin, "droid"), FAKE_DROID, { mode: 0o755 });
   writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
+  writeFileSync(join(bin, "earlyoom"), FAKE_EARLYOOM, { mode: 0o755 });
 
   const work = join(root, "work");
   mkdirSync(join(work, ".factory"), { recursive: true });
@@ -891,6 +911,18 @@ test("during a long run, the runner refreshes the tokens that gh and git read", 
   const { ticket, signature } = tokenRequests[0]!;
   assert.deepEqual([ticket.repo, ticket.container, signature], ["acme/api", "dev", "token-sig"]);
   assert.equal(readFileSync(join(data, "github", "code"), "utf8"), "fresh-token");
+});
+
+test("the runner starts earlyoom, logs its output, and says in a run's reply when earlyoom stopped its agent's process", async () => {
+  assert.equal(readFileSync(`${calls}.earlyoom`, "utf8"), "-r 60 -s 100,100 --avoid ^bun$");
+  const id = "github:acme/api#14";
+  await post(run({ id, message: say(id, "use memory") }, { worktree: { branch: "issue-14" } }));
+  // earlyoom's SIGTERM and SIGKILL for one process make one note.
+  assert.equal(
+    (await nextReply()).text,
+    "done\n\n> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.",
+  );
+  assert.match(output, /\{"at":"[^"]+","earlyoom":"sending SIGTERM to process \d+ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB"\}/);
 });
 
 test("status counts the runs that are running or queued", async () => {

@@ -5,8 +5,9 @@ export type RuntimeAccount = { setup?: string };
 
 /**
  * The layers the deployer adds to the end of every container's Dockerfile:
- * bun, which runs the runner, git, the container's runtimes' setups as
- * root, and a user other than root who owns `/data`.
+ * bun, which runs the runner, git, earlyoom if the image has apt-get, the
+ * container's runtimes' setups as root, and a user other than root who owns
+ * `/data`. The runner runs without earlyoom if the image doesn't have it.
  */
 const factoryLayers = (runtimes: number) => `
 
@@ -15,6 +16,9 @@ USER root
 COPY --from=oven/bun:1-debian /usr/local/bin/bun /usr/local/bin/bun
 RUN command -v git >/dev/null 2>&1 || { apt-get update \\
  && apt-get install -y --no-install-recommends ca-certificates git \\
+ && rm -rf /var/lib/apt/lists/*; }
+RUN command -v earlyoom >/dev/null 2>&1 || ! command -v apt-get >/dev/null 2>&1 || { apt-get update \\
+ && apt-get install -y --no-install-recommends earlyoom \\
  && rm -rf /var/lib/apt/lists/*; }
 ${
   runtimes === 0

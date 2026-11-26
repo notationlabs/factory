@@ -8,7 +8,7 @@ const container = { runtimes: ["claude"], policies: [], files: {} };
 
 /** The lines of Factory's layers, in order, as a pattern. */
 const LAYERS =
-  /USER root\nCOPY --from=oven\/bun:1-debian \/usr\/local\/bin\/bun \/usr\/local\/bin\/bun\n[\s\S]*COPY factory-runtimes \/tmp\/factory-runtimes\n[\s\S]*useradd[\s\S]*USER factory\nENV HOME=\/data\/home\nWORKDIR \/data\/home\n/;
+  /USER root\nCOPY --from=oven\/bun:1-debian \/usr\/local\/bin\/bun \/usr\/local\/bin\/bun\n[\s\S]*RUN command -v earlyoom [\s\S]*apt-get install -y --no-install-recommends earlyoom[\s\S]*COPY factory-runtimes \/tmp\/factory-runtimes\n[\s\S]*useradd[\s\S]*USER factory\nENV HOME=\/data\/home\nWORKDIR \/data\/home\n/;
 
 test("a container with no image gets the default Dockerfile, with Factory's layers and its runtimes' setups", () => {
   const { source, image, context } = imageSource(container, {}, accounts, DOCKERFILE);

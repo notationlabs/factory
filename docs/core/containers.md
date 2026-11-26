@@ -67,11 +67,36 @@ The deployer appends Factory's runtime layers to the end of every Dockerfile –
 
 1. Switches to `root` and copies `bun` from `oven/bun:1-debian` to `/usr/local/bin/bun`.
 2. Installs `ca-certificates` and `git` via `apt-get` if `git` is not already present.
-3. Copies each listed runtime's `setup.sh` into `/tmp/factory-runtimes/`, executes them as `root`, and removes the directory.
-4. Creates the `factory` user with home `/data/home` if absent and assigns ownership of `/data`.
-5. Switches to `USER factory`, sets `HOME=/data/home` and `WORKDIR /data/home`, and exposes port `8080`.
+3. Installs `earlyoom` via `apt-get` if it is not already present and the image has `apt-get`.
+4. Copies each listed runtime's `setup.sh` into `/tmp/factory-runtimes/`, executes them as `root`, and removes the directory.
+5. Creates the `factory` user with home `/data/home` if absent and assigns ownership of `/data`.
+6. Switches to `USER factory`, sets `HOME=/data/home` and `WORKDIR /data/home`, and exposes port `8080`.
 
 The outpost Worker overrides the image entrypoint and command to fetch `http://runner.factory/runner.ts` at startup and listen on port `8080`. Any user, working directory, home path, entrypoint, or command set in a custom Dockerfile is replaced.
+
+## Memory limits and earlyoom
+
+A container that runs out of memory can stop responding for many minutes before the kernel stops a process. While it doesn't respond, the run can't save its work or post a reply. To prevent this, the runner starts [earlyoom](https://github.com/rfjakob/earlyoom) when the container starts. earlyoom stops the process with the highest OOM score once less than 10% of the container's memory is available. Swap doesn't delay it.
+
+The runner gives the agent's CLI, and every process the agent starts, a higher OOM score than its own. So earlyoom stops the agent's processes, such as a `tsc` or a test run that uses too much memory, before the runner. The run's reply then ends with a note such as:
+
+> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.
+
+The agent usually sees its command fail, and can carry on. If earlyoom stops the agent's CLI, the run fails, and its reply has the error and the note.
+
+earlyoom writes a memory report to the container's logs every 60 seconds, and a line for each process it stops. Debian 12 has earlyoom 1.7 and Debian 13 has 1.8. The runner reads the output of both.
+
+If the image has no `earlyoom`, because it has no `apt-get`, the runner logs `earlyoom missing` and runs without it.
+
+### Node's heap limit
+
+earlyoom protects every container. Factory doesn't set `NODE_OPTIONS`. If a repo has a Node tool that needs more memory than Node allows by default, or that should fail before it fills the container, set the heap limit in the container's own Dockerfile:
+
+```dockerfile [.factory/Dockerfile]
+ENV NODE_OPTIONS=--max-old-space-size=4096
+```
+
+The value is in MiB. Leave room for the agent's CLI and the other processes in the container.
 
 ## Image builds and commit checks
 

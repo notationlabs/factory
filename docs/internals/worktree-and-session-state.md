@@ -41,7 +41,7 @@ The runner stores clones and active checkouts under `/data` using three path lay
 3. Runs `git commit-tree` on top of `HEAD` to record an ephemeral commit under `refs/factory/worktrees/<branch>` or scratch refs.
 4. Runs `git bundle create ... --not --remotes=origin` so the uploaded bundle contains only local commits and uncommitted changes relative to `origin`.
 
-A run's saves go one at a time. The save after the run waits for a save in progress to finish. `FACTORY_SAVE_INTERVAL_MS` in the container's environment changes the interval.
+A run's saves go one at a time. If a save is still in progress after 60 seconds, the runner skips the next one. The save after the run waits for a save in progress to finish. `FACTORY_SAVE_INTERVAL_MS` in the container's environment changes the interval.
 
 On a cold container start, `restoreWorktree` fetches the snapshot commit from the bundle, adds the worktree at the parent commit, resets tracked and untracked state via `git read-tree` and `git reset`, and restores upstream tracking.
 
@@ -63,4 +63,4 @@ Runner stores session IDs, working directories, and seen message hashes in `/dat
 
 Each save uploads that metadata file and a gzip tarball of matching transcript files to `sessions/<conv>/<agent>.tar.gz`. A save skips the upload when the transcript files' sizes and modification times haven't changed since the run's last save.
 
-The saves during a run need the session's ID. A resumed session has it from the start. For a new session, the runner reads it from the CLI's output with the runtime's `session` function. Until then, the saves during the run upload only the worktree. The saves during a run keep the `seen` hashes from before the run. If the container is lost during the run, the next run resumes the saved session, and its prompt has the lost run's messages again.
+The saves during a run need the session's ID. A resumed session has it from the start. For a new session, the runner reads it from the CLI's output with the runtime's `session` function. Until then, the saves during the run upload only the worktree. The saves during a run keep the `seen` hashes from before the run. When the agent's CLI exits, the runner writes the session file with the session's ID from the CLI's result, or else the ID from its output during the run, and the thread's `seen` hashes. The save after the run uploads that session. If the container is lost during the run, the next run resumes the saved session, and its prompt has the lost run's messages again.

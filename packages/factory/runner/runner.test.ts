@@ -20,6 +20,7 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called, the prompt on its stdin
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
+// exits with no result after it reports its session,
 // waits for the runner to refresh its tokens, hangs, writes messages
 // before its result, has the fake earlyoom stop it, or stalls after it edits the worktree and reports its
 // session the first time, when the prompt says so.
@@ -36,6 +37,7 @@ projects="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 mkdir -p "$projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
+  *"crash now"*) echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"; echo "killed" >&2; exit 137 ;;
   *"fail now"*) echo "{\\"type\\":\\"result\\",\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   *"edit the code"*)
     echo committed > committed.txt
@@ -845,6 +847,16 @@ test("a failed run replies with the error, and its session has still seen the th
   const session = JSON.parse(readFileSync(join(data, "sessions", "github-acme-api-3", "coder.json"), "utf8"));
   assert.equal(session.id, "s-issue-1");
   assert.deepEqual(Object.keys(session.seen), [message]);
+});
+
+test("a run whose CLI exits with no result saves the session that its output reported", async () => {
+  const id = "github:acme/api#15";
+  const message = say(id, "crash now");
+  await post(run({ id, message }, { worktree: { branch: "issue-15" } }));
+  assert.match((await nextReply()).text, /The run failed: Claude Code exited with code 137: killed/);
+  const saved = JSON.parse(state.get("sessions/github-acme-api-15/coder.json")!.toString());
+  assert.equal(saved.id, "s-issue-15");
+  assert.deepEqual(Object.keys(saved.seen), [message]);
 });
 
 test("after the container sleeps, a run restores its worktree and its conversation's session", async () => {

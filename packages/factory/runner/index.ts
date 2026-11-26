@@ -513,13 +513,10 @@ const loadRuntime = (id: string) =>
  * Saves the conversation's session to the state store: its transcript
  * files, as a tarball of their paths under the runtime's transcripts
  * directory, and then the session's id, working directory and seen
- * messages. `session` is the session file's, unless it's given. Returns the
- * session and the transcripts' sizes and times, and skips the upload if
- * they are `previous`, which an earlier save returned.
+ * messages. Returns the session and the transcripts' sizes and times, and
+ * skips the upload if they are `previous`, which an earlier save returned.
  */
-const saveSession = async (run: Run, transcripts: string, session?: Session, previous?: string) => {
-  session ??= await readSession(run);
-  if (!session) return undefined;
+const saveSession = async (run: Run, transcripts: string, session: Session, previous?: string) => {
   const paths: string[] = [];
   for (const project of await readdir(transcripts).catch(() => [])) {
     for (const name of [`${session.id}.jsonl`, `${session.id}.settings.json`, session.id]) {
@@ -545,44 +542,40 @@ const saveSession = async (run: Run, transcripts: string, session?: Session, pre
 
 /**
  * Saves a run's worktree and session to the state store, one save at a
- * time. `during` starts a save every `SAVE_INTERVAL_MS` while the agent
- * runs, and returns a function that stops them. `final` waits for a save
- * in progress, and then saves. Each save skips an upload whose contents
- * haven't changed since the last one.
+ * time. `session` returns the session to save, or undefined while the runner
+ * doesn't know the session's id. `during` starts a save every
+ * `SAVE_INTERVAL_MS` while the agent runs, unless one is in progress, and
+ * returns a function that stops them. `final` waits for a save in progress,
+ * and then saves. Each save skips an upload whose contents haven't changed
+ * since the last one.
  */
-const saver = (run: Run, worktree: Worktree, transcripts: string) => {
+const saver = (run: Run, worktree: Worktree, transcripts: string, session: () => Session | undefined) => {
   const last: { worktree?: string; session?: string } = {};
   let saving: Promise<void> = Promise.resolve();
-  const save = (session?: () => Session | undefined) => {
+  let busy = false;
+  const save = () => {
     const next = saving.then(async () => {
       last.worktree = await saveWorktree(worktree, last.worktree);
-      const current = session ? session() : await readSession(run);
+      const current = session();
       if (current) last.session = await saveSession(run, transcripts, current, last.session);
     });
     saving = next.catch(() => {});
     return next;
   };
   return {
-    /**
-     * `session` is the session as the run would leave it if it were lost
-     * now, or undefined while the runner doesn't know the session's id.
-     */
-    during(session: () => Session | undefined) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      let stopped = false;
-      const schedule = () => {
-        timer = setTimeout(async () => {
-          await save(session).catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }));
-          if (!stopped) schedule();
-        }, SAVE_INTERVAL_MS);
-      };
-      schedule();
-      return () => {
-        stopped = true;
-        clearTimeout(timer);
-      };
+    during() {
+      const timer = setInterval(() => {
+        if (busy) return;
+        busy = true;
+        save()
+          .catch((error: unknown) => log({ run: run.id, state: "periodic save failed", error: message(error) }))
+          .finally(() => {
+            busy = false;
+          });
+      }, SAVE_INTERVAL_MS);
+      return () => clearInterval(timer);
     },
-    final: () => save(),
+    final: save,
   };
 };
 
@@ -889,9 +882,11 @@ const held = new Map<string, ReturnType<typeof replies>>();
  *    session had seen before the run, so a run that resumes after this one
  *    is lost gets this run's messages again.
  * 6. Saves the session file, with the messages the agent has now seen, if
- *    the CLI reported a session, even if it failed.
+ *    the runner knows the session's id, from the CLI's result or from its
+ *    output during the run, even if the CLI failed.
  * 7. Saves the worktree and the session to the state store, whether or not
- *    the agent succeeded.
+ *    the agent succeeded. The saves in steps 5 and 7 save the same session
+ *    that step 6 writes, so the last save never uploads an older session.
  */
 const perform = async (run: Run, notes: string[], progress: Progress) => {
   const worktree = worktreeOf(run);
@@ -910,7 +905,10 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
   const seen = Object.fromEntries(messages.map((m) => [m.id, bodyHash(m.body)]));
   const repo = await fetchRepo(run, await loadCodeHost());
   await checkout(run, repo, worktree, notes);
-  const saves = saver(run, worktree, transcripts);
+  let sessionId = session?.id;
+  let sessionSeen = session?.seen ?? {};
+  const current = () => (sessionId ? { id: sessionId, cwd: worktree.path, seen: sessionSeen } : undefined);
+  const saves = saver(run, worktree, transcripts, current);
   try {
     await writeFiles([run.files, agentFiles(run)], {
       worktree: worktree.path,
@@ -929,10 +927,7 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
         }),
       TOKEN_REFRESH_MS,
     );
-    let sessionId = session?.id;
-    const stopSaving = saves.during(() =>
-      sessionId ? { id: sessionId, cwd: worktree.path, seen: session?.seen ?? {} } : undefined,
-    );
+    const stopSaving = saves.during();
     try {
       const result = await runAgent(
         adapter,
@@ -943,7 +938,10 @@ const perform = async (run: Run, notes: string[], progress: Progress) => {
           sessionId = id;
         },
       );
-      if (result.sessionId) await writeSession(run, { id: result.sessionId, cwd: worktree.path, seen });
+      sessionId = result.sessionId ?? sessionId;
+      sessionSeen = seen;
+      const ended = current();
+      if (ended) await writeSession(run, ended);
       if (result.error) throw new Error(result.error);
       return result.text;
     } finally {

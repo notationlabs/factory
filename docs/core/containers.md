@@ -186,7 +186,7 @@ When a container sleeps, everything on its local filesystem is discarded. Every 
 
 If the container stops or fails during a run, the work up to the last save is kept. The next run in the same worktree and conversation restores it, resumes the agent's session, and gives the agent the lost run's messages again.
 
-The runner sends the router a heartbeat every minute for each run it holds. If a run sends none for 5 minutes, such as when its container stops responding, the router marks the run lost and replaces the run's message on the thread with a notice that says so. The notice has a link that restarts the run. The link signs you in with GitHub, checks that the trigger's `from` lets you start a run, and starts the run again from the last save. It works for 7 days. You can also mention the agent again.
+The runner sends the router a heartbeat every minute for each run it holds, and the outpost Worker sends them while it starts the run's container or waits for a free instance. If a run sends none for 5 minutes, such as when its container stops responding, the router marks the run lost and replaces the run's message on the thread with a notice that says so. The notice has a link that restarts the run. The link signs you in with GitHub, checks that the trigger's `from` lets you start a run, and starts the run again from the last save. It works for 7 days. You can also mention the agent again.
 
 ```text [/data/]
 /data/

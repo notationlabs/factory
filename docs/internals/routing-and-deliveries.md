@@ -67,11 +67,13 @@ Any failure after resolving the conversation posts an error notice instructing o
 
 The runner posts a heartbeat to `POST /heartbeat` once a minute for each run it holds, queued or running. The heartbeat carries the run's `ReplyTicket`, which names the delivery and the run, and the signed ID of the message that the run's replies replace. When the run finishes, the runner posts a last heartbeat with `done`, and the router stops watching the run.
 
-The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. The record is saved by the alarm after it calls the deployer and channels, so a heartbeat in the record could be overwritten.
+Before the runner holds a run, the outpost Worker's `OutpostContainer.deliver` posts the run's heartbeats with the same ticket. It posts one each time it tries to deliver the run, which is every 60 seconds while it waits for a free container instance, and one every 60 seconds while the container starts. If the router answers `lost`, the Worker drops the run. If the Worker can't deliver the run, it posts the failure to the thread and then a heartbeat with `done`.
 
-Watching starts with a run's first heartbeat. A run that waits for its container's first image build, or for a free container instance, is not watched, because no runner holds it yet. A runner from before heartbeats never sends one, so its runs are never watched.
+The router saves each run's last heartbeat in the delivery's `DeliveryInbox`, under a key of its own, apart from the delivery record. The record is saved by the alarm after it calls the deployer and channels, so a heartbeat in the record could be overwritten. `heartbeatWatch` in `packages/factory/router/deliveries.ts` decides what each heartbeat saves. A heartbeat with `done` saves `{ done: true }` in place of the last heartbeat, and the router ignores heartbeats of the run after that. So a heartbeat that arrives after the run's last one doesn't start the watch again, and the run's final reply stays on the thread.
 
-The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. When a dispatched run's last heartbeat is 5 minutes old, `watch`:
+Watching starts when the router dispatches the run: the dispatch records the time in `dispatched`, and a run with no heartbeat yet counts from then. A run that waits for its container's first image build is not dispatched yet, so it is not watched. Dispatches saved before `dispatched` existed are watched only from their first heartbeat.
+
+The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes (`LOST_AFTER_MS`) of each dispatch and heartbeat. When a dispatched run's last heartbeat, or its dispatch if it has sent none, is 5 minutes old, `watch`:
 
 1. Marks the dispatch `lost`, with an error that operators see in `factory infra status`.
 2. Replaces the run's message on the thread with the lost notice, through the channel's `reply`. A run that had posted nothing has its lost notice posted as a new message. The notice has a restart link, and says that the person can mention the agent again instead.
@@ -81,7 +83,7 @@ The alarm runs `watch` from `packages/factory/router/handle.ts` within 5 minutes
 
 ## Restart links
 
-A lost notice's restart link is `<router>/restart?run=<token>`. The token names the connection, the delivery and the run, and the router signs it with the `router:restart` key. It expires after 7 days (`KEEP_DELIVERY_MS`), when the inbox deletes the delivery. A token can't be changed to name another run.
+A lost notice's restart link is `<router>/restart?run=<token>`. The token is the ticket `{ connection, delivery, run, expires }` as base64url JSON, a dot, and the ticket's signature with the `router:restart` key. It expires after 7 days (`KEEP_DELIVERY_MS`), when the inbox deletes the delivery. A token can't be changed to name another run.
 
 The router doesn't know which platform the delivery came from, so the channel of the token's connection signs the person in and checks them:
 

@@ -3,6 +3,7 @@ import {
   advance,
   type DeliveryRecord,
   failedDelivery,
+  heartbeatWatch,
   KEEP_DELIVERY_MS,
   LOST_AFTER_MS,
   replayRecord,
@@ -16,14 +17,13 @@ const RECORD = "record";
 
 /**
  * When a settled delivery was listed, if it failed. Its alarm deletes the
- * delivery `KEEP_DELIVERY_MS` later. Objects from before this held `true`.
+ * delivery `KEEP_DELIVERY_MS` later. Objects from before this held `true`,
+ * which counts as listed long ago.
  */
 const LISTED = "listed";
 
 /** The prefix of each watched run's last heartbeat, as a `Watch` under `watch/<run>`. */
 const WATCH = "watch/";
-
-const lostCount = (record: DeliveryRecord) => record.dispatches.filter((d) => d.state === "lost").length;
 
 /**
  * One saved delivery. The router names each object by the delivery's
@@ -73,31 +73,27 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
 
   /**
    * Notes a heartbeat of `run`, and has the alarm check it within
-   * `LOST_AFTER_MS`. With `done`, stops watching the run. Heartbeats are
-   * kept apart from the record, so that the alarm, which saves the record
-   * after it calls the deployer and channels, doesn't overwrite them.
+   * `LOST_AFTER_MS`. See `heartbeatWatch`. Heartbeats are kept apart from
+   * the record, so that the alarm, which saves the record after it calls
+   * the deployer and channels, doesn't overwrite them.
    */
   async heartbeat(run: string, beat: { message?: string; done?: boolean }) {
     const record = (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
-    const dispatch = record?.dispatches.find((d) => d.run === run);
-    if (!dispatch) return "unknown";
-    if (dispatch.state === "lost") return "lost";
-    if (beat.done || dispatch.state === "failed") {
-      await this.ctx.storage.delete(`${WATCH}${run}`);
-      return "ok";
-    }
-    const at = Date.now();
-    await this.ctx.storage.put(`${WATCH}${run}`, { at, ...(beat.message && { message: beat.message }) } satisfies Watch);
-    const check = at + LOST_AFTER_MS;
+    const key = `${WATCH}${run}`;
+    const { result, watch } = heartbeatWatch(record, run, (await this.ctx.storage.get(key)) as Watch | undefined, beat, Date.now());
+    if (!watch) return result;
+    await this.ctx.storage.put(key, watch);
+    if ("done" in watch) return result;
+    const check = watch.at + LOST_AFTER_MS;
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > check) await this.ctx.storage.setAlarm(check);
-    return "ok";
+    return result;
   }
 
   /**
    * 1. Tries the delivery's due dispatches.
-   * 2. Marks lost the runs whose last heartbeat is `LOST_AFTER_MS` old, and
-   *    stops watching them.
+   * 2. Marks lost the dispatched runs whose last heartbeat, or dispatch if
+   *    they have sent none, is `LOST_AFTER_MS` old, and stops watching them.
    * 3. Sets the alarm for the next retry or heartbeat check, while the
    *    delivery isn't settled.
    * 4. Once it settles, and again when a run is lost, lists the delivery as
@@ -111,20 +107,20 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
     if (!record) return;
     const store = await routerStore(this.env);
     const wake = settled(record) ? undefined : await advance(record, store);
-    const lost = lostCount(record);
     const watches = new Map<string, Watch>();
     const stored = (await this.ctx.storage.list({ prefix: WATCH })) as Map<string, Watch>;
     for (const [key, beat] of stored) watches.set(key.slice(WATCH.length), beat);
-    const { forget, next } = await watch(record, watches, store);
+    const { forget, next, lost } = await watch(record, watches, store);
     await this.ctx.storage.put(RECORD, record);
     if (forget.length) await this.ctx.storage.delete(forget.map((run) => `${WATCH}${run}`));
-    if (!settled(record)) {
-      await this.ctx.storage.setAlarm(Math.min(wake ?? Infinity, next ?? Infinity));
+    if (wake !== undefined) {
+      await this.ctx.storage.setAlarm(next === undefined ? wake : Math.min(wake, next));
       return;
     }
     const now = Date.now();
-    let listed = (await this.ctx.storage.get(LISTED)) as number | true | undefined;
-    if (listed === undefined || lostCount(record) > lost) {
+    const saved = (await this.ctx.storage.get(LISTED)) as number | true | undefined;
+    let listed = saved === true ? 0 : saved;
+    if (listed === undefined || lost) {
       const failed = failedDelivery(record, now);
       if (failed) {
         await this.env.FACTORY_KV.put(failedKey(record.connection, record.id), JSON.stringify(failed), {
@@ -133,13 +129,10 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
       }
       listed = now;
       await this.ctx.storage.put(LISTED, listed);
-    } else if (next === undefined && (listed === true || now >= listed + KEEP_DELIVERY_MS)) {
+    } else if (next === undefined && now >= listed + KEEP_DELIVERY_MS) {
       await this.ctx.storage.deleteAll();
       return;
-    } else if (listed === true) {
-      listed = now;
-      await this.ctx.storage.put(LISTED, listed);
     }
-    await this.ctx.storage.setAlarm(Math.min(listed + KEEP_DELIVERY_MS, next ?? Infinity));
+    await this.ctx.storage.setAlarm(next === undefined ? listed + KEEP_DELIVERY_MS : Math.min(listed + KEEP_DELIVERY_MS, next));
   }
 }

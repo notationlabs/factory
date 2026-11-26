@@ -7,6 +7,7 @@ import {
   BUILD_WAIT_MS,
   type DeliveryRecord,
   failedDelivery,
+  heartbeatWatch,
   type Inbox,
   LOST_ERROR,
   lostNotice,
@@ -594,12 +595,9 @@ const memoryInbox = () => {
     failed: async () => [],
     replay: async () => false,
     heartbeat: async (connection, id, run, beat) => {
-      const dispatch = records.get(`${connection}/${id}`)?.dispatches.find((d) => d.run === run);
-      if (!dispatch) return "unknown";
-      if (dispatch.state === "lost") return "lost";
-      if (beat.done) watches.delete(run);
-      else watches.set(run, { at: Date.now(), ...(beat.message && { message: beat.message }) });
-      return "ok";
+      const { result, watch } = heartbeatWatch(records.get(`${connection}/${id}`), run, watches.get(run), beat, Date.now());
+      if (watch) watches.set(run, watch);
+      return result;
     },
     record: async (connection, id) => records.get(`${connection}/${id}`),
     restart: async (connection, id, run, origin) => {
@@ -865,7 +863,7 @@ test("a run's ticket names its dispatch, and its heartbeats note the message tha
   const response = await beat(store, { ticket: reply.ticket, signature: reply.signature, message });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true });
-  assert.equal(watches.get(id)?.message, "m1");
+  assert.deepEqual(watches.get(id), { at: (watches.get(id) as { at: number }).at, message: "m1" });
 
   // A run can't have the lost notice replace a message that it didn't post.
   const other = { id: "m2", signature: message.signature };
@@ -878,7 +876,35 @@ test("a run's ticket names its dispatch, and its heartbeats note the message tha
   assert.equal((await beat(store, { ticket: unknown, signature: await signTicket(ROOT_KEY, unknown) })).status, 404);
 
   assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, done: true })).status, 200);
-  assert.equal(watches.has(id), false);
+  assert.deepEqual(watches.get(id), { done: true });
+});
+
+test("a heartbeat that arrives after a run's last one doesn't have the router watch the run again", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push([text]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, done: true })).status, 200);
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.deepEqual(watches.get(id), { done: true });
+  assert.deepEqual(await watch(record, watches, store, Date.now() + LOST_AFTER_MS), { forget: [], next: undefined, lost: false });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.equal(replies.length, 0);
+});
+
+test("a dispatched run that sends no heartbeat is marked lost 5 minutes after the router dispatched it", async () => {
+  const replies: unknown[][] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async () => "queued" as const }));
+  await advance(record, store, 1_000);
+  assert.equal(record.dispatches[0]!.dispatched, 1_000);
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS - 1), { forget: [], next: 1_000 + LOST_AFTER_MS, lost: false });
+  const run = record.dispatches[0]!.run;
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined, lost: true });
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.match(replies[0]![0] as string, /^This run sent no heartbeat for 5 minutes/);
 });
 
 test("a run without a heartbeat for 5 minutes is marked lost, and the lost notice replaces its message", async () => {
@@ -893,10 +919,10 @@ test("a run without a heartbeat for 5 minutes is marked lost, and the lost notic
   const run = runs[0]!.id;
   watches.set(run, { at: 1_000, message: "m1" });
 
-  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS - 1), { forget: [], next: 1_000 + LOST_AFTER_MS });
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS - 1), { forget: [], next: 1_000 + LOST_AFTER_MS, lost: false });
   assert.equal(record.dispatches[0]!.state, "dispatched");
 
-  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined });
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined, lost: true });
   assert.equal(record.dispatches[0]!.state, "lost");
   assert.equal(replies.length, 1);
   assert.equal(replies[0]![1], "m1");
@@ -972,10 +998,10 @@ test("watching forgets runs that the record no longer has or that failed, and le
     [record.dispatches[0]!.run, { at: 0 }],
     ["gone", { at: 0 }],
   ]);
-  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: ["gone"], next: LOST_AFTER_MS });
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: ["gone"], next: LOST_AFTER_MS, lost: false });
   assert.equal(record.dispatches[0]!.state, "pending");
   record.dispatches[0]!.state = "failed";
-  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: [record.dispatches[0]!.run, "gone"], next: undefined });
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: [record.dispatches[0]!.run, "gone"], next: undefined, lost: false });
 });
 
 const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({

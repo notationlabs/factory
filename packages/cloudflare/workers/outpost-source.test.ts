@@ -68,3 +68,18 @@ test("a container gets the instance type it names", () => {
 test("a container with an instance type that Cloudflare doesn't have fails its deploy", () => {
   assert.throws(() => instanceType({ ...container, instanceType: "huge" }), /no instance type `huge`/);
 });
+
+test("a container with a custom size gets Wrangler's custom instance type", () => {
+  assert.deepEqual(instanceType({ ...container, instanceType: { vcpu: 2, memoryMib: 10240, diskMb: 16000 } }), {
+    vcpu: 2,
+    memory_mib: 10240,
+    disk_mb: 16000,
+  });
+});
+
+test("a container with a custom size under Cloudflare's minimum fails its deploy", () => {
+  assert.throws(
+    () => instanceType({ ...container, instanceType: { vcpu: 1, memoryMib: 128, diskMb: 4000 } }),
+    /memoryMib 256, and the container asks for 128/,
+  );
+});

@@ -31,7 +31,7 @@ new Container(id, {
 | Option | Details |
 | :--- | :--- |
 | `image` | Optional Dockerfile path relative to `.factory/`, defaults to provider default image |
-| `instanceType` | Optional machine size identifier passed to the hub provider |
+| `instanceType` | Optional machine size: a size name for the hub provider, or `{ vcpu, memoryMib, diskMb }` |
 | `runtimes` | Optional `Runtime[]` array defaulting to `[]`, must not repeat runtime IDs |
 | `policies` | Optional `PolicyContract[]` array defaulting to `[]` |
 | `files` | Optional map of `~/...` targets to `.factory/` paths or JSON objects, defaults to `{}` |

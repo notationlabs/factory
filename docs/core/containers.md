@@ -22,7 +22,7 @@ const dev = new Container("dev", {
 | Option | Description |
 | :--- | :--- |
 | `image` | Dockerfile path relative to `.factory/`, built with `.factory/` as context |
-| `instanceType` | Machine size name for the provider; defaults to `"standard-1"` on Cloudflare |
+| `instanceType` | Machine size: a provider's size name, or `{ vcpu, memoryMib, diskMb }`; defaults to `"standard-1"` on Cloudflare |
 | `runtimes` | List of unique runtime definitions whose credentials and CLIs the container needs |
 | `policies` | List of policy objects whose short-lived tokens the container may request |
 | `files` | Map of `~/...` target paths to `.factory/` file paths or inline JSON objects |
@@ -42,7 +42,24 @@ On Cloudflare, `instanceType` selects the container size and defaults to `"stand
 | `"standard-3"` | High-capacity standard instance |
 | `"standard-4"` | Largest standard instance |
 
-Passing any unrecognized instance type fails the outpost deploy. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
+Passing any unrecognized instance type fails the outpost deploy.
+
+For a size between or above the named types, give the resources instead of a name. The deployer passes them to Wrangler as a custom `instance_type`:
+
+```ts [.factory/infra.ts]
+const dev = new Container("dev", {
+  instanceType: { vcpu: 2, memoryMib: 10240, diskMb: 16000 },
+  runtimes: [claude.runtime],
+});
+```
+
+| Field | Unit | Cloudflare minimum |
+| :--- | :--- | :--- |
+| `vcpu` | vCPUs, fractions allowed | `0.0625` |
+| `memoryMib` | MiB | `256` |
+| `diskMb` | MB | `2000` |
+
+A size under a minimum fails the outpost deploy. The maximums are the account's per-instance limits, by default 4 vCPU, 12 GiB of memory, and 20 GB of disk. Cloudflare can raise them on request. Wrangler checks a size against the account's limits when the image builds, and a size over them fails the build. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
 
 ## Default image and custom Dockerfiles
 

@@ -35,9 +35,26 @@ EXPOSE 8080
 
 const INSTANCE_TYPES = ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"];
 
-/** The Cloudflare instance type of a container: its `instanceType`, or else `standard-1`. */
+// Cloudflare's documented minimums for a custom instance type. Its maximums
+// are account limits, which an account can have raised, and Wrangler checks
+// them against the account when it deploys.
+const CUSTOM_MINIMUMS = { vcpu: 0.0625, memoryMib: 256, diskMb: 2000 };
+
+/**
+ * The Cloudflare instance type of a container: its `instanceType`, or else
+ * `standard-1`. A custom size becomes Wrangler's
+ * `{ vcpu, memory_mib, disk_mb }`.
+ */
 export const instanceType = (container: OutpostConfig["containers"][string]) => {
   const type = container.instanceType ?? "standard-1";
+  if (typeof type === "object") {
+    for (const [key, minimum] of Object.entries(CUSTOM_MINIMUMS) as [keyof typeof CUSTOM_MINIMUMS, number][]) {
+      if (!(type[key] >= minimum)) {
+        throw new Error(`Cloudflare's smallest custom instance has ${key} ${minimum}, and the container asks for ${type[key]}.`);
+      }
+    }
+    return { vcpu: type.vcpu, memory_mib: type.memoryMib, disk_mb: type.diskMb };
+  }
   if (!INSTANCE_TYPES.includes(type)) {
     throw new Error(`Cloudflare has no instance type \`${type}\`. Use one of ${INSTANCE_TYPES.map((t) => `\`${t}\``).join(", ")}.`);
   }

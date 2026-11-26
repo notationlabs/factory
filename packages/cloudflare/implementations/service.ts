@@ -3,7 +3,10 @@ import type { Service as ServiceContract } from "@notation/factory";
 import type { Worker } from "@notation/cloudflare/workers";
 import type { Router } from "./router.ts";
 
-export type ServiceOptions = { router: Router; worker: Worker };
+/** A Worker with no public URL, such as `worker({ ..., url: false })`. */
+export type PrivateWorker = Worker & { readonly url?: never };
+
+export type ServiceOptions = { router: Router; worker: PrivateWorker };
 
 /**
  * `new cloudflare.Service(name, ...)`: a hub service that `worker` runs.

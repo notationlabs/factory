@@ -1,4 +1,6 @@
 import type { OutpostConfig } from "@notation/factory/router";
+import { CONTAINER_CLASS, SERVICE_GATEWAY } from "./outpost-api.ts";
+import type { OutpostSettings } from "./outpost-settings.ts";
 
 /** A runtime's account, as the deployer binds it. `setup` is the script that installs the runtime's CLI. */
 export type RuntimeAccount = { setup?: string };
@@ -84,4 +86,52 @@ export const imageSource = (
   for (const { id, setup } of installed) source[`${dir}factory-runtimes/${id}.sh`] = setup!;
   source.Dockerfile = `${dockerfile.trimEnd()}${factoryLayers(installed.length)}`;
   return { source, image: "./Dockerfile", context };
+};
+
+/**
+ * The `wrangler.json` of the outpost Worker `worker`, which runs the
+ * container `id` of `repo`. `image` is the container's `imageSource`.
+ */
+export const wranglerConfig = (
+  settings: OutpostSettings,
+  worker: string,
+  repo: string,
+  id: string,
+  container: OutpostConfig["containers"][string],
+  image: { image: string; context: string },
+) => {
+  const config = {
+    name: worker,
+    main: "outpost.js",
+    no_bundle: true,
+    compatibility_date: settings.compatibilityDate,
+    // Cloudflare refuses a Worker's fetch of another workers.dev URL on the
+    // same account without it, and containers reply through the router's.
+    compatibility_flags: ["global_fetch_strictly_public"],
+    workers_dev: true,
+    // Cloudflare refuses preview URLs for a Worker name over 54 characters.
+    preview_urls: false,
+    observability: { enabled: true },
+    containers: [
+      {
+        // Wrangler names the application `<worker>-<class>`, and Cloudflare
+        // refuses a name with `--`, which Notation's generated names have.
+        name: worker.replace(/-{2,}/g, "-"),
+        class_name: CONTAINER_CLASS,
+        image: image.image,
+        image_build_context: image.context,
+        max_instances: 1,
+        instance_type: instanceType(container),
+        ...(settings.regions && { constraints: { regions: settings.regions } }),
+      },
+    ],
+    durable_objects: { bindings: [{ name: "OUTPOSTS", class_name: CONTAINER_CLASS }] },
+    migrations: [{ tag: "v1", new_sqlite_classes: [CONTAINER_CLASS] }],
+    services: [
+      { binding: "DEPLOYER", service: settings.deployer },
+      { binding: "ROUTER", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
+    ],
+    vars: { WORKER_NAME: worker, REPO: repo, CONTAINER: id, SLEEP_AFTER: settings.sleepAfter },
+  };
+  return `${JSON.stringify(config, null, 2)}\n`;
 };

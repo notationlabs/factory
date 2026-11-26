@@ -14,13 +14,15 @@ import { r2 } from "@notation/cloudflare/resources";
 import { worker } from "@notation/cloudflare/workers";
 import * as cloudflare from "@notation/factory-cloudflare";
 
-const bucket = new r2.R2Bucket("drafts", { config: { BucketName: "drafts" } });
+const bucket = new r2.R2Bucket("drafts", {
+  config: { BucketName: "drafts", Jurisdiction: "default", StorageClass: "Standard" },
+});
 const drafts = worker({
   id: "drafts",
   compatibilityDate: "2026-10-12",
   code: bundle({ id: "drafts", platform: "workerd", entry: "./workers/drafts.ts" }),
   bindings: () => ({ BUCKET: bucket }),
-  url: false, // <-- no public URL
+  url: false, // <-- no public URL, which cloudflare.Service requires
 });
 
 new cloudflare.Service("drafts", { router, worker: drafts });
@@ -43,7 +45,8 @@ export default {
     const container = request.headers.get(SERVICE_HEADERS.container); // <-- such as "dev"
     if (!repo || !container) return new Response("bad request", { status: 400 });
     const key = new URL(request.url).pathname.slice(1);
-    await env.BUCKET.put(key, request.body, {
+    // R2 refuses a stream of unknown length, so the Worker buffers the body.
+    await env.BUCKET.put(key, await request.arrayBuffer(), {
       httpMetadata: { contentType: request.headers.get("content-type") ?? undefined },
       customMetadata: { repo, container },
     });
@@ -56,7 +59,7 @@ The Worker gets the request at the URL that the container used, so a container's
 
 `SERVICE_HEADERS.repo` is `x-factory-repo`, and `SERVICE_HEADERS.container` is `x-factory-container`. **These headers are the only proof of who sent a request.** A service that keeps data per repo, or limits what a repo may do, should read them on every request.
 
-The headers can be trusted only if nothing else can reach the Worker. For this reason, the `drafts` Worker sets `url: false`, so it has no workers.dev URL, and only Workers that bind it, such as the router, reach it. A service that also serves the public, such as one that publishes the drafts, should do so from a second Worker with a URL.
+The headers can be trusted only if nothing else can reach the Worker. For this reason, the `drafts` Worker sets `url: false`, so it has no workers.dev URL, and only Workers that bind it, such as the router, reach it. `cloudflare.Service`'s type rejects a Worker that has a URL. A service that also serves the public, such as one that publishes the drafts, should do so from a second Worker with a URL.
 
 ## Calling the service from a container
 

@@ -8,9 +8,9 @@ import { deleteRepo, ensureRepo, repoToken } from "../lib/artifacts.ts";
 import { cloudflare, cloudflareOrNone } from "../lib/cloudflare-api.ts";
 import { deleteOutpostWorker } from "../lib/outpost-workers.ts";
 import type { StartedBuild } from "./build-watch.ts";
-import { CONTAINER_CLASS, RUN_HEADERS, SERVICE_GATEWAY } from "./outpost-api.ts";
+import { RUN_HEADERS } from "./outpost-api.ts";
 import outpostBundle from "./outpost.gen.ts";
-import { imageSource, instanceType, type RuntimeAccount } from "./outpost-source.ts";
+import { imageSource, type RuntimeAccount, wranglerConfig } from "./outpost-source.ts";
 import { commitSource } from "./source-commit.ts";
 import { type OutpostSettings, OutpostSettingsSchema } from "./outpost-settings.ts";
 import type { KVNamespace, SecretsStoreSecret } from "./types.ts";
@@ -82,40 +82,7 @@ const outpostSource = (
   const source: Record<string, string> = {};
   for (const [path, content] of Object.entries(files)) source[`.factory/${path}`] = content;
   Object.assign(source, image.source);
-  const config = {
-    name: worker,
-    main: "outpost.js",
-    no_bundle: true,
-    compatibility_date: settings.compatibilityDate,
-    // Cloudflare refuses a Worker's fetch of another workers.dev URL on the
-    // same account without it, and containers reply through the router's.
-    compatibility_flags: ["global_fetch_strictly_public"],
-    workers_dev: true,
-    // Cloudflare refuses preview URLs for a Worker name over 54 characters.
-    preview_urls: false,
-    observability: { enabled: true },
-    containers: [
-      {
-        // Wrangler names the application `<worker>-<class>`, and Cloudflare
-        // refuses a name with `--`, which Notation's generated names have.
-        name: worker.replace(/-{2,}/g, "-"),
-        class_name: CONTAINER_CLASS,
-        image: image.image,
-        image_build_context: image.context,
-        max_instances: 1,
-        instance_type: instanceType(container),
-        ...(settings.regions && { constraints: { regions: settings.regions } }),
-      },
-    ],
-    durable_objects: { bindings: [{ name: "OUTPOSTS", class_name: CONTAINER_CLASS }] },
-    migrations: [{ tag: "v1", new_sqlite_classes: [CONTAINER_CLASS] }],
-    services: [
-      { binding: "DEPLOYER", service: settings.deployer },
-      { binding: "ROUTER", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
-    ],
-    vars: { WORKER_NAME: worker, REPO: repo, CONTAINER: id, SLEEP_AFTER: settings.sleepAfter },
-  };
-  source["wrangler.json"] = `${JSON.stringify(config, null, 2)}\n`;
+  source["wrangler.json"] = wranglerConfig(settings, worker, repo, id, container, image);
   source["outpost.js"] = outpostBundle;
   return source;
 };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isServiceName } from "@notation/factory/router";
-import { forwardToService, fromSender } from "./services.ts";
+import { forwardToService, fromSender, serviceBinding } from "./services.ts";
 
 test("a request from a container names its repo and container, and loses the x-factory headers it sent", async () => {
   const request = fromSender(
@@ -43,6 +43,19 @@ test("the router answers 404 for a service the hub doesn't have, or a host that 
     const response = await forwardToService(new Request(url), (b) => bindings[b]);
     assert.equal(response.status, 404, url);
   }
+});
+
+test("the router answers 404 for a binding that has no fetch", async () => {
+  const bindings: Record<string, unknown> = { SERVICE_DRAFTS: { get: async () => null }, SERVICE_NOTES: "text" };
+  for (const url of ["http://drafts.factory/", "http://notes.factory/"]) {
+    const response = await forwardToService(new Request(url), (b) => bindings[b]);
+    assert.equal(response.status, 404, url);
+  }
+});
+
+test("a service's binding is SERVICE_ and its name in capitals, with underscores for hyphens", () => {
+  assert.equal(serviceBinding("drafts"), "SERVICE_DRAFTS");
+  assert.equal(serviceBinding("my-notes-2"), "SERVICE_MY_NOTES_2");
 });
 
 test("a service's name is a lowercase DNS label that isn't state or runner", () => {

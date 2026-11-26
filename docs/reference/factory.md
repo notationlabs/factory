@@ -103,7 +103,6 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `SYNC_HEADER` | Header name `x-factory-sync` carrying signed sync credentials |
 | `SERVICE_HEADERS` | The same as the export of `@notation/factory`, for Workers |
 | `isServiceName(name)` | Whether `name` is a lowercase DNS label other than `state` and `runner` |
-| `bindingName(id)` | The same as the export of `@notation/factory`, for Workers |
 | `RouterStore` | Storage and binding interface required by the router |
 | `Inbox` | Delivery persistence and retry queue interface |
 | `DeployLog` | Persistence interface for latest repository deploy results |

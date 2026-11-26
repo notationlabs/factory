@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { handle } from "@notation/factory/router";
 import { type RouterEnv, routerStore } from "./router-store.ts";
-import { type Fetcher, forwardToService } from "./services.ts";
+import { forwardToService } from "./services.ts";
 
 type Context = { waitUntil(task: Promise<unknown>): void };
 
@@ -18,7 +18,7 @@ export default {
  */
 export class ServiceGateway extends WorkerEntrypoint<RouterEnv> {
   async fetch(request: Request) {
-    return forwardToService(request, (binding) => this.env[binding] as Fetcher | undefined);
+    return forwardToService(request, (binding) => this.env[binding]);
   }
 }
 

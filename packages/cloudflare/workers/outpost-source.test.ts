@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { imageSource, instanceType } from "./outpost-source.ts";
+import { imageSource, instanceType, wranglerConfig } from "./outpost-source.ts";
 
 const DOCKERFILE = "FROM oven/bun:1-debian\nRUN apt-get install -y git\n";
 const accounts = { claude: { setup: "install claude\n" }, droid: { setup: "install droid\n" } };
@@ -67,4 +67,25 @@ test("a container gets the instance type it names", () => {
 
 test("a container with an instance type that Cloudflare doesn't have fails its deploy", () => {
   assert.throws(() => instanceType({ ...container, instanceType: "huge" }), /no instance type `huge`/);
+});
+
+test("an outpost Worker binds the router's service gateway, and names its repo and container in its vars", () => {
+  const settings = {
+    accountId: "account",
+    namespace: "outposts",
+    prefix: "outpost",
+    deployer: "factory-deployer",
+    router: "https://router.example.workers.dev",
+    routerWorker: "factory-router",
+    compatibilityDate: "2026-10-12",
+    sleepAfter: "10m",
+  };
+  const image = imageSource(container, {}, accounts, DOCKERFILE);
+  const config = JSON.parse(wranglerConfig(settings, "outpost-abc", "acme/api", "dev", container, image));
+  assert.deepEqual(
+    config.services.find((service: { binding: string }) => service.binding === "ROUTER"),
+    { binding: "ROUTER", service: "factory-router", entrypoint: "ServiceGateway" },
+  );
+  assert.equal(config.vars.REPO, "acme/api");
+  assert.equal(config.vars.CONTAINER, "dev");
 });

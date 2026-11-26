@@ -78,7 +78,7 @@ new cloudflare.Service("drafts", { router, worker: drafts });
 | Option | Details |
 | :--- | :--- |
 | `router` | Required `cloudflare.Router` instance |
-| `worker` | Required Notation `worker()` whose default export handles the containers' requests. Give it `url: false` |
+| `worker` | Required Notation `worker()` whose default export handles the containers' requests. It must have `url: false`, and the type rejects a Worker with a URL |
 
 The id is the service's name, which must pass `isServiceName`. The constructor throws on an invalid name. A second service with the same name fails, since Notation refuses a second binding with the same name. See [Services](../authoring/services.md).
 

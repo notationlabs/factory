@@ -553,7 +553,12 @@ const relay = async (request: Request, store: RouterStore) => {
     return json(409, { error: "the router marked the run lost", lost: true });
   }
   const id = await channel.reply(ticket.thread, text, message?.id);
-  if (named && done === true) await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true });
+  if (named && done === true) {
+    // The reply is posted, so answer 200 even if the done mark fails.
+    await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true }).catch((error) => {
+      console.error(JSON.stringify({ run, relay: "done mark failed", error: String(error) }));
+    });
+  }
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };
   return json(200, result);

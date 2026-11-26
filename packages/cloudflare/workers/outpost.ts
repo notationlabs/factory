@@ -44,6 +44,9 @@ const RUN_MAX_AGE_MS = 5 * 60 * 1000;
 /** How often the Worker posts a heartbeat for each run that it holds while it starts a run's container. */
 const HEARTBEAT_MS = 60 * 1000;
 
+/** How long a heartbeat may take before the Worker gives up on it and tries again with the next one. */
+const HEARTBEAT_TIMEOUT_MS = 10 * 1000;
+
 /** How long the runner may take to answer a run's handoff. A runner that works answers 202 at once. */
 const HANDOFF_TIMEOUT_MS = 60 * 1000;
 
@@ -145,6 +148,7 @@ const heartbeat = async (run: Run): Promise<"ok" | "lost" | "retry"> => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
     });
     if (!response.ok) {
       console.error(JSON.stringify({ run: run.id, heartbeat: response.status, error: await response.text() }));
@@ -184,6 +188,8 @@ export class OutpostContainer extends Container<Env> {
    * which has the router start watching the run.
    */
   async run(run: Run) {
+    // A retried inbox alarm dispatches the same run again.
+    if (await this.ctx.storage.get(`${PENDING}${run.id}`)) return;
     await this.ctx.storage.put(`${PENDING}${run.id}`, run);
     await heartbeat(run);
     await this.schedule(0, "deliver", { run, since: Date.now() } satisfies PendingRun);

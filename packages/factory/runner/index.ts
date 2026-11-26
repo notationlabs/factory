@@ -44,6 +44,9 @@ const CLOCK_INTERVAL_MS = Number(process.env.FACTORY_CLOCK_INTERVAL_MS ?? 60 * 1
 /** How often the runner posts a heartbeat to the router for each run it holds. The router marks a run lost after 5 minutes without one. */
 const HEARTBEAT_INTERVAL_MS = Number(process.env.FACTORY_HEARTBEAT_INTERVAL_MS ?? 60 * 1000);
 
+/** How long a heartbeat may take before the runner gives up on it and tries again with the next one. */
+const HEARTBEAT_TIMEOUT_MS = 10 * 1000;
+
 /** How long the runner waits before it posts a run's `done` heartbeat again, after the router couldn't be reached or failed. */
 const DONE_RETRY_MS = Number(process.env.FACTORY_DONE_RETRY_MS ?? 10 * 1000);
 
@@ -1129,6 +1132,7 @@ const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, done: b
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
     });
     if (!response.ok) {
       log({ run: run.id, state: "heartbeat refused", status: response.status, error: await response.text() });

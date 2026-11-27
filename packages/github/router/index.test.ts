@@ -312,7 +312,7 @@ test("receive notes which mentions on a labelled issue are collaborators, and ke
   const payload = (body: string, labels = [{ name: "bug" }]) => ({
     ...commentPayload,
     repository: { full_name: "acme/web", default_branch: "main" },
-    issue: { ...commentPayload.issue, labels },
+    issue: { ...commentPayload.issue, user: { login: "zed" }, labels },
     comment: { ...commentPayload.comment, body },
   });
   await withGithub({ collaborators: ["bob"] }, async (_, __, checks) => {
@@ -328,6 +328,20 @@ test("receive notes which mentions on a labelled issue are collaborators, and ke
     const log = await accepted("issue_comment", payload(many));
     assert.equal(log.data.addressed, undefined);
     assert.equal(checks.length, expected.length);
+  });
+});
+
+test("receive counts the issue's author as addressed without asking GitHub", async () => {
+  const payload = {
+    ...commentPayload,
+    repository: { full_name: "acme/site", default_branch: "main" },
+    issue: { ...commentPayload.issue, user: { login: "Dana" } },
+    comment: { ...commentPayload.comment, body: "@dana can you share logs? cc @erin" },
+  };
+  await withGithub({}, async (_, __, checks) => {
+    const { data } = await accepted("issue_comment", payload);
+    assert.deepEqual(data.addressed, ["dana"]);
+    assert.deepEqual(checks, ["/repos/acme/site/collaborators/erin"]);
   });
 });
 

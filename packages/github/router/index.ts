@@ -72,8 +72,8 @@ export type GithubEvent = {
   labels: string[];
   /**
    * The lowercased logins that a new comment mentions and that are
-   * collaborators on the repo. Missing if GitHub couldn't say, and then
-   * every mention counts.
+   * collaborators on the repo, or the issue's author. Missing if GitHub
+   * couldn't say, and then every mention counts.
    */
   addressed?: string[];
 };
@@ -320,14 +320,22 @@ const MAX_ADDRESSED_CHECKS = 20;
 /**
  * Sets `addressed` on a new comment on a labelled issue, since only such a
  * comment can match a listen label without its mention. Team handles are
- * left out, so a package such as `@scope/pkg` doesn't count.
+ * left out, so a package such as `@scope/pkg` doesn't count. The issue's
+ * author counts without a check.
  */
-const resolveAddressed = async (auth: { appId: string; privateKey: string }, repo: string, event: GithubEvent) => {
+const resolveAddressed = async (
+  auth: { appId: string; privateKey: string },
+  repo: string,
+  event: GithubEvent,
+  issueAuthor: string | undefined,
+) => {
   if (event.action !== "created" || event.labels.length === 0) return;
-  const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h)))];
+  const author = issueAuthor?.toLowerCase();
+  const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h) && h !== author))];
   if (logins.length > MAX_ADDRESSED_CHECKS) return;
   try {
-    event.addressed = await collaborators(auth, repo, logins);
+    const found = await collaborators(auth, repo, logins);
+    event.addressed = author && handles(event.body).includes(author) ? [author, ...found] : found;
   } catch (error) {
     console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
   }
@@ -365,7 +373,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
         return { status: "ignored", reason: "posted by this App" };
       }
       const a = await auth();
-      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data)]);
+      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data, payload.issue?.user?.login)]);
       return {
         status: "accepted",
         delivery: {

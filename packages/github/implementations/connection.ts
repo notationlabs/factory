@@ -4,7 +4,7 @@ import {
   type Connection as ConnectionContract,
   type Router,
 } from "@notation/factory";
-import { webhookPath } from "@notation/factory/router";
+import { RESTART_CALLBACK_PATH, webhookPath } from "@notation/factory/router";
 import * as v from "valibot";
 import { appName } from "../lib/app-name.ts";
 import { permissionsSchema } from "../lib/permissions.ts";
@@ -47,6 +47,7 @@ export class Connection
           name: appName(getActiveResourceCollection()?.scope, id),
           org,
           hookUrl: text`${router.url}${webhookPath(key)}`,
+          restartUrl: text`${router.url}${RESTART_CALLBACK_PATH}`,
         },
       }),
     );

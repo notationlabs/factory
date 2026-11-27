@@ -27,7 +27,7 @@ Using `isomorphic-git` over an in-memory `memfs` volume in `packages/cloudflare/
 | `.factory/*` | Repository outpost files untouched |
 | `factory-runtimes/<id>.sh` | Runtime `setup` scripts from bound `accounts` |
 | `Dockerfile` | Container `image` or default Debian Dockerfile plus injected `factoryLayers` |
-| `wrangler.json` | Worker and container config with `no_bundle`, `max_instances`, `regions`, and `sleepAfter` |
+| `wrangler.json` | Worker and container config with `no_bundle`, `max_instances` from `maxInstances`, `regions`, and `sleepAfter` |
 | `outpost.js` | Pre-bundled `outpost.gen.ts` hosting `OutpostContainer` |
 
 Repository Dockerfiles only need project toolchains because `factoryLayers` appends the runtime environment in four steps:
@@ -52,3 +52,15 @@ On status transitions, it posts a signed `BuildReport` to `/builds` and clears `
 Removed containers have their outpost Worker, Cloudflare Container application, Artifacts repository, and KV hash deleted via `deleteOutpostWorker`.
 
 At runtime, `OutpostContainer` checks the runner status endpoint inside `onActivityExpired`, preventing idle sleep while active runs remain even after `sleepAfter` elapses.
+
+## Durable Objects and state
+
+The outpost Worker sends each run to the Durable Object named by `instanceName` in `packages/cloudflare/workers/outpost-api.ts`. The name is `worktree:<branch>` or `scratch:<conversation id>`. Each Durable Object has one container instance.
+
+All instances of a container read and write the same saved state. The state store doesn't key state by each instance's own Durable Object ID. It uses one fixed key: the ID of the Durable Object named `outpost`. Before each worktree had its own instance, every run went to that Durable Object, so state saved then is under the same key and stays readable.
+
+When no instance is free, `@cloudflare/containers` retries for 5 minutes and then throws. `OutpostContainer.deliver` treats that error, and Cloudflare's rate-limit error, as a capacity error. It posts `capacityNotice` once, retries every 60 seconds, and gives up after 30 minutes with `capacityFailure`. The router creates the run's GitHub clone token when it dispatches the run. The token lasts an hour, and nothing refreshes it before the run starts. Capping the wait at 30 minutes leaves the other 30 minutes for the runner to clone the repo with that token.
+
+`OutpostContainer.run` stores each run under `pending/<run id>` until `deliver` hands it to the runner or gives up. `@cloudflare/containers` runs scheduled calls one at a time, so a second run in the same worktree can wait behind the first. While `deliver` runs, it posts a heartbeat every 60 seconds for every pending run.
+
+`deliver` gives the runner 60 seconds to accept a run. A healthy runner answers at once. If the runner doesn't answer in time, `deliver` posts a failure to the thread and moves on to the next run.

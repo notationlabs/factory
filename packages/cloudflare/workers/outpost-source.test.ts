@@ -8,7 +8,7 @@ const container = { runtimes: ["claude"], policies: [], files: {} };
 
 /** The lines of Factory's layers, in order, as a pattern. */
 const LAYERS =
-  /USER root\nCOPY --from=oven\/bun:1-debian \/usr\/local\/bin\/bun \/usr\/local\/bin\/bun\n[\s\S]*COPY factory-runtimes \/tmp\/factory-runtimes\n[\s\S]*useradd[\s\S]*USER factory\nENV HOME=\/data\/home\nWORKDIR \/data\/home\n/;
+  /USER root\nCOPY --from=oven\/bun:1-debian \/usr\/local\/bin\/bun \/usr\/local\/bin\/bun\n[\s\S]*RUN command -v earlyoom [\s\S]*apt-get install -y --no-install-recommends earlyoom[\s\S]*COPY factory-runtimes \/tmp\/factory-runtimes\n[\s\S]*useradd[\s\S]*USER factory\nENV HOME=\/data\/home\nWORKDIR \/data\/home\n/;
 
 test("a container with no image gets the default Dockerfile, with Factory's layers and its runtimes' setups", () => {
   const { source, image, context } = imageSource(container, {}, accounts, DOCKERFILE);
@@ -79,6 +79,7 @@ test("an outpost Worker binds the router's service gateway, and names its repo a
     routerWorker: "factory-router",
     compatibilityDate: "2026-10-12",
     sleepAfter: "10m",
+    maxInstances: 5,
   };
   const image = imageSource(container, {}, accounts, DOCKERFILE);
   const config = JSON.parse(wranglerConfig(settings, "outpost-abc", "acme/api", "dev", container, image));
@@ -88,4 +89,19 @@ test("an outpost Worker binds the router's service gateway, and names its repo a
   );
   assert.equal(config.vars.REPO, "acme/api");
   assert.equal(config.vars.CONTAINER, "dev");
+});
+
+test("a container with a custom size gets Wrangler's custom instance type", () => {
+  assert.deepEqual(instanceType({ ...container, instanceType: { vcpu: 2, memoryMib: 10240, diskMb: 16000 } }), {
+    vcpu: 2,
+    memory_mib: 10240,
+    disk_mb: 16000,
+  });
+});
+
+test("a container with a custom size under Cloudflare's minimum fails its deploy", () => {
+  assert.throws(
+    () => instanceType({ ...container, instanceType: { vcpu: 1, memoryMib: 128, diskMb: 4000 } }),
+    /memoryMib 256, and the container asks for 128/,
+  );
 });

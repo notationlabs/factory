@@ -8,7 +8,7 @@ Integrates GitHub Apps as Notation Factory webhook connections, repository code 
 | :--- | :--- |
 | `@notation/factory-github` | `Connection`, `CodeHost`, `OperatorAuth`, `Policy`, `collaborators`, `team`, `user`, event types |
 | `factory-outpost` | Condition on `@notation/factory-github` exporting `Connection.get`, `Policy`, `collaborators`, `team`, `user`, and event and selector types |
-| `@notation/factory-github/app` | CLI App utilities: `OPERATOR_CALLBACK_URL`, `createApp`, `appSlug`, `appVisibility`, `readApp`, `requestAppDeletion`, `requestAppChange` |
+| `@notation/factory-github/app` | CLI App utilities: `OPERATOR_CALLBACK_URL`, `createApp`, `appSlug`, `appVisibility`, `readApp`, `requestAppDeletion`, `requestAppChange`, `requestCallbackUrl` |
 | `@notation/factory-github/router` | `channel`, `webhookSecret`, `verifySignature`, `mentions`, `CHANNEL_SECRETS`, `CHANNEL_VALUES` |
 
 ## Hub classes
@@ -34,6 +34,8 @@ const gh = new github.Connection("gh", {
 ```
 
 GitHub has no API to change an App's permissions. When `permissions` adds to the App, the next deploy prints what to set on the App's permissions page and waits for you to save it. Then accept the new permissions on each installation.
+
+The App needs two redirect URLs: `http://127.0.0.1:47219/callback` for operator sign-in, and `<router>/restart/callback` for restart links. GitHub has no API to add a redirect URL. For an App created before restart links, the next deploy prints the router's URL and opens the App's settings. Add it with **Add Redirect URL** and save. Keep the CLI's URL. Until you do, restart links fail at GitHub with a `redirect_uri` error.
 
 ### `CodeHost`
 
@@ -110,7 +112,7 @@ const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 On `"edited"` comment triggers with `mention`, only edits that newly add the mention match.
 
-A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `listen:<mention without @>`, such as `listen:claude` for `@claude`. While the issue has the label, a new comment matches without the mention, unless it mentions another user, team or agent. Only comment triggers listen. On an issue trigger, `listen` only names the label to add. Label names in `labels` and `listen` match in any case. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
+A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `<mention without @>:listening`, such as `claude:listening` for `@claude`. While the issue has the label, a new comment matches without the mention, unless it mentions another agent, a collaborator on the repo, or the issue's author. Another agent is the `mention` of any GitHub trigger in the repo's outpost. The GitHub channel asks GitHub whether each mentioned login is a collaborator and keeps the answer for 10 minutes, so a change in that time isn't noticed yet. If GitHub can't answer, or the comment mentions more than 20 logins, every mention counts. Mentions in code and quotes don't count, and neither do team handles or package names such as `@scope/pkg`. Only comment triggers listen. On an issue trigger, `listen` only names the label to add. Label names in `labels` and `listen` match in any case. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
 
 ### Author sets (`from`)
 

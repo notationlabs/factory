@@ -1,6 +1,6 @@
 # Containers
 
-Notation Factory runs agents inside per-container Cloudflare Workers backed by persistent state in R2. While an active container sleeps after 10 minutes of idle time and discards its local disk, Factory snapshots worktree git bundles and agent sessions after every run so the next wake restores where the conversation left off.
+Notation Factory runs agents inside per-container Cloudflare Workers backed by persistent state in R2. While an active container sleeps after 10 minutes of idle time and discards its local disk, Factory snapshots worktree git bundles and agent sessions during and after every run so the next wake restores where the conversation left off.
 
 ## Declaring a container
 
@@ -22,12 +22,20 @@ const dev = new Container("dev", {
 | Option | Description |
 | :--- | :--- |
 | `image` | Dockerfile path relative to `.factory/`, built with `.factory/` as context |
-| `instanceType` | Machine size name for the provider; defaults to `"standard-1"` on Cloudflare |
+| `instanceType` | Machine size: a provider's size name, or `{ vcpu, memoryMib, diskMb }`; defaults to `"standard-1"` on Cloudflare |
 | `runtimes` | List of unique runtime definitions whose credentials and CLIs the container needs |
 | `policies` | List of policy objects whose short-lived tokens the container may request |
 | `files` | Map of `~/...` target paths to `.factory/` file paths or inline JSON objects |
 
-Each container runs at most one instance at a time and sleeps after `sleepAfter` elapses on `cloudflare.Deployer`, which defaults to `"10m"`. Active runs keep the container awake until they finish.
+## Instances and worktrees
+
+Each worktree gets its own instance of the container, so work on different worktrees happens in parallel. Within one worktree, the runner handles one run at a time and queues the rest.
+
+`maxInstances` on `cloudflare.Deployer` limits how many instances of a container can be awake at once. It defaults to `5`. An instance with no active run sleeps after `sleepAfter`, which defaults to `"10m"`. Sleeping instances don't count towards the limit.
+
+A new instance starts with an empty disk. It clones the repo and restores the worktree and the agent's session from saved state. See [Persistence across container sleep](#persistence-across-container-sleep).
+
+When the limit is reached, Factory holds a new run until an instance is free. It posts a notice on the thread and checks again every minute. After 30 minutes, it gives up and says so on the thread. Cloudflare gives the same error while it provisions a new image, so the notice mentions both causes.
 
 ## Cloudflare instance types
 
@@ -42,7 +50,24 @@ On Cloudflare, `instanceType` selects the container size and defaults to `"stand
 | `"standard-3"` | High-capacity standard instance |
 | `"standard-4"` | Largest standard instance |
 
-Passing any unrecognized instance type fails the outpost deploy. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
+Passing any unrecognized instance type fails the outpost deploy.
+
+For a size that the named types don't offer, give the resources instead of a name:
+
+```ts [.factory/infra.ts]
+const dev = new Container("dev", {
+  instanceType: { vcpu: 2, memoryMib: 10240, diskMb: 16000 },
+  runtimes: [claude.runtime],
+});
+```
+
+| Field | Unit | Cloudflare minimum |
+| :--- | :--- | :--- |
+| `vcpu` | vCPUs, fractions allowed | `0.0625` |
+| `memoryMib` | MiB | `256` |
+| `diskMb` | MB | `2000` |
+
+A value under its minimum fails the outpost deploy. The maximums are your account's per-instance limits: by default 4 vCPU, 12 GiB of memory and 20 GB of disk. Cloudflare can raise them on request. A value over your account's limit fails the image build. See [Cloudflare reference](../reference/cloudflare.md) for deployer-level options such as `regions` and `sleepAfter`.
 
 ## Default image and custom Dockerfiles
 
@@ -67,11 +92,40 @@ The deployer appends Factory's runtime layers to the end of every Dockerfile –
 
 1. Switches to `root` and copies `bun` from `oven/bun:1-debian` to `/usr/local/bin/bun`.
 2. Installs `ca-certificates` and `git` via `apt-get` if `git` is not already present.
-3. Copies each listed runtime's `setup.sh` into `/tmp/factory-runtimes/`, executes them as `root`, and removes the directory.
-4. Creates the `factory` user with home `/data/home` if absent and assigns ownership of `/data`.
-5. Switches to `USER factory`, sets `HOME=/data/home` and `WORKDIR /data/home`, and exposes port `8080`.
+3. Installs `earlyoom` via `apt-get` if it is not already present and the image has `apt-get`.
+4. Copies each listed runtime's `setup.sh` into `/tmp/factory-runtimes/`, executes them as `root`, and removes the directory.
+5. Creates the `factory` user with home `/data/home` if absent and assigns ownership of `/data`.
+6. Switches to `USER factory`, sets `HOME=/data/home` and `WORKDIR /data/home`, and exposes port `8080`.
 
 The outpost Worker overrides the image entrypoint and command to fetch `http://runner.factory/runner.ts` at startup and listen on port `8080`. Any user, working directory, home path, entrypoint, or command set in a custom Dockerfile is replaced.
+
+## Memory limits and earlyoom
+
+A container that runs out of memory can stop responding for many minutes before the kernel kills a process. During that time the run can't save its work or reply. To prevent this, the runner starts [earlyoom](https://github.com/rfjakob/earlyoom). When less than 10% of memory is available, earlyoom kills the process with the highest OOM score.
+
+The agent's processes have a higher OOM score than the runner, so earlyoom kills a process such as `tsc` before the runner. The run's reply then ends with a note:
+
+> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.
+
+earlyoom also logs a memory report every 60 seconds. If the image has no `apt-get`, Factory can't install earlyoom, and the runner works without it.
+
+### Node's heap limit
+
+Factory doesn't set `NODE_OPTIONS`. If a Node tool in your repo needs a different heap limit, set it in the container's Dockerfile:
+
+```dockerfile [.factory/Dockerfile]
+ENV NODE_OPTIONS=--max-old-space-size=4096
+```
+
+The value is in MiB. It applies to each Node process separately, so leave room for everything else in the container.
+
+## Lost runs
+
+The router expects a heartbeat from each run every minute. If a run sends none for 5 minutes, for example because its container crashed, the router marks the run lost. When Cloudflare stops a container, the runner tells the router, and the router marks the container's runs lost at once. In both cases the router replaces the run's status message with a notice that has a restart link.
+
+The restart link asks you to sign in with GitHub and checks that you are in the trigger's `from`. It then starts the run again from its last save. The link works for 7 days. You can also mention the agent again.
+
+If the container recovers, the runner stops the old run so that it doesn't hold up the new one.
 
 ## Image builds and commit checks
 
@@ -125,7 +179,9 @@ GitHub's runner setup configures a global `git` credential helper and a `/data/b
 
 ## Persistence across container sleep
 
-When a container sleeps, everything on its local filesystem is discarded. After every run – whether it succeeds or fails – the runner persists worktree and session state to the hub's R2 bucket through `http://state.factory`.
+When a container sleeps, everything on its local filesystem is discarded. The runner saves the worktree and the agent's session to the hub's R2 bucket through `http://state.factory`. It saves every 60 seconds during a run, and again when the run ends, whether it succeeded or failed. A save with no changes uploads nothing.
+
+If a container fails during a run, the work up to the last save is kept. The next run in that worktree restores it and resumes the agent's session. See [Lost runs](#lost-runs).
 
 ```text [/data/]
 /data/

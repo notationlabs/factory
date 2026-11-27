@@ -67,8 +67,7 @@ export const PUSH_ROLES = new Set(["admin", "maintain", "write"]);
  * Each login's role on `repo`, asked of GitHub: `admin`, `maintain`,
  * `write`, `triage`, `read`, an org's custom role, or `none`.
  */
-export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
-  const token = await repoToken(auth, repo, { metadata: "read" });
+export const roles = async (token: string, repo: string, logins: string[]) => {
   const role = async (login: string) => {
     const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
     const response = await github("GET", path, token);
@@ -80,6 +79,36 @@ export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
     return role_name || permission;
   };
   return new Map(await Promise.all(logins.map(async (login) => [login, await role(login)] as const)));
+};
+
+/** How long `collaborators` keeps each answer. A collaborator added or removed in that time isn't noticed yet. */
+const COLLABORATOR_TTL_MS = 10 * 60 * 1000;
+
+const collaboratorCache = new Map<string, { collaborator: boolean; expires: number }>();
+
+/**
+ * The logins among `logins` that are collaborators on `repo`, including org
+ * members with access. It keeps each answer for `COLLABORATOR_TTL_MS`, so it
+ * asks GitHub only about logins it hasn't seen recently, and only then calls
+ * `token`.
+ */
+export const collaborators = async (token: () => Promise<string>, repo: string, logins: string[]) => {
+  const now = Date.now();
+  for (const [key, { expires }] of collaboratorCache) if (expires <= now) collaboratorCache.delete(key);
+  const key = (login: string) => `${repo}:${login}`.toLowerCase();
+  const unknown = logins.filter((login) => !collaboratorCache.has(key(login)));
+  if (unknown.length) {
+    const t = await token();
+    await Promise.all(
+      unknown.map(async (login) => {
+        const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}`;
+        const response = await github("GET", path, t);
+        if (response.status !== 404) await ok(response, `GET ${path}`);
+        collaboratorCache.set(key(login), { collaborator: response.status === 204, expires: now + COLLABORATOR_TTL_MS });
+      }),
+    );
+  }
+  return logins.filter((login) => collaboratorCache.get(key(login))?.collaborator);
 };
 
 /**
@@ -241,6 +270,22 @@ export const reactEyes = async (auth: AppAuth, repo: string, target: { issue: nu
       ? `/repos/${repo}/issues/${target.issue}/reactions`
       : `/repos/${repo}/issues/comments/${target.comment}/reactions`;
   await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
+};
+
+/**
+ * Removes the App's 👀 from a comment, or from an issue's opening post if
+ * there's no `comment`.
+ */
+export const unreactEyes = async (auth: AppAuth, repo: string, target: { issue: number; comment?: number }) => {
+  const token = await repoToken(auth, repo, { issues: "write" });
+  const path =
+    target.comment === undefined
+      ? `/repos/${repo}/issues/${target.issue}/reactions`
+      : `/repos/${repo}/issues/comments/${target.comment}/reactions`;
+  // GitHub answers a reaction that the App has made already with that reaction, so this finds its id without listing every reaction.
+  const response = await ok(await github("POST", path, token, { body: { content: "eyes" } }), `POST ${path}`);
+  const { id } = (await response.json()) as { id: number };
+  await ok(await github("DELETE", `${path}/${id}`, token), `DELETE ${path}/${id}`);
 };
 
 /** Adds labels to an issue or a pull request. GitHub creates a label that the repo doesn't have yet. */

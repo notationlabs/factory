@@ -68,6 +68,7 @@ export const createApp = async (params: {
   name: string;
   org?: string;
   hookUrl: string;
+  restartUrl?: string;
   events?: GithubEvent[];
   permissions?: Permissions;
 }): Promise<{ id: string; clientId: string; privateKey: string; clientSecret: string }> => {
@@ -93,7 +94,7 @@ export const createApp = async (params: {
         url: HOMEPAGE,
         hook_attributes: { url: params.hookUrl, active: true },
         redirect_url: `http://localhost:${port}/callback`,
-        callback_urls: [OPERATOR_CALLBACK_URL],
+        callback_urls: [OPERATOR_CALLBACK_URL, ...(params.restartUrl ? [params.restartUrl] : [])],
         // An App on a personal account is public, so that orgs can install it.
         public: !params.org,
         default_events: params.events ?? [],
@@ -199,6 +200,19 @@ export const requestAppDeletion = async (key: { id: string; org?: string }): Pro
   const url = `${GITHUB_WEB}${owner}/settings/apps/${slug}/advanced`;
   console.error(`Delete the GitHub App ${slug} on its settings page: ${url}`);
   openBrowser(url);
+};
+
+/**
+ * GitHub has no API for an App's redirect URLs, so this opens the App's
+ * settings page and prints the URL to add there. It doesn't wait, since
+ * GitHub's API doesn't show the redirect URLs either.
+ */
+export const requestCallbackUrl = async (key: { id: string; org?: string }, url: string): Promise<void> => {
+  const slug = await appSlug(key.id);
+  const owner = key.org ? `/organizations/${key.org}` : "";
+  const settings = `${GITHUB_WEB}${owner}/settings/apps/${slug}`;
+  console.error(`Add ${url} as a redirect URL of the GitHub App ${slug} on ${settings}, and save. Restart links of lost runs sign people in through it.`);
+  openBrowser(settings);
 };
 
 /** How long a deploy waits for you to save an App's new permissions and events. */

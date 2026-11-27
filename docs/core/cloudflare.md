@@ -35,6 +35,7 @@ new cloudflare.Deployer("deployer", {
   accountId: "your-cloudflare-account-id",
   regions: ["WEUR"],
   sleepAfter: "10m",
+  maxInstances: 5,
 });
 ```
 
@@ -73,6 +74,7 @@ Notation names each secret `<app>--<stage>--secret-<id>-<instance>`, adding an e
 | `accountId` | Target account for outposts, defaulting to `CLOUDFLARE_ACCOUNT_ID` |
 | `regions` | Region allowlist restricting where outpost containers start |
 | `sleepAfter` | Idle timeout before stopping an inactive container |
+| `maxInstances` | Maximum number of awake instances of each outpost container; defaults to `5` |
 
 The `sleepAfter` timeout defaults to `10m` and accepts seconds, minutes, or hours. When `regions` is omitted, Cloudflare starts containers near the incoming request.
 
@@ -125,4 +127,4 @@ Each component provisions dedicated Cloudflare resources scoped to your hub's ap
 | `cloudflare.Deployer` | Deployer Worker, `BuildWatch` Durable Object, `WorkerLoader` binding, Artifacts namespace, and outpost Workers |
 | `cloudflare.Service` | A binding of the service's Worker on the router Worker |
 
-For each container declared in an outpost's `.factory/infra.ts`, the deployer creates an Artifacts repository, pushes container sources, triggers Workers Builds, and hosts a Durable Object Container using the container's `instanceType` or `standard-1` by default.
+For each container declared in an outpost's `.factory/infra.ts`, the deployer creates an Artifacts repository, pushes container sources, triggers Workers Builds, and hosts a Durable Object Container using the container's `instanceType` or `standard-1` by default. Each worktree has its own Durable Object and container instance.

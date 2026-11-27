@@ -42,7 +42,7 @@ const commentPayload = {
   action: "created",
   repository: { full_name: "acme/api", default_branch: "main" },
   issue: { number: 7, title: "Broken", body: "It breaks", user: { login: "bob" }, labels: [{ name: "bug" }] },
-  comment: { id: 99, body: "@claude fix", user: { login: "alice" } },
+  comment: { id: 99, body: "@claude fix", user: { login: "alice" }, html_url: "https://github.com/acme/api/issues/7#issuecomment-99" },
   sender: { login: "alice" },
 };
 
@@ -69,6 +69,7 @@ test("receive parses a signed comment to its App", async () => {
         repository: { full_name: "acme/api", default_branch: "main" },
         sender: { login: "alice" },
       },
+      url: "https://github.com/acme/api/issues/7#issuecomment-99",
     },
   });
 });
@@ -112,14 +113,14 @@ const selector = (over: object = {}) => ({
 });
 
 test("from allows a listed user, and a collaborator who can push", () => {
-  assert.deepEqual(channel.match(selector(), delivery({})), { result: "allowed" });
+  assert.deepEqual(channel.match(selector(), delivery({}), []), { result: "allowed" });
   assert.deepEqual(
-    channel.match(selector(), delivery({ author: { login: "bob", bot: false, write: false } })),
+    channel.match(selector(), delivery({ author: { login: "bob", bot: false, write: false } }), []),
     { result: "denied" },
   );
   const collaborators = selector({ from: { kind: "collaborators" } });
   assert.deepEqual(
-    channel.match(collaborators, delivery({ author: { login: "bob", bot: false, write: true } })),
+    channel.match(collaborators, delivery({ author: { login: "bob", bot: false, write: true } }), []),
     { result: "allowed" },
   );
 });
@@ -127,7 +128,7 @@ test("from allows a listed user, and a collaborator who can push", () => {
 test("bots never match, even with write access", () => {
   const collaborators = selector({ from: { kind: "collaborators" } });
   const bot = { login: "renovate[bot]", bot: true, write: true };
-  assert.deepEqual(channel.match(collaborators, delivery({ author: bot })), { result: "denied" });
+  assert.deepEqual(channel.match(collaborators, delivery({ author: bot }), []), { result: "denied" });
 });
 
 test("receive marks bot authors", async () => {
@@ -141,43 +142,57 @@ test("receive marks bot authors", async () => {
 test("a team in from leaves a check for the router to make", () => {
   const team = selector({ from: [{ kind: "team", slug: "acme/core" }] });
   assert.deepEqual(
-    channel.match(team, delivery({ author: { login: "bob", bot: false, write: false } })),
+    channel.match(team, delivery({ author: { login: "bob", bot: false, write: false } }), []),
     { result: "check", sets: [{ kind: "team", slug: "acme/core" }] },
   );
 });
 
 test("labels must all be on the issue, in any case", () => {
   const labelled = selector({ labels: ["bug", "p1"] });
-  assert.equal(channel.match(labelled, delivery({ labels: ["bug"] })), undefined);
-  assert.ok(channel.match(labelled, delivery({ labels: ["bug", "P1"] })));
+  assert.equal(channel.match(labelled, delivery({ labels: ["bug"] }), []), undefined);
+  assert.ok(channel.match(labelled, delivery({ labels: ["bug", "P1"] }), []));
 });
 
 test("an edit matches only if it newly adds the mention", () => {
   const edit = (before: string) => delivery({ action: "edited", before });
-  assert.ok(channel.match(selector(), edit("fix")));
-  assert.equal(channel.match(selector(), edit("@claude fix")), undefined);
+  assert.ok(channel.match(selector(), edit("fix"), []));
+  assert.equal(channel.match(selector(), edit("@claude fix"), []), undefined);
 });
 
 test("on an issue with the listen label, a new comment matches without the mention", () => {
   const comment = (labels: string[]) => delivery({ body: "and the tests", before: "and the tests", labels });
-  assert.equal(channel.match(selector(), comment([])), undefined);
-  assert.ok(channel.match(selector(), comment(["listen:claude"])));
-  assert.ok(channel.match(selector({ listen: "agent" }), comment(["Agent"])));
-  assert.equal(channel.match(selector({ listen: false }), comment(["listen:claude"])), undefined);
-  assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["listen:claude"] })), undefined);
-  assert.ok(channel.match(selector(), delivery({ labels: ["listen:claude"] })));
+  assert.equal(channel.match(selector(), comment([]), []), undefined);
+  assert.ok(channel.match(selector(), comment(["claude:listening"]), []));
+  assert.ok(channel.match(selector({ listen: "agent" }), comment(["Agent"]), []));
+  assert.equal(channel.match(selector({ listen: false }), comment(["claude:listening"]), []), undefined);
+  assert.equal(channel.match(selector(), delivery({ action: "edited", body: "fix", before: "fixx", labels: ["claude:listening"] }), []), undefined);
+  assert.ok(channel.match(selector(), delivery({ labels: ["claude:listening"] }), []));
 });
 
 test("on an issue with the listen label, a comment addressed to someone else doesn't match", () => {
-  const comment = (body: string) => delivery({ body, before: body, labels: ["listen:claude"] });
-  assert.equal(channel.match(selector(), comment("@droid do it")), undefined);
-  assert.equal(channel.match(selector(), comment("what do you think, @bob?")), undefined);
-  assert.equal(channel.match(selector(), comment("ping @acme/core")), undefined);
-  assert.ok(channel.match(selector(), comment("mail me@example.com")));
-  assert.ok(channel.match(selector(), comment("@Claude and @claude again")));
-  assert.ok(channel.match(selector(), comment("fix the `@types/node` import")));
-  assert.ok(channel.match(selector(), comment("```ts\n@Injectable()\n```\nlike this")));
-  assert.ok(channel.match(selector(), comment("> @bob said x\n\nplease do it")));
+  const comment = (body: string) => delivery({ body, before: body, labels: ["claude:listening"] });
+  assert.equal(channel.match(selector(), comment("@droid do it"), []), undefined);
+  assert.equal(channel.match(selector(), comment("what do you think, @bob?"), []), undefined);
+  assert.ok(channel.match(selector(), comment("ping @acme/core"), []));
+  assert.ok(channel.match(selector(), comment("mail me@example.com"), []));
+  assert.ok(channel.match(selector(), comment("@Claude and @claude again"), []));
+  assert.ok(channel.match(selector(), comment("fix the `@types/node` import"), []));
+  assert.ok(channel.match(selector(), comment("migrate to @djgrant/classy-core/react"), []));
+  assert.ok(channel.match(selector(), comment("pin @types/node@22"), []));
+  assert.equal(channel.match(selector(), comment("thanks @bob."), []), undefined);
+  assert.ok(channel.match(selector(), comment("```ts\n@Injectable()\n```\nlike this"), []));
+  assert.ok(channel.match(selector(), comment("> @bob said x\n\nplease do it"), []));
+});
+
+test("on an issue with the listen label, only a collaborator or another agent counts as someone else", () => {
+  const comment = (body: string) => delivery({ body, before: body, labels: ["claude:listening"], addressed: ["bob"] });
+  const both = [selector(), selector({ mention: "@droid" })];
+  assert.equal(channel.match(selector(), comment("what do you think, @bob?"), both), undefined);
+  assert.ok(channel.match(selector(), comment("@renovate rebase"), both));
+  assert.equal(channel.match(selector(), comment("@droid do it"), both), undefined);
+  assert.ok(channel.match(selector(), comment("@droid do it"), [selector()]));
+  assert.ok(channel.match(selector(), comment("as @carol said"), both));
+  assert.ok(channel.match(selector(), comment("migrate to @djgrant/classy-core"), both));
 });
 
 test("the default listen label is cut to GitHub's 50 characters", async () => {
@@ -185,7 +200,9 @@ test("the default listen label is cut to GitHub's 50 characters", async () => {
     const d = await accepted("issue_comment", commentPayload);
     await keyed.acknowledge!(d, [selector({ mention: "@some-org/a-very-long-team-name-that-goes-on-and-on" })]);
     const [, , body] = writes.find(([, path]) => path.endsWith("/labels"))!;
-    assert.equal((body as { labels: string[] }).labels[0]!.length, 50);
+    const [label] = (body as { labels: string[] }).labels;
+    assert.equal(label!.length, 50);
+    assert.ok(label!.endsWith(":listening"));
   });
 });
 
@@ -221,25 +238,45 @@ const withGithub = async (
     issue = {},
     comments = [],
     deleted = [],
-  }: { roles?: Record<string, string>; issue?: object; comments?: object[]; deleted?: number[] },
-  body: (posted: string[], writes: [string, string, unknown][]) => Promise<void>,
+    collaborators = [],
+  }: {
+    roles?: Record<string, string>;
+    issue?: object;
+    comments?: object[];
+    deleted?: number[];
+    collaborators?: string[];
+  },
+  body: (posted: string[], writes: [string, string, unknown][], checks: string[]) => Promise<void>,
 ) => {
   const posted: string[] = [];
+  const checks: string[] = [];
   const writes: [string, string, unknown][] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     if (url.pathname.endsWith("/installation")) return Response.json({ id: 1 });
-    if (url.pathname.endsWith("/access_tokens")) return Response.json({ token: "t" });
+    if (url.pathname.endsWith("/access_tokens")) {
+      checks.push("token");
+      return Response.json({ token: "t" });
+    }
     const role = url.pathname.match(/\/collaborators\/([^/]+)\/permission$/);
     if (role) {
       const name = roles[decodeURIComponent(role[1]!)];
       return name ? Response.json({ permission: name, role_name: name }) : new Response("Not Found", { status: 404 });
     }
+    const collaborator = url.pathname.match(/\/collaborators\/([^/]+)$/);
+    if (collaborator) {
+      checks.push(url.pathname);
+      return new Response(null, { status: collaborators.includes(decodeURIComponent(collaborator[1]!)) ? 204 : 404 });
+    }
+    if (init?.method === "DELETE") {
+      writes.push(["DELETE", url.pathname, undefined]);
+      return new Response(null, { status: 204 });
+    }
     if (init?.method === "PATCH" || url.pathname.endsWith("/reactions") || url.pathname.endsWith("/labels")) {
       writes.push([init!.method!, url.pathname, JSON.parse(String(init!.body))]);
       if (deleted.some((id) => url.pathname.endsWith(`/comments/${id}`))) return new Response("Not Found", { status: 404 });
-      return Response.json({});
+      return Response.json(url.pathname.endsWith("/reactions") ? { id: 42, content: "eyes" } : {});
     }
     if (url.pathname.endsWith("/comments") && init?.method === "POST") {
       posted.push(JSON.parse(String(init.body)).body);
@@ -251,7 +288,7 @@ const withGithub = async (
     return new Response("Not Found", { status: 404 });
   }) as typeof fetch;
   try {
-    await body(posted, writes);
+    await body(posted, writes, checks);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -271,6 +308,44 @@ test("receive asks GitHub for the author's role, since an org member may not be 
   await withGithub({ roles: { alice: "maintain" } }, async () => {
     const { data } = await accepted("issue_comment", commentPayload);
     assert.equal(data.author.write, true);
+  });
+});
+
+test("receive notes which mentions on a labelled issue are collaborators, and keeps each answer", async () => {
+  const payload = (body: string, labels = [{ name: "bug" }]) => ({
+    ...commentPayload,
+    repository: { full_name: "acme/web", default_branch: "main" },
+    issue: { ...commentPayload.issue, user: { login: "zed" }, labels },
+    comment: { ...commentPayload.comment, body },
+  });
+  await withGithub({ collaborators: ["bob"] }, async (_, __, checks) => {
+    const first = await accepted("issue_comment", payload("@claude ask @bob, @renovate and @nobody about @acme/core"));
+    assert.deepEqual(first.data.addressed, ["bob"]);
+    const second = await accepted("issue_comment", payload("and @bob or @carol"));
+    assert.deepEqual(second.data.addressed, ["bob"]);
+    const asked = () => checks.filter((c) => c !== "token");
+    const expected = ["claude", "bob", "renovate", "nobody", "carol"].map((login) => `/repos/acme/web/collaborators/${login}`);
+    assert.deepEqual(asked(), expected);
+    const unlabelled = await accepted("issue_comment", payload("@bob", []));
+    assert.equal(unlabelled.data.addressed, undefined);
+    const many = Array.from({ length: 21 }, (_, i) => `@user${i}`).join(" ");
+    const log = await accepted("issue_comment", payload(many));
+    assert.equal(log.data.addressed, undefined);
+    assert.equal(asked().length, expected.length);
+  });
+});
+
+test("receive counts the issue's author as addressed without asking GitHub, and mints one token for both checks", async () => {
+  const payload = {
+    ...commentPayload,
+    repository: { full_name: "acme/site", default_branch: "main" },
+    issue: { ...commentPayload.issue, user: { login: "Dana" } },
+    comment: { ...commentPayload.comment, body: "@dana can you share logs? cc @erin" },
+  };
+  await withGithub({}, async (_, __, checks) => {
+    const { data } = await accepted("issue_comment", payload);
+    assert.deepEqual(data.addressed, ["dana"]);
+    assert.deepEqual(checks, ["token", "/repos/acme/site/collaborators/erin"]);
   });
 });
 
@@ -322,11 +397,11 @@ test("an issue event that posts no message needs both the person who acted and t
     const delivery = await accepted("issues", labeled({ login: "carol" }));
     assert.deepEqual(delivery.data.author, { login: "bob", bot: false, role: "write", write: true });
     assert.deepEqual(delivery.data.actor, { login: "carol", bot: false, role: "write", write: true });
-    assert.deepEqual(channel.match(select, delivery), { result: "allowed" });
-    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "eve" }))), { result: "denied" });
+    assert.deepEqual(channel.match(select, delivery, []), { result: "allowed" });
+    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "eve" })), []), { result: "denied" });
   });
   await withGithub({ roles: { carol: "write" } }, async () => {
-    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "carol" }))), { result: "denied" });
+    assert.deepEqual(channel.match(select, await accepted("issues", labeled({ login: "carol" })), []), { result: "denied" });
   });
 });
 
@@ -400,19 +475,44 @@ test("acknowledge reacts with 👀 to the comment that matched, or to the issue 
   });
 });
 
+test("answered removes the App's 👀 from the comment that matched, or from the issue for an issue event", async () => {
+  await withGithub({}, async (_, writes) => {
+    await keyed.answered!(await accepted("issue_comment", commentPayload));
+    const opened = { action: "opened", repository: commentPayload.repository, issue: commentPayload.issue };
+    await keyed.answered!(await accepted("issues", opened));
+    assert.deepEqual(writes, [
+      ["POST", "/repos/acme/api/issues/comments/99/reactions", { content: "eyes" }],
+      ["DELETE", "/repos/acme/api/issues/comments/99/reactions/42", undefined],
+      ["POST", "/repos/acme/api/issues/7/reactions", { content: "eyes" }],
+      ["DELETE", "/repos/acme/api/issues/7/reactions/42", undefined],
+    ]);
+  });
+});
+
 test("acknowledge adds the listen label of each selector that listens", async () => {
   await withGithub({}, async (_, writes) => {
     const d = await accepted("issue_comment", commentPayload);
     await keyed.acknowledge!(d, [selector(), selector({ mention: "@cursor", listen: false })]);
     const labelled = writes.filter(([, path]) => path.endsWith("/labels"));
-    assert.deepEqual(labelled, [["POST", "/repos/acme/api/issues/7/labels", { labels: ["listen:claude"] }]]);
+    assert.deepEqual(labelled, [["POST", "/repos/acme/api/issues/7/labels", { labels: ["claude:listening"] }]]);
   });
 });
 
 test("acknowledge adds no label that the issue has", async () => {
   await withGithub({}, async (_, writes) => {
     const d = await accepted("issue_comment", commentPayload);
-    await keyed.acknowledge!({ ...d, data: { ...d.data, labels: ["Listen:Claude"] } }, [selector()]);
+    await keyed.acknowledge!({ ...d, data: { ...d.data, labels: ["Claude:Listening"] } }, [selector()]);
     assert.equal(writes.filter(([, path]) => path.endsWith("/labels")).length, 0);
+  });
+});
+
+test("canTrigger checks a signed-in person against the trigger's from, with their role on the repo", async () => {
+  await withGithub({ roles: { carol: "write", dave: "triage" } }, async () => {
+    const d = await accepted("issue_comment", commentPayload);
+    const both = selector({ from: [{ kind: "user", login: "Alice" }, collaborators] });
+    assert.equal(await keyed.canTrigger!(both, d, { login: "alice", id: "1" }), true);
+    assert.equal(await keyed.canTrigger!(both, d, { login: "carol", id: "2" }), true);
+    assert.equal(await keyed.canTrigger!(both, d, { login: "dave", id: "3" }), false);
+    assert.equal(await keyed.canTrigger!(selector({ from: { kind: "team", slug: "acme/devs" } }), d, { login: "alice", id: "1" }), false);
   });
 });

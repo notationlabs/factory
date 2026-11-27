@@ -5,6 +5,7 @@ import type {
   ConversationTrigger,
   Delivery,
   FactoryStatus,
+  Operator,
 } from "@notation/factory/router";
 import { channel } from "factory:channel";
 import type { SecretsStoreSecret } from "./types.ts";
@@ -38,8 +39,9 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return channel(context(this.env)).receive(request);
   }
 
-  match(selector: unknown, delivery: Delivery<unknown>) {
-    return channel(context(this.env)).match(selector, delivery);
+  // A router deployed before `selectors` existed passes none.
+  match(selector: unknown, delivery: Delivery<unknown>, selectors: unknown[] = []) {
+    return channel(context(this.env)).match(selector, delivery, selectors);
   }
 
   sync(url: string) {
@@ -80,6 +82,10 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     await channel(context(this.env)).acknowledge?.(delivery, selectors);
   }
 
+  async answered(delivery: Delivery<unknown>) {
+    await channel(context(this.env)).answered?.(delivery);
+  }
+
   reply(thread: unknown, text: string, message?: string) {
     const { reply } = channel(context(this.env));
     if (!reply) throw new Error("This connection's channel can't reply.");
@@ -98,15 +104,21 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return repos();
   }
 
-  signInUrl(state: string) {
+  signInUrl(state: string, redirect?: string) {
     const { signInUrl } = channel(context(this.env));
-    if (!signInUrl) throw new Error("This connection's channel can't sign operators in.");
-    return signInUrl(state);
+    if (!signInUrl) throw new Error("This connection's channel can't sign people in.");
+    return signInUrl(state, redirect);
   }
 
-  signIn(code: string) {
+  signIn(code: string, redirect?: string) {
     const { signIn } = channel(context(this.env));
-    if (!signIn) throw new Error("This connection's channel can't sign operators in.");
-    return signIn(code);
+    if (!signIn) throw new Error("This connection's channel can't sign people in.");
+    return signIn(code, redirect);
+  }
+
+  canTrigger(selector: unknown, delivery: Delivery<unknown>, person: Operator) {
+    const { canTrigger } = channel(context(this.env));
+    if (!canTrigger) throw new Error("This connection's channel can't check who may trigger an agent.");
+    return canTrigger(selector, delivery, person);
   }
 }

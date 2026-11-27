@@ -10,10 +10,17 @@ const containerConfig = v.object({
    */
   image: v.optional(v.string()),
   /**
-   * The size of the machine, in the provider's names, such as Cloudflare's
-   * `standard-2`. Without it, the provider picks its default.
+   * The size of the machine: one of the provider's names, such as
+   * Cloudflare's `standard-2`, or its resources, such as
+   * `{ vcpu: 2, memoryMib: 10240, diskMb: 16000 }`. Without it, the
+   * provider picks its default.
    */
-  instanceType: v.optional(v.string()),
+  instanceType: v.optional(
+    v.union([
+      v.string(),
+      v.strictObject({ vcpu: v.number(), memoryMib: v.number(), diskMb: v.number() }),
+    ]),
+  ),
   runtimes: v.optional(
     v.array(
       v.custom<Runtime>(

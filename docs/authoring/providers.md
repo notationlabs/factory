@@ -47,14 +47,22 @@ In the router's HTTP entrypoint, build a `RouterStore` adapter for `@notation/fa
 
 | Property | Purpose |
 | :--- | :--- |
-| `inbox` | `Inbox` instance deduplicating deliveries, advancing them asynchronously, and supporting replay |
+| `inbox` | `Inbox` instance deduplicating deliveries, advancing them asynchronously, recording heartbeats, and supporting replay |
 | `deploys` | `DeployLog` persisting latest deploy statuses and container build states |
 | `rootKey` | Async getter returning the bound `FACTORY_ROOT_KEY` value |
 | `syncKey` | Optional async getter returning the bound `FACTORY_SYNC_KEY` value |
 | `channel` | Lookup returning a `RemoteChannel` for a connection's channel binding |
 | `deployer` | Optional `RemoteDeployer` RPC client for deploys, worktrees, and runs |
 
-The inbox triggers `advance(record, store)` asynchronously via alarms or queues and retains seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`.
+The inbox calls `advance(record, store)` from an alarm or a queue. It keeps seen delivery IDs and failed deliveries for `KEEP_DELIVERY_MS`.
+
+The inbox also records heartbeats:
+
+1. Store what `heartbeatWatch` returns for each heartbeat, separately from the record.
+2. Call `watch(record, watches, store)` within `LOST_AFTER_MS` of each heartbeat. It marks runs lost if their heartbeats have stopped.
+3. If `watch` returns `lost: true`, list the delivery as failed again.
+
+`advance` and `watch` wait on the deployer and the channels, and a restart can save the record during that wait. Combine the two copies with `mergeRecord` before saving.
 
 ## Implementing `Deployer`
 
@@ -74,4 +82,6 @@ Bind platform secrets and runner endpoints before starting each container, witho
 
 If the provider has hub services, make `<name>.factory` reach each service from the container, as [Services](./services.md#services-on-other-providers) describes.
 
-Also inject every `Account` secret under its declared variable name, plus matching `OutpostSecret` entries filtered with `allowsRepo`. Start executions by posting signed `Run` payloads to the container.
+Also inject every `Account` secret under its declared variable name, plus matching `OutpostSecret` entries filtered with `allowsRepo`. Start a run by posting its signed `Run` payload to the container.
+
+The router marks a run lost if it gets no heartbeat for 5 minutes, counting from the first heartbeat. If your deployer holds a run while its container starts, post a heartbeat to `run.reply.heartbeat` when you take the run, and then every minute until the runner has it. If you can't deliver the run, send the failure reply with `done: true`.

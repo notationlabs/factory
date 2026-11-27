@@ -13,6 +13,7 @@ import { appJwt } from "./app-jwt.ts";
 import { signIn, signInUrl } from "./operators.ts";
 import {
   addLabels,
+  collaborators,
   comment,
   installedRepos,
   type IssueComment,
@@ -24,6 +25,7 @@ import {
   repoToken,
   roles,
   sourceChanges,
+  unreactEyes,
   writeCheck as writeRepoCheck,
   writeStatus as writeRepoStatus,
 } from "./repos.ts";
@@ -68,6 +70,12 @@ export type GithubEvent = {
   /** The body before an edit. The same as `body` when an edit didn't change it. */
   before: string;
   labels: string[];
+  /**
+   * The lowercased logins that a new comment mentions and that are
+   * collaborators on the repo, or the issue's author. Missing if GitHub
+   * couldn't say, and then every mention counts.
+   */
+  addressed?: string[];
 };
 
 type Post = {
@@ -175,7 +183,7 @@ const threadMessages = async (
     { id: OPENING_POST, ...readPost(opening, auth.appId) },
     ...comments.map((c) => ({ id: String(c.id), ...readPost(c, auth.appId) })),
   ];
-  await resolveRoles(auth, repo, posts.map((p) => p.author));
+  await resolveRoles(metadataToken(auth, repo), repo, posts.map((p) => p.author));
   return posts.map(({ id, author, body, agent }) => {
     const message: ThreadMessage = { id, author: `@${author.login}`, body };
     if (agent) message.agent = agent;
@@ -211,11 +219,13 @@ type Selector = {
   from: AuthorSet | AuthorSet[];
 };
 
+const LISTENING = ":listening";
+
 /** The label that keeps a mention selector listening, if it has one. Outposts deployed before `listen` existed get the default too. */
 const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
   if (!selector.mention || selector.listen === false) return undefined;
   // GitHub limits label names to 50 characters, which a team's mention can pass.
-  return selector.listen ?? `listen:${selector.mention.replace(/^@/, "")}`.slice(0, 50);
+  return selector.listen ?? `${selector.mention.replace(/^@/, "").slice(0, 50 - LISTENING.length)}${LISTENING}`;
 };
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
@@ -225,24 +235,39 @@ const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?/g;
 /** Code and quoted lines, where an `@` isn't a mention. */
 const NOT_MENTIONS = /```[\s\S]*?(?:```|(?![\s\S]))|`[^`\n]*`|^>.*$/gm;
 
-/** Whether `body` mentions a user or team other than `mention`, outside code and quotes. */
-const mentionsOther = (body: string, mention: string) => {
-  const own = mention.replace(/^@/, "").toLowerCase();
-  return (body.replace(NOT_MENTIONS, "").match(HANDLE) ?? []).some((h) => h.slice(1).toLowerCase() !== own);
+/** The lowercased handles that `body` mentions, without the `@`, outside code and quotes. */
+const handles = (body: string) => (body.replace(NOT_MENTIONS, "").match(HANDLE) ?? []).map((h) => h.slice(1).toLowerCase());
+
+const isTeam = (handle: string) => handle.includes("/");
+
+const handleOf = (mention: string) => mention.replace(/^@/, "").toLowerCase();
+
+/**
+ * Whether the event's body is addressed to someone other than `mention`:
+ * another agent in the repo's outpost, or a collaborator on the repo.
+ * Without `addressed`, any handle that isn't a team counts.
+ */
+const addressedToOther = (event: GithubEvent, mention: string, selectors: Selector[]) => {
+  const own = handleOf(mention);
+  const agents = new Set(selectors.flatMap((s) => (s.mention && handleOf(s.mention) !== own ? [handleOf(s.mention)] : [])));
+  const { addressed } = event;
+  return handles(event.body).some(
+    (h) => agents.has(h) || (h !== own && !isTeam(h) && (!addressed || addressed.includes(h))),
+  );
 };
 
 /** Whether the event's body mentions `mention`. An edit counts only if it newly adds the mention. */
 const newlyMentions = (event: GithubEvent, mention: string) =>
   mentions(event.body, mention) && !(event.action === "edited" && mentions(event.before, mention));
 
-const selects = (selector: Selector, event: GithubEvent) => {
+const selects = (selector: Selector, event: GithubEvent, selectors: Selector[]) => {
   if (!selector.actions.includes(event.action)) return false;
   if (selector.labels?.some((l) => !hasLabel(event.labels, l))) return false;
   if (selector.mention && !newlyMentions(event, selector.mention)) {
     // On an issue with the listen label, a new comment matches without the mention, unless it's addressed to someone else. Edits don't.
     const label = listenLabel(selector);
     const listening =
-      event.action === "created" && label !== undefined && hasLabel(event.labels, label) && !mentionsOther(event.body, selector.mention);
+      event.action === "created" && label !== undefined && hasLabel(event.labels, label) && !addressedToOther(event, selector.mention, selectors);
     if (!listening) return false;
   }
   return true;
@@ -271,21 +296,54 @@ const checkEvent = (from: Selector["from"], event: GithubEvent): AuthorCheck => 
   return checks.find((c) => c.result === "check") ?? { result: "allowed" };
 };
 
+/** A token for reading `repo`'s metadata, minted the first time it's called and shared after that. */
+const metadataToken = (auth: { appId: string; privateKey: string }, repo: string) => {
+  let token: Promise<string> | undefined;
+  return () => (token ??= repoToken(auth, repo, { metadata: "read" }));
+};
+
 /**
  * Sets `role` and `write` on the people among `authors`, by asking GitHub.
  * If GitHub can't answer, they stay without a role.
  */
-const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: string, authors: Author[]) => {
+const resolveRoles = async (token: () => Promise<string>, repo: string, authors: Author[]) => {
   const people = authors.filter((a) => !a.bot && a.login && a.role === undefined);
   if (people.length === 0) return;
   try {
-    const found = await roles(auth, repo, [...new Set(people.map((a) => a.login))]);
+    const found = await roles(await token(), repo, [...new Set(people.map((a) => a.login))]);
     for (const a of people) {
       a.role = found.get(a.login);
       a.write = PUSH_ROLES.has(a.role ?? "");
     }
   } catch (error) {
     console.log(JSON.stringify({ state: "role check failed", repo, error: error instanceof Error ? error.message : String(error) }));
+  }
+};
+
+/** The most logins that `resolveAddressed` checks in one comment. A comment with more, such as a pasted log, gets no `addressed`. */
+const MAX_ADDRESSED_CHECKS = 20;
+
+/**
+ * Sets `addressed` on a new comment on a labelled issue, since only such a
+ * comment can match a listen label without its mention. Team handles are
+ * left out, so a package such as `@scope/pkg` doesn't count. The issue's
+ * author counts without a check.
+ */
+const resolveAddressed = async (
+  token: () => Promise<string>,
+  repo: string,
+  event: GithubEvent,
+  issueAuthor: string | undefined,
+) => {
+  if (event.action !== "created" || event.labels.length === 0) return;
+  const author = issueAuthor?.toLowerCase();
+  const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h) && h !== author))];
+  if (logins.length > MAX_ADDRESSED_CHECKS) return;
+  try {
+    const found = await collaborators(token, repo, logins);
+    event.addressed = author && handles(event.body).includes(author) ? [author, ...found] : found;
+  } catch (error) {
+    console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
   }
 };
 
@@ -315,12 +373,16 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      await resolveRoles(await auth(), repo, [data.author, ...(data.actor ? [data.actor] : [])]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
         return { status: "ignored", reason: "posted by this App" };
       }
+      const token = metadataToken(await auth(), repo);
+      await Promise.all([
+        resolveRoles(token, repo, [data.author, ...(data.actor ? [data.actor] : [])]),
+        resolveAddressed(token, repo, data, payload.issue?.user?.login),
+      ]);
       return {
         status: "accepted",
         delivery: {
@@ -330,13 +392,14 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
           event,
           data,
           payload: eventPayload(payload),
+          ...(typeof post?.html_url === "string" && { url: post.html_url }),
         },
       };
     },
 
-    match(selector, delivery) {
+    match(selector, delivery, selectors) {
       const s = selector as Selector;
-      return selects(s, delivery.data)
+      return selects(s, delivery.data, selectors as Selector[])
         ? checkEvent(s.from, delivery.data)
         : undefined;
     },
@@ -396,6 +459,11 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       ]);
     },
 
+    async answered(delivery) {
+      const payload = delivery.payload as Payload;
+      await unreactEyes(await auth(), delivery.repo, { issue: payload.issue.number, comment: payload.comment?.id });
+    },
+
     async reply(thread, text, message) {
       const { repo, issue, agent } = thread as Thread;
       const body = agent ? `${agentMarker(agent)}\n${text}` : text;
@@ -411,12 +479,19 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       return installedRepos(await auth());
     },
 
-    async signInUrl(state) {
-      return signInUrl(ctx.value(CHANNEL_VALUES.clientId), state);
+    async signInUrl(state, redirect) {
+      return signInUrl(ctx.value(CHANNEL_VALUES.clientId), state, redirect);
     },
 
-    async signIn(code) {
-      return signIn({ clientId: ctx.value(CHANNEL_VALUES.clientId), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code);
+    async signIn(code, redirect) {
+      return signIn({ clientId: ctx.value(CHANNEL_VALUES.clientId), clientSecret: await ctx.secret(CHANNEL_SECRETS.clientSecret) }, code, redirect);
+    },
+
+    // A team in `from` needs a call that the router doesn't make yet, so it doesn't let the person in.
+    async canTrigger(selector, delivery, { login }) {
+      const person: Author = { login, bot: false, write: false };
+      await resolveRoles(metadataToken(await auth(), delivery.repo), delivery.repo, [person]);
+      return checkAuthor((selector as Selector).from, person).result === "allowed";
     },
   };
 };

@@ -2,10 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutpostConfig } from "../contracts/outpost.ts";
 import type { Delivery, Received, RemoteChannel } from "./channel.ts";
-import { BUILD_POLL_MS, BUILD_WAIT_MS, type DeliveryRecord, failedDelivery, type Inbox, replayRecord } from "./deliveries.ts";
+import {
+  BUILD_POLL_MS,
+  BUILD_WAIT_MS,
+  type DeliveryRecord,
+  failedDelivery,
+  heartbeatWatch,
+  type Inbox,
+  LOST_ERROR,
+  lostNotice,
+  mergeRecord,
+  nextTry,
+  replayRecord,
+  restartingNotice,
+  STOPPED_ERROR,
+  type Watch,
+} from "./deliveries.ts";
 import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
-import { advance, handle, type RemoteDeployer, type RouterStore } from "./handle.ts";
-import { type Run, signBuildReport, signMessage, signTicket, signTokenTicket } from "./run.ts";
+import { advance, handle, type RemoteDeployer, type RouterStore, watch } from "./handle.ts";
+import { LOST_AFTER_MS, type Run, signBuildReport, signMessage, signRestart, signTicket, signTokenTicket } from "./run.ts";
 import { SYNC_HEADER, signSync } from "./sync.ts";
 
 const ROOT_KEY = "root";
@@ -30,15 +45,18 @@ const fake = (
   conversation: async (delivery) => ({ id: `fake:${delivery.repo}`, message: "p1", thread: { repo: delivery.repo } }),
   messages: async () => [],
   acknowledge: async () => {},
+  answered: async () => {},
   reply: async () => undefined,
   token: async (repo, permissions) => `token:${repo}:${JSON.stringify(permissions)}`,
   repos: async () => [],
-  signInUrl: async (state) => `https://sign-in.test/?state=${state}`,
+  signInUrl: async (state, redirect) => `https://sign-in.test/?state=${encodeURIComponent(state)}${redirect ? `&redirect=${redirect}` : ""}`,
   // A code of `code-<login>-<id>` signs in as that user.
   signIn: async (code) => {
     const [login = "", id = "0"] = code.replace(/^code-/, "").split("-");
     return { login, id };
   },
+  // Only alice may trigger the agent.
+  canTrigger: async (_selector, _delivery, person) => person.login === "alice",
 });
 
 const accepted = (over: Partial<Delivery<FakeEvent>> = {}) =>
@@ -83,6 +101,9 @@ const atOnce: Inbox = {
   receive: async (record) => (await advance(record, calling), true),
   failed: async () => [],
   replay: async () => false,
+  heartbeat: async () => "unknown",
+  record: async () => undefined,
+  restart: async () => false,
 };
 
 const entry = (channel: string) => ({ provider: "fake", source: "1", credentials: {}, channel });
@@ -125,6 +146,21 @@ test("matches only triggers on channels of the delivery's provider, connection, 
 test("a delivery to another connection's path matches that connection's triggers", async () => {
   const { body } = await call(store({ main: accepted(), second: accepted() }), "/webhook/fake/second");
   assert.deepEqual(matched(body.matches), [{ trigger: "other-connection", author: { result: "allowed" }, run: "string" }]);
+});
+
+test("match gets the selectors of the outpost's triggers on any of the provider's connections for the delivery's scope", async () => {
+  const named = structuredClone(outpost);
+  for (const [id, trigger] of Object.entries(named.triggers!)) trigger.match = { pick: id === "picked", id };
+  const seen: unknown[][] = [];
+  const channel = accepted();
+  const match = channel.match;
+  channel.match = async (selector, delivery, selectors) => {
+    seen.push(selectors);
+    return match(selector, delivery, selectors);
+  };
+  await call(store({ main: channel }, { "acme/api": named }));
+  const ids = (selectors: unknown[]) => selectors.map((s) => (s as { id: string }).id);
+  assert.deepEqual(ids(seen[0]!), ["picked", "skipped", "other-connection", "other-event"]);
 });
 
 test("a rejected delivery is a 401, and an ignored one a 200", async () => {
@@ -568,6 +604,7 @@ test("tokens refuses a container that the repo's outpost no longer has", async (
 /** An inbox that keeps records in memory, by connection and id. It dispatches only when a test calls `advance`. */
 const memoryInbox = () => {
   const records = new Map<string, DeliveryRecord>();
+  const watches = new Map<string, Watch>();
   const inbox: Inbox = {
     receive: async (record) => {
       const key = `${record.connection}/${record.id}`;
@@ -577,8 +614,18 @@ const memoryInbox = () => {
     },
     failed: async () => [],
     replay: async () => false,
+    heartbeat: async (connection, id, run, beat) => {
+      const { result, watch } = heartbeatWatch(records.get(`${connection}/${id}`), run, watches.get(run), beat, Date.now());
+      if (watch) watches.set(run, watch);
+      return result;
+    },
+    record: async (connection, id) => records.get(`${connection}/${id}`),
+    restart: async (connection, id, run, origin) => {
+      const record = records.get(`${connection}/${id}`);
+      return record ? replayRecord(record, origin, run) : false;
+    },
   };
-  return { inbox, records };
+  return { inbox, records, watches };
 };
 
 test("with an inbox, a delivery is saved before the router answers, and a second delivery with its id is a duplicate", async () => {
@@ -631,9 +678,9 @@ const memoryDeploys = (): NonNullable<RouterStore["deploys"]> & { saved: Map<str
 };
 
 const savedRecord = async (s: RouterStore) => {
-  const { inbox, records } = memoryInbox();
+  const { inbox, records, watches } = memoryInbox();
   await call({ ...s, inbox });
-  return { record: [...records.values()][0]!, store: { ...s, inbox } };
+  return { record: [...records.values()][0]!, store: { ...s, inbox }, watches };
 };
 
 test("a dispatch whose container's first image build hasn't finished waits for it, and its run replaces the waiting message", async () => {
@@ -743,6 +790,18 @@ test("an error from the deployer fails the dispatch without a retry, since the r
   assert.deepEqual(failedDelivery(record, 5)?.triggers, [{ trigger: "mention", error: "status 502: bad gateway" }]);
 });
 
+test("a failed dispatch tells the channel that the post is answered once its notice is posted", async () => {
+  const events: string[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async () => void events.push("notice"),
+    answered: async (d: Delivery<FakeEvent>) => void events.push(`answered ${d.id}`),
+  };
+  const { record, store } = await savedRecord(runStore(channel, { run: async () => Promise.reject(new Error("refused")) }));
+  await advance(record, store, 0);
+  assert.deepEqual(events, ["notice", "answered d1"]);
+});
+
 test("each failed trigger of a delivery replaces its own waiting message", async () => {
   const replies: unknown[][] = [];
   let posted = 0;
@@ -818,6 +877,350 @@ test("a replay dispatches the failed triggers again as new runs, against the out
   assert.equal(record.dispatches[0]!.state, "failed");
   assert.match(record.dispatches[0]!.error!, /no longer has the trigger `mention`/);
   assert.equal(runs.length, 2);
+});
+
+const beat = (s: RouterStore, body: unknown) =>
+  handle(new Request("https://router.test/heartbeat", { method: "POST", body: JSON.stringify(body) }), s);
+
+test("a run's ticket names its dispatch, and its heartbeats note the message that its replies replace", async () => {
+  const runs: Run[] = [];
+  const { record, store, watches } = await savedRecord(runStore(accepted(), { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store);
+  const { reply, id } = runs[0]!;
+  assert.equal(reply.heartbeat, "https://router.test/heartbeat");
+  assert.equal(reply.ticket.delivery, "d1");
+  assert.equal(reply.ticket.run, id);
+
+  const message = { id: "m1", signature: await signMessage(ROOT_KEY, reply.signature, "m1") };
+  const response = await beat(store, { ticket: reply.ticket, signature: reply.signature, message });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.deepEqual(watches.get(id), { at: (watches.get(id) as { at: number }).at, message: "m1" });
+
+  // A run can't have the lost notice replace a message that it didn't post.
+  const other = { id: "m2", signature: message.signature };
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, message: other })).status, 401);
+  const forged = { ...reply.ticket, run: "other" };
+  assert.equal((await beat(store, { ticket: forged, signature: reply.signature })).status, 401);
+  const unnamed = { connection: "fake/main", thread: { repo: "acme/api" }, expires: Date.now() + 60_000 };
+  assert.equal((await beat(store, { ticket: unnamed, signature: await signTicket(ROOT_KEY, unnamed) })).status, 400);
+  const unknown = { ...reply.ticket, delivery: "other" };
+  assert.equal((await beat(store, { ticket: unknown, signature: await signTicket(ROOT_KEY, unknown) })).status, 404);
+
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, done: true })).status, 200);
+  assert.deepEqual(watches.get(id), { done: true });
+});
+
+test("a heartbeat that arrives after a run's last one doesn't have the router watch the run again", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push([text]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, done: true })).status, 200);
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.deepEqual(watches.get(id), { done: true });
+  assert.deepEqual(await watch(record, watches, store, Date.now() + LOST_AFTER_MS), { forget: [], next: undefined, lost: false });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.equal(replies.length, 0);
+});
+
+test("a run is watched from its first heartbeat, so the router marks lost no run of an outpost that sends none", async () => {
+  const replies: unknown[][] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async () => "queued" as const }));
+  await advance(record, store, 1_000);
+  assert.deepEqual(await watch(record, watches, store, 1_000 + 10 * LOST_AFTER_MS), { forget: [], next: undefined, lost: false });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.equal(replies.length, 0);
+});
+
+test("a heartbeat or reply of a run that a restart replaced answers that the run is lost, and posts nothing", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push([text]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const old = runs[0]!;
+  watches.set(old.id, { at: 0 });
+  await watch(record, watches, store, LOST_AFTER_MS);
+  assert.equal(replayRecord(record, ORIGIN, old.id), true);
+  await advance(record, store, LOST_AFTER_MS);
+  replies.length = 0;
+
+  const response = await beat(store, { ticket: old.reply.ticket, signature: old.reply.signature });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, lost: true });
+  const refused = await relay(store, { ticket: old.reply.ticket, signature: old.reply.signature, text: "late" });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).lost, true);
+  assert.equal(replies.length, 0);
+
+  const current = runs[1]!;
+  assert.equal((await relay(store, { ticket: current.reply.ticket, signature: current.reply.signature, text: "working" })).status, 200);
+  assert.deepEqual(replies, [["working"]]);
+});
+
+test("a reply of a lost run posts nothing, so it doesn't replace the lost notice", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push([text]), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  watches.set(id, { at: 0 });
+  await watch(record, watches, store, LOST_AFTER_MS);
+  assert.equal(replies.length, 1);
+  const refused = await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "done", done: true });
+  assert.equal(refused.status, 409);
+  assert.equal(replies.length, 1);
+  assert.equal(record.dispatches[0]!.state, "lost");
+});
+
+test("a run's last reply tells the channel that the post is answered, and a reply before it doesn't", async () => {
+  const events: string[] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string) => (events.push(text), "n1"),
+    answered: async (d: Delivery<FakeEvent>) => void events.push(`answered ${d.id}`),
+  };
+  const { record, store } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply } = runs[0]!;
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "done", done: true })).status, 200);
+  assert.deepEqual(events, ["working", "done", "answered d1"]);
+});
+
+test("the lost notice replaces a run's last reply, even if the run stopped before its next heartbeat", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "stopping" })).status, 200);
+  // A heartbeat that was sent before the reply names no message, and keeps the reply's.
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((watches.get(id) as { message?: string }).message, "n1");
+
+  await watch(record, watches, store, Date.now() + LOST_AFTER_MS);
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.equal(replies.length, 2);
+  assert.equal(replies[1]![1], "n1");
+});
+
+test("a heartbeat that says the container stopped has the router mark the run lost at once", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, stopped: true })).status, 200);
+
+  await watch(record, watches, store, Date.now());
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.equal(record.dispatches[0]!.error, STOPPED_ERROR);
+  assert.equal(replies.length, 2);
+  assert.equal(replies[1]![1], "n1");
+  assert.match(replies[1]![0] as string, /^This run's container stopped before the run finished\. To restart it, you can:/);
+});
+
+test("a reply doesn't start watching a run that sent no heartbeat", async () => {
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async () => "n1" };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
+  assert.equal(watches.has(id), false);
+});
+
+test("a run's last reply stops the router watching it, once the reply is posted", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  let failing = true;
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string) => {
+      if (failing) throw new Error("GitHub is down");
+      replies.push([text]);
+      return "n1";
+    },
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+
+  // A last reply that fails leaves the run watched, so the lost notice replaces the run's message.
+  await assert.rejects(relay(store, { ticket: reply.ticket, signature: reply.signature, text: "done", done: true }), /GitHub is down/);
+  assert.equal("done" in watches.get(id)!, false);
+
+  failing = false;
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "done", done: true })).status, 200);
+  assert.deepEqual(watches.get(id), { done: true });
+  assert.deepEqual(await watch(record, watches, store, Date.now() + LOST_AFTER_MS), { forget: [], next: undefined, lost: false });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.deepEqual(replies, [["done"]]);
+});
+
+test("a run without a heartbeat for 5 minutes is marked lost, and the lost notice replaces its message", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const run = runs[0]!.id;
+  watches.set(run, { at: 1_000, message: "m1" });
+
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS - 1), { forget: [], next: 1_000 + LOST_AFTER_MS, lost: false });
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+
+  assert.deepEqual(await watch(record, watches, store, 1_000 + LOST_AFTER_MS), { forget: [run], next: undefined, lost: true });
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]![1], "m1");
+  assert.match(replies[0]![0] as string, /^This run has not responded for 5 minutes\. It may have crashed\./);
+  const link = new URL((replies[0]![0] as string).match(/\[Restart the run\]\((.+?)\)/)![1]!);
+  assert.equal(`${link.origin}${link.pathname}`, "https://router.test/restart");
+  assert.equal(replies[0]![0], lostNotice(link.toString()));
+  assert.equal(record.dispatches[0]!.waiting, "m1");
+  assert.deepEqual(failedDelivery(record, 2)?.triggers, [{ trigger: "mention", error: LOST_ERROR }]);
+  assert.equal(await store.inbox.heartbeat("fake/main", "d1", run, {}), "lost");
+
+  // The run that replaces a lost one replaces the lost notice.
+  assert.equal(replayRecord(record, ORIGIN), true);
+  await advance(record, store, 3);
+  assert.equal(record.dispatches[0]!.state, "dispatched");
+  assert.equal(runs[1]!.reply.message?.id, "m1");
+});
+
+const open = async (s: RouterStore, url: string) => {
+  const response = await handle(new Request(url), s);
+  return { status: response.status, location: response.headers.get("location"), text: await response.text() };
+};
+
+test("a lost run's restart link signs the person in, checks them against the trigger's from, and restarts only that run", async () => {
+  const replies: string[] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push(text), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const lost = runs[0]!.id;
+  watches.set(lost, { at: Date.now() - LOST_AFTER_MS });
+  await watch(record, watches, store);
+  const link = replies[0]!.match(/\[Restart the run\]\((.+?)\)/)![1]!;
+  const token = new URL(link).searchParams.get("run")!;
+
+  const signIn = await open(store, link);
+  assert.equal(signIn.status, 302);
+  const location = new URL(signIn.location!);
+  assert.equal(location.searchParams.get("state"), token);
+  assert.equal(location.searchParams.get("redirect"), "https://router.test/restart/callback");
+
+  const callback = (code: string, state = token) =>
+    open(store, `https://router.test/restart/callback?code=${code}&state=${encodeURIComponent(state)}`);
+  const denied = await callback("code-bob-2");
+  assert.equal(denied.status, 403);
+  assert.match(denied.text, /bob may not trigger this agent/);
+  assert.equal(record.dispatches[0]!.state, "lost");
+
+  // A link can't be changed to restart another run, or used after it expires.
+  const signature = token.slice(token.lastIndexOf(".") + 1);
+  const other = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: crypto.randomUUID(), expires: Date.now() + 1000 });
+  assert.equal((await callback("code-alice-1", `${other.slice(0, other.lastIndexOf("."))}.${signature}`)).status, 401);
+  assert.equal((await open(store, `https://router.test/restart?run=${encodeURIComponent(`${token}0`)}`)).status, 401);
+  const expired = await signRestart(ROOT_KEY, { connection: "fake/main", delivery: "d1", run: lost, expires: Date.now() - 1 });
+  assert.equal((await callback("code-alice-1", expired)).status, 401);
+
+  // The callback redirects, so reloading the page that says the run restarted doesn't send the code again.
+  const restarted = await callback("code-alice-1");
+  assert.equal(restarted.status, 303);
+  assert.equal(restarted.location, "https://router.test/restart/started");
+  assert.equal(replies.at(-1), restartingNotice);
+  const started = await open(store, restarted.location!);
+  assert.equal(started.status, 200);
+  assert.match(started.text, /The run is starting again/);
+  assert.equal(record.dispatches[0]!.state, "pending");
+  await advance(record, store, 1);
+  assert.notEqual(runs[1]!.id, lost);
+  assert.equal(runs[1]!.reply.message?.id, "n1");
+
+  assert.equal((await callback("code-alice-1")).status, 409);
+  // A link to a run that isn't lost any more says so before it sends the person to sign in.
+  const again = await open(store, link);
+  assert.equal(again.status, 409);
+  assert.match(again.text, /isn't lost any more/);
+});
+
+test("a restart sends the browser back to the delivery's post, if the delivery has a url", async () => {
+  const replies: string[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push(text), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async () => "queued" as const }));
+  record.delivery.url = "https://github.test/acme/api/issues/1#issuecomment-1";
+  await advance(record, store, 0);
+  watches.set(record.dispatches[0]!.run, { at: Date.now() - LOST_AFTER_MS });
+  await watch(record, watches, store);
+  const token = new URL(replies[0]!.match(/\[Restart the run\]\((.+?)\)/)![1]!).searchParams.get("run")!;
+  const restarted = await open(store, `https://router.test/restart/callback?code=code-alice-1&state=${encodeURIComponent(token)}`);
+  assert.equal(restarted.status, 303);
+  assert.equal(restarted.location, "https://github.test/acme/api/issues/1#issuecomment-1");
+});
+
+test("the record that an alarm saves keeps a restart that was saved while the alarm waited on a channel", async () => {
+  const record: DeliveryRecord = {
+    id: "d1",
+    connection: "fake/main",
+    delivery: { id: "d1", scope: "acme/api", repo: "acme/api", event: "post", data: {}, payload: {} },
+    origin: ORIGIN,
+    received: 0,
+    acknowledged: true,
+    dispatches: [
+      { trigger: "a", run: "r1", state: "dispatched" },
+      { trigger: "b", run: "r2", state: "lost", error: LOST_ERROR },
+    ],
+  };
+  const read = record.dispatches.map((d) => JSON.stringify(d));
+  const stored = structuredClone(record);
+  // The alarm marks the first run lost, while the person restarts the second.
+  Object.assign(record.dispatches[0]!, { state: "lost", error: LOST_ERROR });
+  assert.equal(replayRecord(stored, "https://router.new", "r2"), true);
+  const saved = mergeRecord(read, record, stored);
+  assert.deepEqual(saved.dispatches.map((d) => d.state), ["lost", "pending"]);
+  assert.notEqual(saved.dispatches[1]!.run, "r2");
+  assert.equal(saved.origin, "https://router.new");
+  assert.equal(nextTry(saved, 5), 5);
+});
+
+test("watching forgets runs that the record no longer has or that failed, and leaves runs that aren't dispatched yet", async () => {
+  const { record, store } = await savedRecord(runStore(accepted(), {}));
+  const watches = new Map<string, Watch>([
+    [record.dispatches[0]!.run, { at: 0 }],
+    ["gone", { at: 0 }],
+  ]);
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: ["gone"], next: LOST_AFTER_MS, lost: false });
+  assert.equal(record.dispatches[0]!.state, "pending");
+  record.dispatches[0]!.state = "failed";
+  assert.deepEqual(await watch(record, watches, store, LOST_AFTER_MS), { forget: [record.dispatches[0]!.run, "gone"], next: undefined, lost: false });
 });
 
 const adminStore = (channel: RemoteChannel<FakeEvent>, calls: string[] = []): RouterStore => ({
@@ -1009,6 +1412,9 @@ test("replay replays one failed delivery, or all of them, against the router's o
       { connection: "fake/main", id: "d2", repo: "acme/api", event: "post", received: 1, failed: 2, triggers: [] },
     ],
     replay: async (connection, id, origin) => (replays.push(`${connection}/${id} ${origin}`), id === "d1"),
+    heartbeat: async () => "unknown",
+    record: async () => undefined,
+    restart: async () => false,
   };
   const s: RouterStore = { ...adminStore(adminChannel()), inbox };
   const session = await signSession(ROOT_KEY, { login: "alice", id: "1", expires: Date.now() + 60_000 });

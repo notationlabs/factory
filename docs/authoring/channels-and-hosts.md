@@ -34,19 +34,21 @@ Export `channel(ctx: ChannelContext): Channel<E>` from a dedicated module path r
 | Method | Behavior |
 | :--- | :--- |
 | `receive` | Required; verifies signatures and returns `accepted`, `source`, `ignored`, or `rejected` |
-| `match` | Required; evaluates `selector.match` and returns an `AuthorCheck` or `undefined` |
+| `match` | Required; evaluates `selector.match` and returns an `AuthorCheck` or `undefined`; also gets the selectors of the outpost's triggers on all the provider's connections for the delivery's scope, which GitHub uses to tell when a comment is addressed to another agent |
 | `sync` | Required; updates the platform webhook URL and secret to point at `url` |
 | `conversation` | Required for runs; returns `Conversation` context and thread reference |
 | `messages` | Required for runs; fetches ordered `ThreadMessage` entries for a thread |
 | `reply` | Optional; posts or edits replies with hidden agent markers when shared |
 | `acknowledge` | Optional; adds an acknowledgment reaction on the incoming post; also gets the selectors of the triggers that start runs, which GitHub uses to add listen labels |
+| `answered` | Optional; shows that the incoming post has been answered, once a run's last reply or failure notice is posted. GitHub removes its 👀 reaction |
 | `read` | Code hosts; fetches `.factory/` files at a commit ref or default branch |
 | `writeStatus` | Code hosts; updates `FACTORY_STATUS` on the repository |
 | `writeCheck` | Code hosts; creates or updates a named commit check |
 | `token` | Code hosts; mints a short-lived scoped repository token |
 | `repos` | Code hosts; lists repositories readable by the hub |
-| `signInUrl` | Operators; builds the browser OAuth redirect URL for `OperatorAuth` |
-| `signIn` | Operators; exchanges an OAuth callback code for an `Operator` identity |
+| `signInUrl` | Sign-in; builds the OAuth URL. It returns to `redirect` if given, otherwise to the CLI's callback |
+| `signIn` | Sign-in; exchanges the callback code for an `Operator` identity. Pass the same `redirect` |
+| `canTrigger` | Restart links; checks whether a signed-in person is in a trigger's `from` |
 
 Always check `performed_via_github_app` or an equivalent bot check inside `receive` and mark bot authors explicitly so agent replies never trigger infinite self-loops.
 

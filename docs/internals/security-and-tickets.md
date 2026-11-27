@@ -8,10 +8,11 @@ Notation Factory derives every internal signing secret from a single hub `Random
 
 | Purpose string | Used to sign and verify |
 | :--- | :--- |
-| `router:relay` | `ReplyTicket` payloads for `/relay` and `/messages` |
+| `router:relay` | `ReplyTicket` payloads for `/relay`, `/messages` and `/heartbeat` |
 | `router:message` | `ReplyMessage` IDs bound to a specific ticket signature |
 | `router:tokens` | `TokenTicket` payloads for `/tokens` refresh requests |
 | `router:builds` | `BuildReport` payloads from `BuildWatch` to `/builds` |
+| `router:restart` | Restart links for lost runs |
 | `operator:session` | Signed CLI bearer tokens returned by `/admin/session` |
 | `outpost:<worker>` | Outpost `POST /runs` requests from deployer to outpost Worker |
 | `github:webhook:<appId>` | Webhook `X-Hub-Signature-256` secret configured on GitHub |
@@ -30,8 +31,10 @@ Because a run may wait behind an image build or in a worktree queue before start
 
 | Ticket | Route and scope |
 | :--- | :--- |
-| `ReplyTicket` | `POST /relay` and `POST /messages` to read threads and post or edit replies |
+| `ReplyTicket` | `POST /relay` and `POST /messages` to read threads and post or edit replies; `POST /heartbeat` for heartbeats |
 | `TokenTicket` | `POST /tokens` to mint 1-hour installation tokens matching container policies |
+
+The `ReplyTicket` names its delivery and run. The router uses them to match a heartbeat to its run, and to refuse replies from a lost run.
 
 The router also signs each posted reply's comment ID with `router:message` over `[ticketSignature, messageId]`, preventing a compromised ticket or container from overwriting arbitrary comments on an issue.
 
@@ -54,3 +57,11 @@ Operators authenticate through `/admin/sign-in` and `/admin/session` using GitHu
 The router checks `github.OperatorAuth.users` by case-insensitive login or numeric ID, then signs a 4-hour session token formatted as `<login>.<id>.<expires>.<sig>` using `SESSION_TTL_MS`.
 
 Every `/admin/*` call verifies that signature and re-checks `users` live against the current router config, so removing a user revokes active sessions on the next request.
+
+## Restart links
+
+A lost run's notice is a public comment, so anyone can open its restart link. The link alone doesn't restart anything.
+
+The token is the ticket `{ connection, delivery, run, expires }` as base64url JSON, then a dot, then the ticket's signature with `router:restart`. A token can restart only the run it names, only while that run is lost, and only for 7 days.
+
+The person signs in with GitHub through the connection's App. The router checks the token again on the callback, so it needs no session or cookie. It then checks the person against the trigger's `from`, and revokes their GitHub token as it does for operators.

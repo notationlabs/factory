@@ -44,6 +44,8 @@ The container runner loads `runtimes/<id>.ts` dynamically without `node_modules`
 | `parse` | Required; extracts `result`, `isError`, and `sessionId` from final stdout |
 | `message` | Optional; parses an NDJSON stdout line into streaming assistant text |
 | `model` | Optional; parses an NDJSON stdout line into the active model identifier |
+| `session` | Optional; returns the session ID from an NDJSON stdout line. The runner needs it to save a new session during the run |
+| `tools` | Optional; returns the tool calls on an NDJSON stdout line as `{ name, input }` objects. The runner logs them |
 | `env` | Optional; extra process environment variables such as `DISABLE_AUTOUPDATER` |
 
 The runner writes `prompt`, or the return value of `input`, to `stdin` rather than passing it as a CLI flag so long threads never hit OS `ARG_MAX` limits.

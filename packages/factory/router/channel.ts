@@ -21,6 +21,8 @@ export type Delivery<E> = {
   data: E;
   /** The event as a trigger's worktree function reads it, such as GitHub's webhook payload. */
   payload: unknown;
+  /** The web page of the post that the delivery is about. A restarted run's sign-in sends the browser back there. */
+  url?: string;
 };
 
 /**
@@ -104,8 +106,13 @@ export type Operator = { login: string; id: string };
 interface ChannelBase<E> {
   /** Checks the delivery's signature and parses it. */
   receive(request: Request): Promise<Received<E>>;
-  /** Whether `selector` selects the delivery, and if so, whether its author may start a run. */
-  match(selector: unknown, delivery: Delivery<E>): AuthorCheck | undefined;
+  /**
+   * Whether `selector` selects the delivery, and if so, whether its author
+   * may start a run. `selectors` are those of all the outpost's triggers on
+   * the provider's connections for the delivery's scope, including
+   * `selector`.
+   */
+  match(selector: unknown, delivery: Delivery<E>, selectors: unknown[]): AuthorCheck | undefined;
   /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */
   sync(url: string): Promise<void>;
   /** For a code host's channel: the files under `dir` in `repo` at `ref`, or at the default branch's head. */
@@ -121,6 +128,12 @@ interface ChannelBase<E> {
    */
   acknowledge?(delivery: Delivery<E>, selectors: unknown[]): Promise<void>;
   /**
+   * Shows that the delivery's post has been answered, once a run's last
+   * reply or failure notice is posted, such as by removing GitHub's 👀
+   * reaction.
+   */
+  answered?(delivery: Delivery<E>): Promise<void>;
+  /**
    * Posts `text` to a conversation's thread, or replaces the text of
    * `message`, a message that an earlier reply to the thread posted.
    * Resolves to the id of the message it posted or replaced.
@@ -131,13 +144,19 @@ interface ChannelBase<E> {
   /** For a code host's channel: every repo that the hub can read, as `owner/name`. */
   repos?(): Promise<string[]>;
   /**
-   * For operator sign-in through the channel's platform: the page that
-   * signs the operator in, and then sends the browser to the CLI's callback
-   * with a code and `state`.
+   * For sign-in through the channel's platform: the page that signs a person
+   * in, and then sends the browser to `redirect` with a code and `state`.
+   * Without `redirect`, the browser goes to the CLI's callback, for operator
+   * sign-in.
    */
-  signInUrl?(state: string): Promise<string>;
-  /** For operator sign-in: exchanges the code that the callback got for the operator's identity. */
-  signIn?(code: string): Promise<Operator>;
+  signInUrl?(state: string, redirect?: string): Promise<string>;
+  /** For sign-in: exchanges the code that the callback at `redirect` got for the person's identity. */
+  signIn?(code: string, redirect?: string): Promise<Operator>;
+  /**
+   * Whether `selector`'s `from` lets `person`, who signed in with `signIn`,
+   * start a run for the delivery. The restart link of a lost run checks it.
+   */
+  canTrigger?(selector: unknown, delivery: Delivery<E>, person: Operator): Promise<boolean>;
 }
 
 /** A channel that starts runs has both `conversation` and `messages`. A channel without them can't start runs. */

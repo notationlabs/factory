@@ -25,6 +25,9 @@ export type RunContext = {
   configDir: string;
 };
 
+/** A tool that the agent called: the tool's name, and its input as the CLI wrote it. The runner logs the input's main argument, such as a shell command or a file's path. */
+export type ToolCall = { name: string; input?: unknown };
+
 /** What a runtime's CLI said at the end of a run. */
 export type RuntimeOutput = { result?: string; isError?: boolean; sessionId?: string };
 
@@ -71,6 +74,19 @@ export type RuntimeRunner = {
    * under the agent's messages.
    */
   model?(line: string): string | undefined;
+  /**
+   * Reads one line of the CLI's output while it runs, and returns the
+   * session's id, if the line has it. The runner saves the session during
+   * the run once it knows the id, so a run that is lost can be resumed.
+   * Without it, the runner saves a new session only at the end of the run.
+   */
+  session?(line: string): string | undefined;
+  /**
+   * Reads one line of the CLI's output while it runs, and returns the tools
+   * that the agent called on that line. The runner logs each one to the
+   * container's logs.
+   */
+  tools?(line: string): ToolCall[];
   /** Extra environment for the CLI. */
   env?: Record<string, string>;
 };

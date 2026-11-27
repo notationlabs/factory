@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ThreadMessage } from "../router/channel.ts";
-import type { MessagesRequest, Relay, Run, TokenRequest } from "../router/run.ts";
+import type { Heartbeat, MessagesRequest, Relay, Run, TokenRequest } from "../router/run.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "factory-runner-")));
 const bin = join(root, "bin");
@@ -20,8 +20,10 @@ const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, 
 // A fake Claude Code: it records how it was called, the prompt on its stdin
 // and the token that gh gets, and writes a transcript for a session named after its
 // working directory, and writes stream-json. It fails, edits the worktree,
-// waits for the runner to refresh its tokens, hangs, or writes messages
-// before its result, when the prompt says so.
+// exits with no result after it reports its session, runs until it's stopped the first time,
+// waits for the runner to refresh its tokens, hangs, writes messages
+// before its result, has the fake earlyoom stop it, or stalls after it edits the worktree and reports its
+// session the first time, when the prompt says so.
 const FAKE_CLAUDE = `#!/bin/sh
 prompt="$(cat)"
 case "$prompt" in
@@ -35,6 +37,13 @@ projects="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 mkdir -p "$projects/-p-$(basename "$(pwd)")"
 echo "$prompt" >> "$projects/-p-$(basename "$(pwd)")/$session.jsonl"
 case "$prompt" in
+  *"run forever"*)
+    if [ ! -e forever.txt ]; then
+      echo forever > forever.txt
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      exec sleep 30
+    fi ;;
+  *"crash now"*) echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"; echo "killed" >&2; exit 137 ;;
   *"fail now"*) echo "{\\"type\\":\\"result\\",\\"is_error\\":true,\\"result\\":\\"it broke\\",\\"session_id\\":\\"$session\\"}"; exit 1 ;;
   *"edit the code"*)
     echo committed > committed.txt
@@ -51,9 +60,34 @@ case "$prompt" in
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"still hidden"}]}}'
     sleep 0.3
     echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"A subagent."}]}}'
-    echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash"}]}}'
+    printf '%s\\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test\\n  -- --watch=false","timeout":60000}}]}}'
+    echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/a.ts"}}]}}'
     echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Found it."}]}}'
     sleep 0.3 ;;
+  *"use memory"*)
+    echo "sending SIGTERM to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" > "${calls}.oom.new"
+    echo "sending SIGKILL to process $$ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB" >> "${calls}.oom.new"
+    mv "${calls}.oom.new" "${calls}.oom"
+    sleep 1 ;;
+  *"leave a child"*)
+    if [ ! -e child.pid ]; then
+      sleep 30 >/dev/null 2>&1 &
+      echo $! > child.pid
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      wait
+    fi ;;
+  *"talk forever"*)
+    if [ ! -e forever.txt ]; then
+      echo forever > forever.txt
+      echo '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Looking."}]}}'
+      exec sleep 30
+    fi ;;
+  *stall*)
+    if [ ! -e draft.txt ]; then
+      echo draft > draft.txt
+      echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"session_id\\":\\"$session\\"}"
+      sleep 5
+    fi ;;
 esac
 echo "{\\"type\\":\\"result\\",\\"result\\":\\"done\\",\\"session_id\\":\\"$session\\"}"
 `;
@@ -79,6 +113,9 @@ case "$prompt" in
     echo '{"type":"system","subtype":"init","session_id":"'"$session"'","model":"Composer 2.5"}'
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Looking."}]},"model_call_id":"m1","timestamp_ms":1}'
     sleep 0.3
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"shellToolCall":{"args":{"command":"ls -la"}}}}'
+    echo '{"type":"tool_call","subtype":"completed","tool_call":{"shellToolCall":{"args":{"command":"ls -la"},"result":{}}}}'
+    echo '{"type":"tool_call","subtype":"started","tool_call":{"function":{"name":"search","arguments":"{\\"q\\":1}"}}}'
     echo '{"type":"tool_call","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"assistantMessage":{"text":"A subagent."}}]}}}}}'
     echo '{"type":"thinking","subtype":"delta","text":"hidden"}'
     sleep 0.15
@@ -115,11 +152,26 @@ case "$prompt" in
     echo '{"type":"reasoning","text":"The bug is in the parser."}'
     sleep 0.3
     echo '{"type":"tool_call","toolName":"Task","parameters":{"subagent_type":"worker"}}'
+    echo "{\\"type\\":\\"tool_call\\",\\"toolName\\":\\"Execute\\",\\"parameters\\":{\\"command\\":\\"echo $(printf '%0300d' 0)\\"}}"
     echo '{"type":"tool_result","toolId":"Task","value":"A subagent."}'
     echo '{"type":"message","role":"assistant","text":"Found it."}'
     sleep 0.3 ;;
 esac
 echo "{\\"type\\":\\"completion\\",\\"finalText\\":\\"done\\",\\"numTurns\\":1,\\"session_id\\":\\"$session\\"}"
+`;
+
+// A fake earlyoom: it records its arguments, and writes the lines that a
+// fake agent leaves for it to stderr, as earlyoom does, until the runner exits.
+const FAKE_EARLYOOM = `#!/bin/sh
+printf '%s' "$*" > "${calls}.earlyoom"
+echo "earlyoom v1.7" >&2
+while kill -0 $PPID 2>/dev/null; do
+  if [ -e "${calls}.oom" ]; then
+    cat "${calls}.oom" >&2
+    rm -f "${calls}.oom"
+  fi
+  sleep 0.1
+done
 `;
 
 /** The hub's runner modules, by the path the runner fetches them at. */
@@ -140,11 +192,23 @@ let relays = 0;
 /** The token that the fake router mints when the runner asks for new tokens. */
 let freshToken = "push-token";
 const tokenRequests: TokenRequest[] = [];
+/** The heartbeats that the runner has posted. */
+const heartbeats: Heartbeat[] = [];
+/** The runs that the fake router answers heartbeats for as lost, and whose replies it refuses as lost. */
+const lostRuns = new Set<string>();
+/** The replies that the fake router refused because their run was lost. */
+const refused: Relay[] = [];
+/** How many more `done` heartbeats the fake router fails with status 503. */
+let failDone = 0;
 let waiting: (() => void) | undefined;
 let server: Server;
 let runner: ChildProcess;
+/** What the runners have written to stdout, which is the container's logs. */
+let output = "";
 /** The state store's objects, by key. */
 const state = new Map<string, Buffer>();
+/** How many times the runner has written each of the state store's objects. */
+const writes = new Map<string, number>();
 /** Each conversation's thread, which the fake router answers for its runs. */
 const threads = new Map<string, ThreadMessage[]>();
 /** The conversations whose threads the fake router can't read. */
@@ -164,6 +228,8 @@ const nextReply = () =>
     const check = () => {
       const reply = replies.shift();
       if (!reply) return void (waiting = check);
+      // A reply that comes while no test waits stays for the next one.
+      waiting = undefined;
       clearTimeout(timer);
       resolve(reply);
     };
@@ -177,6 +243,7 @@ before(async () => {
   writeFileSync(join(bin, "agent"), FAKE_CURSOR, { mode: 0o755 });
   writeFileSync(join(bin, "droid"), FAKE_DROID, { mode: 0o755 });
   writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 });
+  writeFileSync(join(bin, "earlyoom"), FAKE_EARLYOOM, { mode: 0o755 });
 
   const work = join(root, "work");
   mkdirSync(join(work, ".factory"), { recursive: true });
@@ -205,6 +272,7 @@ before(async () => {
         const key = pathname.slice("/state/".length);
         if (request.method === "PUT") {
           state.set(key, Buffer.concat(chunks));
+          writes.set(key, (writes.get(key) ?? 0) + 1);
           return response.end();
         }
         const object = state.get(key);
@@ -220,6 +288,16 @@ before(async () => {
         }
         return response.end(JSON.stringify({ messages: threads.get(conversation) ?? [] }));
       }
+      if (pathname === "/heartbeat") {
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as Heartbeat;
+        heartbeats.push(body);
+        if (body.done && failDone > 0) {
+          failDone--;
+          response.statusCode = 503;
+          return response.end("unavailable");
+        }
+        return response.end(JSON.stringify({ ok: true, ...(lostRuns.has(body.ticket.run!) && { lost: true }) }));
+      }
       if (pathname === "/tokens") {
         const body = JSON.parse(Buffer.concat(chunks).toString()) as TokenRequest;
         tokenRequests.push(body);
@@ -227,6 +305,11 @@ before(async () => {
       }
       // Like the router, it names the message that each reply posted or replaced.
       const relay = JSON.parse(Buffer.concat(chunks).toString()) as Relay;
+      if (lostRuns.has(relay.ticket.run!)) {
+        refused.push(relay);
+        response.statusCode = 409;
+        return response.end(JSON.stringify({ error: "the router marked the run lost", lost: true }));
+      }
       replies.push(relay);
       relays++;
       waiting?.();
@@ -257,12 +340,18 @@ const startRunner = async () => {
       FACTORY_MODULES_URL: `${serverUrl()}/modules`,
       FACTORY_TOKEN_REFRESH_MS: "300",
       FACTORY_PROGRESS_INTERVAL_MS: "100",
+      FACTORY_SAVE_INTERVAL_MS: "200",
+      FACTORY_HEARTBEAT_INTERVAL_MS: "200",
+      FACTORY_DONE_RETRY_MS: "50",
       // Clones of github.com come from the local remotes.
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: `url.${join(root, "remotes")}/.insteadOf`,
       GIT_CONFIG_VALUE_0: "https://github.com/",
     },
     stdio: ["ignore", "pipe", "inherit"],
+  });
+  runner.stdout!.on("data", (chunk) => {
+    output += String(chunk);
   });
   await new Promise<void>((resolve, reject) => {
     runner.stdout!.on("data", (chunk) => String(chunk).includes("listening") && resolve());
@@ -313,6 +402,26 @@ const base = () => ({
 
 const post = (body: Run) =>
   fetch(`http://127.0.0.1:${port}/runs`, { method: "POST", body: JSON.stringify(body) });
+
+/** Resolves once `check` is true. */
+const until = async (check: () => boolean) => {
+  const deadline = Date.now() + 10_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
+
+/** The tool calls that the runner logged for a run, without their times. */
+const toolLogs = (runId: string) =>
+  output
+    .split("\n")
+    .flatMap((line) => (line.startsWith("{") ? [JSON.parse(line) as Record<string, unknown>] : []))
+    .filter((entry) => entry.run === runId && entry.tool)
+    .map(({ at, ...entry }) => {
+      assert.match(String(at), /^\d{4}-\d\d-\d\dT/);
+      return entry;
+    });
 
 const lastCall = () => readFileSync(calls, "utf8").trim().split("\n").slice(-3);
 const lastPrompt = () => readFileSync(`${calls}.prompt`, "utf8");
@@ -383,7 +492,8 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "cursor", model: "composer-2.5" };
   const conversation = "github:acme/api#32";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["cursor"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Composer 2\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -396,6 +506,11 @@ test("a cursor agent's messages during a run share one comment, which its final 
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A tool call is logged once, as it starts.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "shell", argument: "ls -la" },
+    { run: body.id, worktree: "issue-1", tool: "search", argument: '{"q":1}' },
+  ]);
 });
 
 test("a failed cursor run replies with the error", async () => {
@@ -458,7 +573,8 @@ test("a droid agent's messages during a run share one comment, which its final r
   const id = `m${relays + 1}`;
   const agent = { id: "coder", runtime: "droid" };
   const conversation = "github:acme/api#23";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { runtimes: ["droid"], agent });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Sonnet 5\.5 working • 0:0\d<\/sub>$/);
   const thinking = await nextReply();
@@ -470,6 +586,10 @@ test("a droid agent's messages during a run share one comment, which its final r
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-1", tool: "Task", argument: '{"subagent_type":"worker"}' },
+    { run: body.id, worktree: "issue-1", tool: "Execute", argument: `echo ${"0".repeat(195)}…` },
+  ]);
 });
 
 test("a droid run sets Droid's user settings to send thinking as reasoning, and keeps the other settings", async () => {
@@ -727,7 +847,8 @@ test("a run with no branch gets a scratch worktree for its conversation", async 
 test("the agent's messages during a run share one comment, which its final reply replaces", async () => {
   const id = `m${relays + 1}`;
   const conversation = "github:acme/api#5";
-  await post(run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } }));
+  const body = run({ id: conversation, message: say(conversation, "talk to me") }, { worktree: { branch: "issue-5" } });
+  await post(body);
   const first = await nextReply();
   assert.match(first.text, /^> Looking\.\n\n<sub>Claude Opus 5\.5 working • 0:0\d<\/sub>$/);
   assert.equal(first.message, undefined);
@@ -741,6 +862,11 @@ test("the agent's messages during a run share one comment, which its final reply
   const final = await nextReply();
   assert.equal(final.text, "done");
   assert.deepEqual(final.message, { id, signature: "msig" });
+  // A subagent's tool calls are logged too, and a command is logged on one line.
+  assert.deepEqual(toolLogs(body.id), [
+    { run: body.id, worktree: "issue-5", tool: "Bash", argument: "npm test -- --watch=false" },
+    { run: body.id, worktree: "issue-5", tool: "Read", argument: "/src/a.ts" },
+  ]);
 });
 
 test("a run of a runtime that the hub has no runner module for replies with the error", async () => {
@@ -757,6 +883,16 @@ test("a failed run replies with the error, and its session has still seen the th
   const session = JSON.parse(readFileSync(join(data, "sessions", "github-acme-api-3", "coder.json"), "utf8"));
   assert.equal(session.id, "s-issue-1");
   assert.deepEqual(Object.keys(session.seen), [message]);
+});
+
+test("a run whose CLI exits with no result saves the session that its output reported", async () => {
+  const id = "github:acme/api#15";
+  const message = say(id, "crash now");
+  await post(run({ id, message }, { worktree: { branch: "issue-15" } }));
+  assert.match((await nextReply()).text, /The run failed: Claude Code exited with code 137: killed/);
+  const saved = JSON.parse(state.get("sessions/github-acme-api-15/coder.json")!.toString());
+  assert.equal(saved.id, "s-issue-15");
+  assert.deepEqual(Object.keys(saved.seen), [message]);
 });
 
 test("after the container sleeps, a run restores its worktree and its conversation's session", async () => {
@@ -790,6 +926,35 @@ test("a snapshot that can't be restored leaves a note, and the run starts from t
   assert.equal(sh(join(data, "worktrees", "acme-api", "issue-10"), "log", "-1", "--format=%s"), "init");
 });
 
+test("during a run, the runner saves the worktree and session when they change, so a lost run can resume", async () => {
+  const id = "github:acme/api#13";
+  const first = say(id, "stall");
+  await post(run({ id, message: first }, { worktree: { branch: "issue-13" } }));
+  const session = "sessions/github-acme-api-13/coder";
+  await until(() => state.has("worktrees/issue-13.bundle") && state.has(`${session}.json`));
+  // A new session hasn't seen the thread until the run finishes.
+  assert.deepEqual(JSON.parse(state.get(`${session}.json`)!.toString()), {
+    id: "s-issue-13",
+    cwd: join(data, "worktrees", "acme-api", "issue-13"),
+    seen: {},
+  });
+  // Saves of a worktree and transcript that haven't changed upload nothing.
+  const counts = () => [writes.get("worktrees/issue-13.bundle"), writes.get(`${session}.tar.gz`)];
+  const before = counts();
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.deepEqual(counts(), before);
+
+  await sleepContainer();
+  await startRunner();
+
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-13" } }));
+  assert.equal((await nextReply()).text, "done");
+  const worktree = join(data, "worktrees", "acme-api", "issue-13");
+  assert.match(lastCall()[2]!, /--resume s-issue-13/);
+  assert.equal(readFileSync(join(worktree, "draft.txt"), "utf8"), "draft\n");
+  assert.match(lastPrompt(), /### Messages in thread since last turn[^]*stall[^]*carry on/);
+});
+
 test("during a long run, the runner refreshes the tokens that gh and git read", async () => {
   freshToken = "fresh-token";
   tokenRequests.length = 0;
@@ -804,17 +969,150 @@ test("during a long run, the runner refreshes the tokens that gh and git read", 
   assert.equal(readFileSync(join(data, "github", "code"), "utf8"), "fresh-token");
 });
 
+test("the runner starts earlyoom, logs its output, and says in a run's reply when earlyoom stopped its agent's process", async () => {
+  assert.equal(readFileSync(`${calls}.earlyoom`, "utf8"), "-r 60 -s 100,100");
+  const id = "github:acme/api#14";
+  await post(run({ id, message: say(id, "use memory") }, { worktree: { branch: "issue-14" } }));
+  // earlyoom's SIGTERM and SIGKILL for one process make one note.
+  assert.equal(
+    (await nextReply()).text,
+    "done\n\n> earlyoom stopped `tsc` (3.1 GiB) because the container was out of memory.",
+  );
+  assert.match(output, /\{"at":"[^"]+","earlyoom":"sending SIGTERM to process \d+ uid 1000 \\"tsc\\": badness 900, VmRSS 3174 MiB"\}/);
+});
+
+/** A run whose reply ticket names it, with the router's heartbeat route. */
+const watched = (conversation: Run["conversation"], over: Partial<Run> = {}): Run => {
+  const body = run(conversation, over);
+  body.reply.ticket.run = body.id;
+  body.reply.heartbeat = `${serverUrl()}/heartbeat`;
+  return body;
+};
+
+const beatsOf = (runId: string) => heartbeats.filter((h) => h.ticket.run === runId);
+
+/** Resolves once the runner has logged that the run ended because the router marked it lost. */
+const endedLost = (runId: string) =>
+  until(() => new RegExp(`"run":"${runId}","state":"(skipped|stopped)","reason":"lost"`).test(output));
+
+test("the runner posts heartbeats for each run it holds, queued or running, with the message that its replies replace, and its last reply ends the watch", async () => {
+  const id = "github:acme/api#20";
+  const first = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-20" } });
+  const second = watched({ id, message: say(id, "and then this") }, { worktree: { branch: "issue-20" } });
+  await post(first);
+  await post(second);
+  await until(() => beatsOf(second.id).length >= 2);
+  // The first run read the second's message, so the second is skipped.
+  await until(() => beatsOf(second.id).some((h) => h.done));
+  const firstReplies = replies.filter((r) => r.ticket.run === first.id);
+  assert.equal(firstReplies.at(-1)!.done, true);
+  assert.equal(firstReplies.filter((r) => r.done).length, 1);
+  const firstBeats = beatsOf(first.id);
+  assert.equal(firstBeats.some((h) => h.done), false);
+  assert.ok(firstBeats.some((h) => h.message?.signature === "msig"));
+  assert.equal(firstBeats[0]!.signature, "sig");
+  while (replies.length) replies.shift();
+});
+
+test("a queued run that the router marks lost doesn't run, and posts nothing", async () => {
+  const id = "github:acme/api#61";
+  const first = watched({ id, message: say(id, "wait for it") }, { worktree: { branch: "issue-61" } });
+  const body = watched({ id, message: say(id, "talk to me") }, { worktree: { branch: "issue-61" } });
+  lostRuns.add(body.id);
+  await post(first);
+  await post(body);
+  await endedLost(body.id);
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+  assert.match(output, new RegExp(`"run":"${body.id}","state":"lost"`));
+  assert.doesNotMatch(output, new RegExp(`"run":"${body.id}","repo"`));
+  assert.equal((await nextReply()).text, "done");
+});
+
+test("a running run that the router marks lost stops its agent, saves its work, and posts nothing, so its restart resumes it", async () => {
+  const id = "github:acme/api#62";
+  const first = say(id, "run forever");
+  const body = watched({ id, message: first }, { worktree: { branch: "issue-62" } });
+  await post(body);
+  const worktree = join(data, "worktrees", "acme-api", "issue-62");
+  await until(() => existsSync(join(worktree, "forever.txt")));
+  lostRuns.add(body.id);
+  await endedLost(body.id);
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+  // The lost run's session hasn't seen the thread, so its restart gets the lost run's messages again.
+  assert.deepEqual(JSON.parse(state.get("sessions/github-acme-api-62/coder.json")!.toString()), {
+    id: "s-issue-62",
+    cwd: worktree,
+    seen: {},
+  });
+  await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-62" } }));
+  assert.equal((await nextReply()).text, "done");
+  assert.match(lastCall()[2]!, /--resume s-issue-62/);
+  assert.match(lastPrompt(), /### Messages in thread since last turn[^]*run forever[^]*carry on/);
+});
+
+test("stopping a run's agent stops the processes that the agent started too", async () => {
+  const id = "github:acme/api#64";
+  const body = watched({ id, message: say(id, "leave a child") }, { worktree: { branch: "issue-64" } });
+  await post(body);
+  const pidFile = join(data, "worktrees", "acme-api", "issue-64", "child.pid");
+  await until(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim() !== "");
+  const child = Number(readFileSync(pidFile, "utf8"));
+  const alive = () => {
+    try {
+      process.kill(child, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  assert.ok(alive());
+  lostRuns.add(body.id);
+  await endedLost(body.id);
+  await until(() => !alive());
+});
+
+test("a run whose reply the router refuses because it marked the run lost stops its agent and posts nothing more", async () => {
+  const id = "github:acme/api#63";
+  const body = watched({ id, message: say(id, "talk forever") }, { worktree: { branch: "issue-63" } });
+  // Only the replies say that the run is lost.
+  delete body.reply.heartbeat;
+  lostRuns.add(body.id);
+  const started = Date.now();
+  await post(body);
+  await endedLost(body.id);
+  assert.ok(Date.now() - started < 20_000);
+  assert.equal(refused.filter((r) => r.ticket.run === body.id).length, 1);
+  assert.equal(replies.filter((r) => r.ticket.run === body.id).length, 0);
+});
+
+test("a skipped run that posts nothing posts its done heartbeat, again if the router fails it", async () => {
+  const id = "github:acme/api#60";
+  const first = say(id, "first");
+  const second = say(id, "second");
+  await post(watched({ id, message: first }, { worktree: { branch: "issue-60" } }));
+  const skipped = watched({ id, message: second }, { worktree: { branch: "issue-60" } });
+  failDone = 2;
+  await post(skipped);
+  assert.equal((await nextReply()).text, "done");
+  await until(() => beatsOf(skipped.id).filter((h) => h.done).length === 3);
+  assert.equal(failDone, 0);
+  assert.equal(replies.filter((r) => r.ticket.run === skipped.id).length, 0);
+});
+
 test("status counts the runs that are running or queued", async () => {
   const response = await fetch(`http://127.0.0.1:${port}/status`);
   assert.deepEqual(await response.json(), { active: 0 });
 });
 
-test("when the container stops during a run, the run's conversation says the run was lost", async () => {
+test("when the container stops during a run, the runner tells the router that the run stopped", async () => {
   const id = "github:acme/api#12";
-  await post(run({ id, message: say(id, "hang") }, { worktree: { branch: "issue-12" } }));
+  const stopping = watched({ id, message: say(id, "hang") }, { worktree: { branch: "issue-12" } });
+  await post(stopping);
+  await until(() => beatsOf(stopping.id).length > 0);
   const exited = new Promise((resolve) => runner.once("exit", resolve));
   runner.kill("SIGTERM");
-  assert.match((await nextReply()).text, /^The container stopped before this run finished, so the run was lost\./);
   assert.equal(await exited, 0);
+  assert.equal(beatsOf(stopping.id).filter((h) => h.stopped).length, 1);
+  assert.equal(replies.filter((r) => r.ticket.run === stopping.id).length, 0);
   await startRunner();
 });

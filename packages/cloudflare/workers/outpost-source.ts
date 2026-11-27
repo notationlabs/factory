@@ -7,8 +7,9 @@ export type RuntimeAccount = { setup?: string };
 
 /**
  * The layers the deployer adds to the end of every container's Dockerfile:
- * bun, which runs the runner, git, the container's runtimes' setups as
- * root, and a user other than root who owns `/data`.
+ * bun, which runs the runner, git, earlyoom if the image has apt-get, the
+ * container's runtimes' setups as root, and a user other than root who owns
+ * `/data`. The runner runs without earlyoom if the image doesn't have it.
  */
 const factoryLayers = (runtimes: number) => `
 
@@ -17,6 +18,9 @@ USER root
 COPY --from=oven/bun:1-debian /usr/local/bin/bun /usr/local/bin/bun
 RUN command -v git >/dev/null 2>&1 || { apt-get update \\
  && apt-get install -y --no-install-recommends ca-certificates git \\
+ && rm -rf /var/lib/apt/lists/*; }
+RUN command -v earlyoom >/dev/null 2>&1 || ! command -v apt-get >/dev/null 2>&1 || { apt-get update \\
+ && apt-get install -y --no-install-recommends earlyoom \\
  && rm -rf /var/lib/apt/lists/*; }
 ${
   runtimes === 0
@@ -37,9 +41,22 @@ EXPOSE 8080
 
 const INSTANCE_TYPES = ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"];
 
-/** The Cloudflare instance type of a container: its `instanceType`, or else `standard-1`. */
+/**
+ * The Cloudflare instance type of a container: its `instanceType`, or else
+ * `standard-1`. A custom size becomes Wrangler's
+ * `{ vcpu, memory_mib, disk_mb }`, if it has Cloudflare's documented
+ * minimums. Its maximums are account limits, which an account can have
+ * raised, and Wrangler checks them against the account when it deploys.
+ */
 export const instanceType = (container: OutpostConfig["containers"][string]) => {
   const type = container.instanceType ?? "standard-1";
+  if (typeof type === "object") {
+    const { vcpu, memoryMib, diskMb } = type;
+    if (!(vcpu >= 0.0625)) throw new Error(`Cloudflare's smallest custom instance has vcpu 0.0625, and the container asks for ${vcpu}.`);
+    if (!(memoryMib >= 256)) throw new Error(`Cloudflare's smallest custom instance has memoryMib 256, and the container asks for ${memoryMib}.`);
+    if (!(diskMb >= 2000)) throw new Error(`Cloudflare's smallest custom instance has diskMb 2000, and the container asks for ${diskMb}.`);
+    return { vcpu, memory_mib: memoryMib, disk_mb: diskMb };
+  }
   if (!INSTANCE_TYPES.includes(type)) {
     throw new Error(`Cloudflare has no instance type \`${type}\`. Use one of ${INSTANCE_TYPES.map((t) => `\`${t}\``).join(", ")}.`);
   }
@@ -120,7 +137,7 @@ export const wranglerConfig = (
         class_name: CONTAINER_CLASS,
         image: image.image,
         image_build_context: image.context,
-        max_instances: 1,
+        max_instances: settings.maxInstances,
         instance_type: instanceType(container),
         ...(settings.regions && { constraints: { regions: settings.regions } }),
       },
@@ -131,7 +148,13 @@ export const wranglerConfig = (
       { binding: "DEPLOYER", service: settings.deployer },
       { binding: "SERVICES", service: settings.routerWorker, entrypoint: SERVICE_GATEWAY },
     ],
-    vars: { WORKER_NAME: worker, REPO: repo, CONTAINER: id, SLEEP_AFTER: settings.sleepAfter },
+    vars: {
+      WORKER_NAME: worker,
+      REPO: repo,
+      CONTAINER: id,
+      SLEEP_AFTER: settings.sleepAfter,
+      MAX_INSTANCES: String(settings.maxInstances),
+    },
   };
   return `${JSON.stringify(config, null, 2)}\n`;
 };

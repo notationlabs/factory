@@ -45,7 +45,7 @@ Both selectors accept four optional filters alongside the required `from` field:
 | :--- | :--- |
 | `actions` | Array of webhook actions that match this trigger |
 | `mention` | Case-insensitive handle matched at word boundaries; on `"edited"`, must be newly added |
-| `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `listen:<mention without @>`; `false` turns it off |
+| `listen` | Label that keeps a `mention` trigger listening on the issue; defaults to `<mention without @>:listening`; `false` turns it off |
 | `labels` | Array of label names that must all be present on the issue, compared case-insensitively |
 | `from` | Required author rule or array of author rules controlling who can start a run |
 
@@ -53,7 +53,7 @@ Mention matching follows GitHub handle boundaries, so `@claude` matches `@Claude
 
 When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment matches the trigger without the mention. These don't match:
 
-- A comment that mentions another user, team or agent, such as `@bob` or `@droid`. It's addressed to them.
+- A comment that mentions another agent in the repo's outpost, a collaborator on the repo, or the issue's author, such as `@droid` or `@bob`. It's addressed to them. Mentions of anyone else don't count, and neither do team handles or package names such as `@scope/pkg`.
 - An edit, unless it adds the mention.
 
 Only a `gh.issueComment` trigger listens. On a `gh.issue` trigger, `listen` only names the label to add, so give the issue trigger and the comment trigger for an agent the same label. The default does this.
@@ -109,7 +109,9 @@ Before dispatching to a container, the router reacts with 👀 (`eyes`) on the t
 
 - **Streaming edits** – The runner reads the agent's `stream-json` output, quotes the latest assistant text or `"Thinking..."` status, and edits a single reply comment at most once every 10 seconds while ignoring repeated identical text.
 - **Elapsed clock** – Each progress edit appends a `<sub>` footer with the model name and duration, refreshing every 60 seconds when the agent is quiet.
-- **Final replacement** – On completion, failure, or `SIGTERM` container shutdown, the runner edits that same comment with the final result or error. Runs time out after 2 hours.
+- **Final replacement** – On completion or failure, the runner edits that same comment with the final result or error. If the container stops first, the router edits it with the lost notice. Runs time out after 2 hours.
+
+When the final reply is posted, the router removes the 👀. It also removes it when it posts a failure notice for a run that couldn't be dispatched. If several triggers start runs for one comment, the first run to finish removes it.
 
 Each posted comment begins with a hidden `<!-- factory:agent=<id> -->` marker so thread history attributes each reply to the agent that wrote it.
 
@@ -134,4 +136,4 @@ factory infra replay
 factory infra replay github/gh/<delivery-id>
 ```
 
-`factory infra replay` re-dispatches failed triggers against the repository's current outpost configuration and mints fresh tokens. See [CLI reference](../reference/cli.md) for operator sign-in and command flags.
+`factory infra replay` re-dispatches failed triggers against the repository's current outpost configuration and mints fresh tokens. It also re-dispatches lost runs. Anyone in the trigger's `from` can restart a lost run from the link in its notice, without the CLI. See [Lost runs](./containers.md#lost-runs). See [CLI reference](../reference/cli.md) for operator sign-in and command flags.

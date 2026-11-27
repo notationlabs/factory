@@ -85,7 +85,7 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | :--- | :--- |
 | `handle(request, store)` | Portable HTTP request handler for webhooks, syncs, relays, and admin routes |
 | `advance(record, store, now?)` | Advances pending dispatches in a saved delivery record |
-| `watch(record, watches, store, now?)` | Marks runs lost after 5 minutes without a heartbeat, and posts their notices |
+| `watch(record, watches, store, now?)` | Marks runs lost after 5 minutes without a heartbeat, or once their container stopped, and posts their notices |
 | `redeployRepo(change, store)` | Redeploys a repository outpost config after source changes |
 | `outpostKey(repo)` | Returns the lowercase store key for a repository outpost |
 | `RESTART_PATH`, `RESTART_CALLBACK_PATH` | Router paths for the restart link and its sign-in callback |
@@ -93,7 +93,8 @@ Exports marked hub-only below are omitted when `@notation/factory` resolves unde
 | `allowsRepo(allow, repo)` | Checks whether a repository matches a `RepoPattern[]` allowlist |
 | `failedDelivery` | Formats a settled failed `DeliveryRecord` into a `FailedDelivery` |
 | `replayRecord` | Resets failed and lost dispatches for replay |
-| `heartbeatWatch` | Returns what to store for a heartbeat: its time and message, or `{ done: true }` |
+| `heartbeatWatch` | Returns what to store for a heartbeat: its time and message, whether its container stopped, or `{ done: true }` |
+| `lostAt` | Returns when the router marks a watched run lost |
 | `settled` | Returns `true` when no dispatch is pending |
 | `nextTry(record, now)` | Returns when to retry the record's pending dispatches, if it has any |
 | `mergeRecord(read, changed, stored)` | Combines an alarm's changes with a restart or replay saved in the meantime |

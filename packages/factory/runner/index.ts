@@ -1119,13 +1119,15 @@ const startEarlyoom = () => {
  * reached or failed. The outpost Worker's `heartbeat` posts the same body
  * and reads the answer the same way.
  */
-const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, done: boolean): Promise<"ok" | "lost" | "retry"> => {
+/** Posts a heartbeat of the run. `end` says that the run is done, or that its container is stopping. */
+const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, end?: "done" | "stopped"): Promise<"ok" | "lost" | "retry"> => {
   if (!run.reply.heartbeat) return "ok";
   const body: Heartbeat = {
     ticket: run.reply.ticket,
     signature: run.reply.signature,
     ...(posted && { message: posted }),
-    ...(done && { done }),
+    ...(end === "done" && { done: true }),
+    ...(end === "stopped" && { stopped: true }),
   };
   try {
     const response = await fetch(run.reply.heartbeat, {
@@ -1147,12 +1149,12 @@ const postHeartbeat = async (run: Run, posted: ReplyMessage | undefined, done: b
 
 /** Posts the run's heartbeat, and ends the run if the router marked it lost. */
 const heartbeat = async ({ run, reply, lost }: Held) => {
-  if ((await postHeartbeat(run, reply.message(), false)) === "lost") lose(run, lost);
+  if ((await postHeartbeat(run, reply.message())) === "lost") lose(run, lost);
 };
 
 /** Posts the run's `done` heartbeat, up to `DONE_ATTEMPTS` times in all, while the router can't be reached or fails. */
 const heartbeatDone = async ({ run, reply }: Held) => {
-  for (let attempt = 1; (await postHeartbeat(run, reply.message(), true)) === "retry" && attempt < DONE_ATTEMPTS; attempt++) {
+  for (let attempt = 1; (await postHeartbeat(run, reply.message(), "done")) === "retry" && attempt < DONE_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, DONE_RETRY_MS));
   }
 };
@@ -1209,14 +1211,12 @@ const server = createServer(async (request, response) => {
 // The runner is the container's PID 1, and Linux ignores a signal to PID 1
 // that the process doesn't handle. The provider stops a sleeping container
 // with SIGTERM, and also a busy one when it rolls out a new image. The runs
-// the runner holds are lost then, so it says so on their conversations.
-// These replies aren't the runs' last, so the router goes on watching the
-// runs, and later replaces them with the lost notice and its restart link.
+// the runner holds are lost then, so it tells the router, which posts the
+// lost notice and its restart link at once. If the router doesn't hear,
+// it posts the notice once the runs miss their heartbeats.
 process.on("SIGTERM", async () => {
   log({ state: "stopping", runs: held.size });
-  const lost = [...held.values()].map(({ reply }) =>
-    reply.finish("The container stopped before this run finished, so the run was lost. Mention the agent again to start it over.", false),
-  );
+  const lost = [...held.values()].map(({ run, reply }) => postHeartbeat(run, reply.message(), "stopped"));
   const timeout = new Promise((resolve) => setTimeout(resolve, STOP_REPLY_TIMEOUT_MS));
   await Promise.race([Promise.allSettled(lost), timeout]);
   process.exit(0);

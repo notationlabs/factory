@@ -109,7 +109,7 @@ Before dispatching to a container, the router reacts with 👀 (`eyes`) on the t
 
 - **Streaming edits** – The runner reads the agent's `stream-json` output, quotes the latest assistant text or `"Thinking..."` status, and edits a single reply comment at most once every 10 seconds while ignoring repeated identical text.
 - **Elapsed clock** – Each progress edit appends a `<sub>` footer with the model name and duration, refreshing every 60 seconds when the agent is quiet.
-- **Final replacement** – On completion, failure, or `SIGTERM` container shutdown, the runner edits that same comment with the final result or error. Runs time out after 2 hours.
+- **Final replacement** – On completion or failure, the runner edits that same comment with the final result or error. If the container stops first, the router edits it with the lost notice. Runs time out after 2 hours.
 
 When the final reply is posted, the router removes the 👀. It also removes it when it posts a failure notice for a run that couldn't be dispatched. If several triggers start runs for one comment, the first run to finish removes it.
 

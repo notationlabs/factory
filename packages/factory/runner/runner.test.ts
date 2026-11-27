@@ -944,9 +944,7 @@ test("during a run, the runner saves the worktree and session when they change, 
   await new Promise((resolve) => setTimeout(resolve, 700));
   assert.deepEqual(counts(), before);
 
-  const lost = nextReply();
   await sleepContainer();
-  assert.match((await lost).text, /the run was lost/);
   await startRunner();
 
   await post(run({ id, message: say(id, "carry on") }, { worktree: { branch: "issue-13" } }));
@@ -1106,12 +1104,15 @@ test("status counts the runs that are running or queued", async () => {
   assert.deepEqual(await response.json(), { active: 0 });
 });
 
-test("when the container stops during a run, the run's conversation says the run was lost", async () => {
+test("when the container stops during a run, the runner tells the router that the run stopped", async () => {
   const id = "github:acme/api#12";
-  await post(run({ id, message: say(id, "hang") }, { worktree: { branch: "issue-12" } }));
+  const stopping = watched({ id, message: say(id, "hang") }, { worktree: { branch: "issue-12" } });
+  await post(stopping);
+  await until(() => beatsOf(stopping.id).length > 0);
   const exited = new Promise((resolve) => runner.once("exit", resolve));
   runner.kill("SIGTERM");
-  assert.match((await nextReply()).text, /^The container stopped before this run finished, so the run was lost\./);
   assert.equal(await exited, 0);
+  assert.equal(beatsOf(stopping.id).filter((h) => h.stopped).length, 1);
+  assert.equal(replies.filter((r) => r.ticket.run === stopping.id).length, 0);
   await startRunner();
 });

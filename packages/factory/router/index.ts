@@ -32,6 +32,7 @@ export {
   heartbeatWatch,
   type Inbox,
   KEEP_DELIVERY_MS,
+  lostAt,
   mergeRecord,
   nextTry,
   replayRecord,

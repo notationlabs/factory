@@ -36,9 +36,11 @@ import {
   isLost,
   KEEP_DELIVERY_MS,
   LOST_ERROR,
+  lostAt,
   lostNotice,
   nextTry,
   restartingNotice,
+  STOPPED_ERROR,
   type TriggerDispatch,
   waitingNotice,
   type Watch,
@@ -48,7 +50,6 @@ import {
   type Heartbeat,
   type HeartbeatResult,
   isBranchName,
-  LOST_AFTER_MS,
   type MessagesRequest,
   type MessagesResult,
   type Relay,
@@ -350,7 +351,8 @@ const waitForBuild = async (
 
 /**
  * Marks lost each dispatched run of the record whose last heartbeat in
- * `watches` is `LOST_AFTER_MS` old, and posts the lost notice in place of
+ * `watches` is `LOST_AFTER_MS` old, or said that its container stopped
+ * (see `lostAt`), and posts the lost notice in place of
  * the run's message. A run is watched from its first heartbeat, which the
  * outpost posts as soon as it takes the run, so the router doesn't mark
  * lost the runs of an outpost that sends no heartbeats. The notice has a
@@ -371,12 +373,12 @@ export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>,
       continue;
     }
     if ("done" in beat) continue;
-    const due = beat.at + LOST_AFTER_MS;
+    const due = lostAt(beat);
     if (d.state !== "dispatched" || due > now) {
       next = Math.min(next ?? due, due);
       continue;
     }
-    Object.assign(d, { state: "lost", error: LOST_ERROR });
+    Object.assign(d, { state: "lost", error: beat.stopped ? STOPPED_ERROR : LOST_ERROR });
     forget.push(run);
     lost = true;
     console.error(JSON.stringify({ run, trigger: d.trigger, state: "lost", heartbeat: beat.at }));
@@ -384,7 +386,7 @@ export const watch = async (record: DeliveryRecord, watches: Map<string, Watch>,
     try {
       const ticket = { connection: record.connection, delivery: record.id, run, expires: now + KEEP_DELIVERY_MS };
       const link = `${record.origin}${RESTART_PATH}?run=${encodeURIComponent(await signRestart(await store.rootKey(), ticket))}`;
-      const posted = await channel.reply(d.thread, lostNotice(link), beat.message ?? d.waiting);
+      const posted = await channel.reply(d.thread, lostNotice(link, beat.stopped), beat.message ?? d.waiting);
       if (posted !== undefined) d.waiting = posted;
     } catch (error) {
       console.error(JSON.stringify({ run, state: "lost notice failed", error: message(error) }));
@@ -618,7 +620,7 @@ const heartbeat = async (request: Request, store: RouterStore) => {
   const found = await ticketed<Heartbeat>(request, store);
   if (found instanceof Response) return found;
   const { body, rootKey } = found;
-  const { ticket, signature, message: posted, done } = body;
+  const { ticket, signature, message: posted, done, stopped } = body;
   if (typeof ticket.delivery !== "string" || typeof ticket.run !== "string") {
     return json(400, { error: "the ticket names no run" });
   }
@@ -631,6 +633,7 @@ const heartbeat = async (request: Request, store: RouterStore) => {
   const result = await store.inbox.heartbeat(ticket.connection, ticket.delivery, ticket.run, {
     ...(posted && { message: posted.id }),
     ...(done === true && { done: true }),
+    ...(stopped === true && { stopped: true }),
   });
   if (result === "unknown") return json(404, { error: "the inbox has no such run" });
   const answer: HeartbeatResult = { ok: true, ...(result === "lost" && { lost: true }) };

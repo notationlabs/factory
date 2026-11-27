@@ -15,6 +15,7 @@ import {
   nextTry,
   replayRecord,
   restartingNotice,
+  STOPPED_ERROR,
   type Watch,
 } from "./deliveries.ts";
 import { type RepoDeploy, signSession, verifySession } from "./admin.ts";
@@ -1015,6 +1016,28 @@ test("the lost notice replaces a run's last reply, even if the run stopped befor
   assert.equal(replies[1]![1], "n1");
 });
 
+test("a heartbeat that says the container stopped has the router mark the run lost at once", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature, stopped: true })).status, 200);
+
+  await watch(record, watches, store, Date.now());
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.equal(record.dispatches[0]!.error, STOPPED_ERROR);
+  assert.equal(replies.length, 2);
+  assert.equal(replies[1]![1], "n1");
+  assert.match(replies[1]![0] as string, /^This run's container stopped before the run finished\. To restart it, you can:/);
+});
+
 test("a reply doesn't start watching a run that sent no heartbeat", async () => {
   const runs: Run[] = [];
   const channel = { ...accepted(), reply: async () => "n1" };
@@ -1073,7 +1096,7 @@ test("a run without a heartbeat for 5 minutes is marked lost, and the lost notic
   assert.equal(record.dispatches[0]!.state, "lost");
   assert.equal(replies.length, 1);
   assert.equal(replies[0]![1], "m1");
-  assert.match(replies[0]![0] as string, /^This run sent no heartbeat for 5 minutes, so Factory marked it as lost\./);
+  assert.match(replies[0]![0] as string, /^This run has not responded for 5 minutes\. It may have crashed\./);
   const link = new URL((replies[0]![0] as string).match(/\[Restart the run\]\((.+?)\)/)![1]!);
   assert.equal(`${link.origin}${link.pathname}`, "https://router.test/restart");
   assert.equal(replies[0]![0], lostNotice(link.toString()));

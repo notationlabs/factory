@@ -121,7 +121,7 @@ The value is in MiB. It applies to each Node process separately, so leave room f
 
 ## Lost runs
 
-The router expects a heartbeat from each run every minute. If a run sends none for 5 minutes, for example because its container stopped responding, the router marks the run lost. It replaces the run's status message with a notice that has a restart link.
+The router expects a heartbeat from each run every minute. If a run sends none for 5 minutes, for example because its container crashed, the router marks the run lost. When Cloudflare stops a container, the runner tells the router, and the router marks the container's runs lost at once. In both cases the router replaces the run's status message with a notice that has a restart link.
 
 The restart link asks you to sign in with GitHub and checks that you are in the trigger's `from`. It then starts the run again from its last save. The link works for 7 days. You can also mention the agent again.
 

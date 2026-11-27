@@ -6,7 +6,7 @@ import {
   failedDelivery,
   heartbeatWatch,
   KEEP_DELIVERY_MS,
-  LOST_AFTER_MS,
+  lostAt,
   mergeRecord,
   nextTry,
   replayRecord,
@@ -87,7 +87,7 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
     if (!watch) return result;
     await this.ctx.storage.put(key, watch);
     if ("done" in watch) return result;
-    const check = watch.at + LOST_AFTER_MS;
+    const check = lostAt(watch);
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > check) await this.ctx.storage.setAlarm(check);
     return result;

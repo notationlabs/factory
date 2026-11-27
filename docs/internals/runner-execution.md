@@ -68,4 +68,4 @@ When earlyoom kills a process, the runner adds a note to the reply of the active
 
 ## Container shutdown
 
-Linux ignores unhandled signals sent to PID 1, so the runner handles `SIGTERM` itself. When Cloudflare stops the container, the runner posts to each run's thread that the run was lost, with a 5-second timeout. These replies don't carry `done`, so 5 minutes later the router replaces them with the lost notice and its restart link.
+Linux ignores unhandled signals sent to PID 1, so the runner handles `SIGTERM` itself. When Cloudflare stops the container, the runner posts a heartbeat with `stopped` for each run it holds, with a 5-second timeout. The router then marks those runs lost and posts the lost notice and its restart link. If a heartbeat doesn't reach the router, the router marks the run lost 5 minutes after its last heartbeat.

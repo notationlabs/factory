@@ -35,8 +35,10 @@ export type RelayResult = { ok: true; message?: ReplyMessage };
  * holds the run, queued or running.
  * `message` is the message that the run's replies replace now. `done` says
  * that the run finished without a last reply, so the router stops watching it.
+ * `stopped` says that the run's container is stopping before the run
+ * finished, so the router marks the run lost at once.
  */
-export type Heartbeat = { ticket: ReplyTicket; signature: string; message?: ReplyMessage; done?: boolean };
+export type Heartbeat = { ticket: ReplyTicket; signature: string; message?: ReplyMessage; done?: boolean; stopped?: boolean };
 
 /**
  * What the router answers to a `Heartbeat`. `lost` means that the router has

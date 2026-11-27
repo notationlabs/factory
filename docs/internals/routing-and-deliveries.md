@@ -12,7 +12,7 @@ stateDiagram-v2
   WaitingBuild --> Dispatched: Image live & run queued
   Pending --> Failed: Dispatch throws
   Failed --> Pending: factory infra replay
-  Dispatched --> Lost: No heartbeat for 5 min
+  Dispatched --> Lost: No heartbeat for 5 min, or container stopped
   Lost --> Pending: Restart link or factory infra replay
   Dispatched --> [*]
   Failed --> [*]: Deleted after 7d
@@ -81,7 +81,9 @@ A reply posted with `done` ends the watch. The router records `done` only after 
 
 Once a heartbeat has started the watch, a reply without `done` counts as a heartbeat too. The router records the ID of the message that the reply posted, so the lost notice replaces that message even if the run stops before its next heartbeat. A heartbeat that names no message keeps the recorded ID.
 
-The inbox alarm runs `watch` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. For each run with no heartbeat in the last 5 minutes, `watch`:
+A heartbeat with `stopped` says that the run's container is stopping. The router then marks the run lost at once, without waiting 5 minutes.
+
+The inbox alarm runs `watch` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat, and at once after a `stopped` heartbeat (`lostAt`). For each run with no heartbeat in the last 5 minutes, or with a `stopped` heartbeat, `watch`:
 
 1. Marks the dispatch `lost`.
 2. Replaces the run's message with a notice that has a restart link.

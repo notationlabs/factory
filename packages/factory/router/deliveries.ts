@@ -43,9 +43,13 @@ export type TriggerDispatch = {
  * `at` is in ms since the epoch. `message` is the id of the message that
  * the run's replies replace, which the lost notice replaces too. A run that
  * finished keeps `{ done: true }`, so that a heartbeat that arrives after
- * its last one doesn't have the router watch it again.
+ * its last one doesn't have the router watch it again. `stopped` says that
+ * the run's container stopped, so the run is lost at once.
  */
-export type Watch = { at: number; message?: string } | { done: true };
+export type Watch = { at: number; message?: string; stopped?: true } | { done: true };
+
+/** When the router marks a watched run lost: at once if its container stopped, or `LOST_AFTER_MS` after its last heartbeat. */
+export const lostAt = (watch: { at: number; stopped?: true }) => (watch.stopped ? watch.at : watch.at + LOST_AFTER_MS);
 
 /**
  * Whether the run `run` of `record` is lost: the router marked it lost, or
@@ -61,11 +65,13 @@ export const isLost = (record: DeliveryRecord | undefined, run: string) => {
 /**
  * What the router notes for a run: a heartbeat, or a reply that the run
  * posted. `message` is the message that the run's replies replace now.
- * `done` says that the run finished.
+ * `done` says that the run finished. `stopped` says that the run's
+ * container stopped before the run finished.
  */
 export type Beat = {
   message?: string;
   done?: boolean;
+  stopped?: boolean;
   /**
    * The beat is a reply, which only refreshes a watch that a heartbeat
    * started. An outpost built before heartbeats existed sends none, so a
@@ -97,7 +103,7 @@ export const heartbeatWatch = (
   if (beat.reply && !current) return { result: "ok" };
   // A heartbeat that names no message keeps the one that an earlier heartbeat or reply named.
   const message = beat.message ?? (current && "at" in current ? current.message : undefined);
-  return { result: "ok", watch: { at: now, ...(message && { message }) } };
+  return { result: "ok", watch: { at: now, ...(message && { message }), ...(beat.stopped && { stopped: true as const }) } };
 };
 
 /**
@@ -234,13 +240,19 @@ export const failureNotice = (failed: TriggerDispatch) =>
 /** Why a lost dispatch failed, as operators list it. */
 export const LOST_ERROR = `The run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes.`;
 
+/** Why a dispatch whose container stopped failed, as operators list it. */
+export const STOPPED_ERROR = "The run's container stopped before the run finished.";
+
 /**
  * The message that replaces a lost run's message on the thread. `restart`
- * is the link that restarts the run.
+ * is the link that restarts the run. `stopped` says that the run's
+ * container stopped, rather than that the run stopped responding.
  */
-export const lostNotice = (restart: string) =>
-  `This run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes, so Factory marked it as lost. Its container may have stopped or run out of memory.\n\n` +
-  `You can now:\n\n1. Mention the agent again\n2. [Restart the run](${restart})\n3. Do nothing\n\n` +
+export const lostNotice = (restart: string, stopped = false) =>
+  (stopped
+    ? "This run's container stopped before the run finished."
+    : `This run has not responded for ${LOST_AFTER_MS / 60_000} minutes. It may have crashed.`) +
+  ` To restart it, you can:\n\n1. Mention the agent again\n2. [Restart the run](${restart})\n\n` +
   "The next run will continue from the last saved snapshot.";
 
 /** The message that replaces the lost notice once a person has restarted the run, until the new run's first reply replaces it. */

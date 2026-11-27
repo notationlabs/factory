@@ -546,6 +546,10 @@ const answered = (channel: RemoteChannel, delivery: Delivery<unknown>, run: stri
  *    the channel show that the delivery's post is answered. A reply that
  *    fails leaves the run watched, so the lost notice replaces the run's
  *    last message.
+ * 3. Without `done`, counts the reply as a heartbeat that names the posted
+ *    message, if a heartbeat started watching the run. A run that stops
+ *    before its next heartbeat then still has its last reply replaced by
+ *    the lost notice.
  */
 const relay = async (request: Request, store: RouterStore) => {
   const found = await ticketed<Relay>(request, store);
@@ -566,12 +570,13 @@ const relay = async (request: Request, store: RouterStore) => {
     return json(409, { error: "the router marked the run lost", lost: true });
   }
   const id = await channel.reply(ticket.thread, text, message?.id);
-  if (named && done === true) {
-    // The reply is posted, so answer 200 even if the done mark or the answered call fails.
-    await store.inbox.heartbeat(ticket.connection, delivery, run, { done: true }).catch((error) => {
-      console.error(JSON.stringify({ run, relay: "done mark failed", error: String(error) }));
+  const beat = done === true ? { done: true } : typeof id === "string" ? { message: id, reply: true } : undefined;
+  if (named && beat) {
+    // The reply is posted, so answer 200 even if the heartbeat or the answered call fails.
+    await store.inbox.heartbeat(ticket.connection, delivery, run, beat).catch((error) => {
+      console.error(JSON.stringify({ run, relay: "heartbeat failed", error: String(error) }));
     });
-    if (record) await answered(channel, record.delivery, run);
+    if (done === true && record) await answered(channel, record.delivery, run);
   }
   const result: RelayResult = { ok: true };
   if (typeof id === "string") result.message = { id, signature: await signMessage(rootKey, signature, id) };

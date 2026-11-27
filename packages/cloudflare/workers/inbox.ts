@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   advance,
+  type Beat,
   type DeliveryRecord,
   failedDelivery,
   heartbeatWatch,
@@ -79,7 +80,7 @@ export class DeliveryInbox extends DurableObject<RouterEnv> {
    * the record, so that the alarm, which saves the record after it calls
    * the deployer and channels, doesn't overwrite them.
    */
-  async heartbeat(run: string, beat: { message?: string; done?: boolean }) {
+  async heartbeat(run: string, beat: Beat) {
     const record = (await this.ctx.storage.get(RECORD)) as DeliveryRecord | undefined;
     const key = `${WATCH}${run}`;
     const { result, watch } = heartbeatWatch(record, run, (await this.ctx.storage.get(key)) as Watch | undefined, beat, Date.now());

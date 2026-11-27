@@ -59,17 +59,34 @@ export const isLost = (record: DeliveryRecord | undefined, run: string) => {
 };
 
 /**
+ * What the router notes for a run: a heartbeat, or a reply that the run
+ * posted. `message` is the message that the run's replies replace now.
+ * `done` says that the run finished.
+ */
+export type Beat = {
+  message?: string;
+  done?: boolean;
+  /**
+   * The beat is a reply, which only refreshes a watch that a heartbeat
+   * started. An outpost built before heartbeats existed sends none, so a
+   * reply mustn't start watching its runs.
+   */
+  reply?: boolean;
+};
+
+/**
  * What a heartbeat of `run` does to the run's watch `current`. Resolves to
  * `unknown` if there's no record, and to `lost` if the run is lost. `watch`
  * is the run's new watch, if it changes: the first heartbeat starts it, a
  * heartbeat with `done`, or of a run that failed, marks the run done, and a
- * heartbeat of a done run changes nothing.
+ * heartbeat of a done run changes nothing. A heartbeat without `message`
+ * keeps the watch's message.
  */
 export const heartbeatWatch = (
   record: DeliveryRecord | undefined,
   run: string,
   current: Watch | undefined,
-  beat: { message?: string; done?: boolean },
+  beat: Beat,
   now: number,
 ): { result: "ok" | "lost" | "unknown"; watch?: Watch } => {
   if (!record) return { result: "unknown" };
@@ -77,7 +94,10 @@ export const heartbeatWatch = (
   const dispatch = record.dispatches.find((d) => d.run === run)!;
   if (current && "done" in current) return { result: "ok" };
   if (beat.done || dispatch.state === "failed") return { result: "ok", watch: { done: true } };
-  return { result: "ok", watch: { at: now, ...(beat.message && { message: beat.message }) } };
+  if (beat.reply && !current) return { result: "ok" };
+  // A heartbeat that names no message keeps the one that an earlier heartbeat or reply named.
+  const message = beat.message ?? (current && "at" in current ? current.message : undefined);
+  return { result: "ok", watch: { at: now, ...(message && { message }) } };
 };
 
 /**
@@ -130,7 +150,7 @@ export type Inbox = {
    * watching the run. See `heartbeatWatch`. Resolves to `unknown` if the
    * inbox has no such delivery, and to `lost` if the run is lost.
    */
-  heartbeat(connection: string, id: string, run: string, beat: { message?: string; done?: boolean }): Promise<"ok" | "lost" | "unknown">;
+  heartbeat(connection: string, id: string, run: string, beat: Beat): Promise<"ok" | "lost" | "unknown">;
   /** The delivery with this connection and id, if the inbox has it. */
   record(connection: string, id: string): Promise<DeliveryRecord | undefined>;
   /**

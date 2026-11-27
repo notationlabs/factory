@@ -25,6 +25,7 @@ export type {
   SignInResult,
 } from "./admin.ts";
 export {
+  type Beat,
   type DeliveryRecord,
   type FailedDelivery,
   failedDelivery,

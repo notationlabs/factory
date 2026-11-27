@@ -79,6 +79,8 @@ The router starts watching a run at its first heartbeat. An outpost Worker built
 
 A reply posted with `done` ends the watch. The router records `done` only after the channel has posted the reply, so a failed final reply leaves the run watched. Heartbeats that arrive after `done` are ignored.
 
+Once a heartbeat has started the watch, a reply without `done` counts as a heartbeat too. The router records the ID of the message that the reply posted, so the lost notice replaces that message even if the run stops before its next heartbeat. A heartbeat that names no message keeps the recorded ID.
+
 The inbox alarm runs `watch` within 5 minutes (`LOST_AFTER_MS`) of each heartbeat. For each run with no heartbeat in the last 5 minutes, `watch`:
 
 1. Marks the dispatch `lost`.

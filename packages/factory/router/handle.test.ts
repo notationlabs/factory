@@ -977,6 +977,38 @@ test("a run's last reply tells the channel that the post is answered, and a repl
   assert.deepEqual(events, ["working", "done", "answered d1"]);
 });
 
+test("the lost notice replaces a run's last reply, even if the run stopped before its next heartbeat", async () => {
+  const replies: unknown[][] = [];
+  const runs: Run[] = [];
+  const channel = {
+    ...accepted(),
+    reply: async (_thread: unknown, text: string, message?: string) => (replies.push([text, message]), message ?? "n1"),
+  };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "stopping" })).status, 200);
+  // A heartbeat that was sent before the reply names no message, and keeps the reply's.
+  assert.equal((await beat(store, { ticket: reply.ticket, signature: reply.signature })).status, 200);
+  assert.equal((watches.get(id) as { message?: string }).message, "n1");
+
+  await watch(record, watches, store, Date.now() + LOST_AFTER_MS);
+  assert.equal(record.dispatches[0]!.state, "lost");
+  assert.equal(replies.length, 2);
+  assert.equal(replies[1]![1], "n1");
+});
+
+test("a reply doesn't start watching a run that sent no heartbeat", async () => {
+  const runs: Run[] = [];
+  const channel = { ...accepted(), reply: async () => "n1" };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async (run) => (runs.push(run), "queued" as const) }));
+  await advance(record, store, 0);
+  const { reply, id } = runs[0]!;
+  assert.equal((await relay(store, { ticket: reply.ticket, signature: reply.signature, text: "working" })).status, 200);
+  assert.equal(watches.has(id), false);
+});
+
 test("a run's last reply stops the router watching it, once the reply is posted", async () => {
   const replies: unknown[][] = [];
   const runs: Run[] = [];

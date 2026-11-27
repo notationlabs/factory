@@ -333,6 +333,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
           event,
           data,
           payload: eventPayload(payload),
+          ...(typeof post?.html_url === "string" && { url: post.html_url }),
         },
       };
     },

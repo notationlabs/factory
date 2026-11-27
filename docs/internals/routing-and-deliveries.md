@@ -34,7 +34,7 @@ stateDiagram-v2
 | `POST /sync` | Syncs connection webhooks and queues allowed repositories |
 | `GET /restart` | Checks a restart link and redirects to sign-in |
 | `GET /restart/callback` | Signs the person in, checks them against `from`, and restarts the run |
-| `GET /restart/started` | Confirms the restart |
+| `GET /restart/started` | Confirms the restart, when the delivery has no URL to return to |
 | `POST /admin/sign-in` | Starts GitHub OAuth sign-in for the `factory` CLI |
 | `POST /admin/session` | Exchanges an OAuth code for a 4-hour operator session token |
 | `GET /admin/repos` | Lists each repository's last deploy and container builds |
@@ -95,6 +95,6 @@ A restart link is `<router>/restart?run=<token>`. The token is a signed ticket t
 2. `GET /restart/callback` checks the token again and signs the person in.
 3. The channel's `canTrigger` checks the person against the trigger's `from` in the current outpost config. GitHub uses the person's role on the repo. `team` entries don't match yet.
 4. The inbox's `restart` sets that dispatch back to `pending` with a new run ID.
-5. The router redirects to `GET /restart/started`. Reloading that page doesn't reuse the sign-in code.
+5. The router redirects to the issue or comment that started the run. If the delivery has no URL, it redirects to `GET /restart/started`. The redirect means a reload doesn't reuse the sign-in code.
 
 The channel handles sign-in because the router doesn't know which platform a delivery came from.

@@ -21,6 +21,8 @@ export type Delivery<E> = {
   data: E;
   /** The event as a trigger's worktree function reads it, such as GitHub's webhook payload. */
   payload: unknown;
+  /** The web page of the post that the delivery is about. A restarted run's sign-in sends the browser back there. */
+  url?: string;
 };
 
 /**

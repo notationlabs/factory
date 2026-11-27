@@ -42,7 +42,7 @@ const commentPayload = {
   action: "created",
   repository: { full_name: "acme/api", default_branch: "main" },
   issue: { number: 7, title: "Broken", body: "It breaks", user: { login: "bob" }, labels: [{ name: "bug" }] },
-  comment: { id: 99, body: "@claude fix", user: { login: "alice" } },
+  comment: { id: 99, body: "@claude fix", user: { login: "alice" }, html_url: "https://github.com/acme/api/issues/7#issuecomment-99" },
   sender: { login: "alice" },
 };
 
@@ -69,6 +69,7 @@ test("receive parses a signed comment to its App", async () => {
         repository: { full_name: "acme/api", default_branch: "main" },
         sender: { login: "alice" },
       },
+      url: "https://github.com/acme/api/issues/7#issuecomment-99",
     },
   });
 });

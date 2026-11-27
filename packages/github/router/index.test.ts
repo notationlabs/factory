@@ -184,11 +184,11 @@ test("on an issue with the listen label, a comment addressed to someone else doe
   assert.ok(channel.match(selector(), comment("> @bob said x\n\nplease do it")));
 });
 
-test("on an issue with the listen label, only a collaborator, a bot or another agent counts as someone else", () => {
-  const comment = (body: string) => delivery({ body, before: body, labels: ["claude:listening"], addressed: ["bob", "renovate"] });
+test("on an issue with the listen label, only a collaborator or another agent counts as someone else", () => {
+  const comment = (body: string) => delivery({ body, before: body, labels: ["claude:listening"], addressed: ["bob"] });
   const both = [selector(), selector({ mention: "@droid" })];
   assert.equal(channel.match(selector(), comment("what do you think, @bob?"), both), undefined);
-  assert.equal(channel.match(selector(), comment("@renovate rebase"), both), undefined);
+  assert.ok(channel.match(selector(), comment("@renovate rebase"), both));
   assert.equal(channel.match(selector(), comment("@droid do it"), both), undefined);
   assert.ok(channel.match(selector(), comment("@droid do it"), [selector()]));
   assert.ok(channel.match(selector(), comment("as @carol said"), both));
@@ -239,18 +239,17 @@ const withGithub = async (
     comments = [],
     deleted = [],
     collaborators = [],
-    users = {},
   }: {
     roles?: Record<string, string>;
     issue?: object;
     comments?: object[];
     deleted?: number[];
     collaborators?: string[];
-    users?: Record<string, string>;
   },
-  body: (posted: string[], writes: [string, string, unknown][]) => Promise<void>,
+  body: (posted: string[], writes: [string, string, unknown][], lists: string[]) => Promise<void>,
 ) => {
   const posted: string[] = [];
+  const lists: string[] = [];
   const writes: [string, string, unknown][] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -262,12 +261,9 @@ const withGithub = async (
       const name = roles[decodeURIComponent(role[1]!)];
       return name ? Response.json({ permission: name, role_name: name }) : new Response("Not Found", { status: 404 });
     }
-    const collaborator = url.pathname.match(/\/collaborators\/([^/]+)$/);
-    if (collaborator) return new Response(null, { status: collaborators.includes(decodeURIComponent(collaborator[1]!)) ? 204 : 404 });
-    const user = url.pathname.match(/^\/users\/([^/]+)$/);
-    if (user) {
-      const type = users[decodeURIComponent(user[1]!)];
-      return type ? Response.json({ type }) : new Response("Not Found", { status: 404 });
+    if (url.pathname.endsWith("/collaborators")) {
+      lists.push(url.pathname);
+      return Response.json(collaborators.map((login) => ({ login })));
     }
     if (init?.method === "DELETE") {
       writes.push(["DELETE", url.pathname, undefined]);
@@ -288,7 +284,7 @@ const withGithub = async (
     return new Response("Not Found", { status: 404 });
   }) as typeof fetch;
   try {
-    await body(posted, writes);
+    await body(posted, writes, lists);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -311,17 +307,21 @@ test("receive asks GitHub for the author's role, since an org member may not be 
   });
 });
 
-test("receive notes which mentions on a labelled issue are collaborators or bots", async () => {
-  const body = "@claude ask @bob, @renovate, @carol and @nobody about @acme/core";
-  const payload = { ...commentPayload, comment: { ...commentPayload.comment, body } };
-  await withGithub({ collaborators: ["bob"], users: { renovate: "Bot", carol: "User" } }, async () => {
-    const { data } = await accepted("issue_comment", payload);
-    assert.deepEqual(data.addressed, ["bob", "renovate"]);
+test("receive notes which mentions on a labelled issue are collaborators, and keeps the repo's collaborators", async () => {
+  const payload = (body: string, labels = [{ name: "bug" }]) => ({
+    ...commentPayload,
+    repository: { full_name: "acme/web", default_branch: "main" },
+    issue: { ...commentPayload.issue, labels },
+    comment: { ...commentPayload.comment, body },
   });
-  const unlabelled = { ...payload, issue: { ...payload.issue, labels: [] } };
-  await withGithub({}, async () => {
-    const { data } = await accepted("issue_comment", unlabelled);
-    assert.equal(data.addressed, undefined);
+  await withGithub({ collaborators: ["Bob"] }, async (_, __, lists) => {
+    const first = await accepted("issue_comment", payload("@claude ask @bob, @renovate and @nobody about @acme/core"));
+    assert.deepEqual(first.data.addressed, ["bob"]);
+    const second = await accepted("issue_comment", payload("and @bob again"));
+    assert.deepEqual(second.data.addressed, ["bob"]);
+    assert.deepEqual(lists, ["/repos/acme/web/collaborators"]);
+    const unlabelled = await accepted("issue_comment", payload("@bob", []));
+    assert.equal(unlabelled.data.addressed, undefined);
   });
 });
 

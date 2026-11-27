@@ -109,7 +109,8 @@ interface ChannelBase<E> {
   /**
    * Whether `selector` selects the delivery, and if so, whether its author
    * may start a run. `selectors` are those of all the outpost's triggers on
-   * this connection, including `selector`.
+   * the provider's connections for the delivery's scope, including
+   * `selector`.
    */
   match(selector: unknown, delivery: Delivery<E>, selectors?: unknown[]): AuthorCheck | undefined;
   /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */

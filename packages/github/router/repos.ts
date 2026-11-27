@@ -82,24 +82,30 @@ export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
   return new Map(await Promise.all(logins.map(async (login) => [login, await role(login)] as const)));
 };
 
+/** How long `collaborators` keeps a repo's list. A collaborator added in that time doesn't count yet. */
+const COLLABORATORS_TTL_MS = 10 * 60 * 1000;
+
+const collaboratorCache = new Map<string, { logins: Set<string>; expires: number }>();
+
 /**
- * The logins among `logins` that are collaborators on `repo`, or bot
- * accounts. A login that doesn't exist is neither.
+ * The lowercased logins of `repo`'s collaborators, including org members
+ * with access. Each App keeps a repo's list for `COLLABORATORS_TTL_MS`.
  */
-export const addressees = async (auth: AppAuth, repo: string, logins: string[]) => {
+export const collaborators = async (auth: AppAuth, repo: string) => {
+  const key = `${auth.appId}:${repo.toLowerCase()}`;
+  const cached = collaboratorCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.logins;
   const token = await repoToken(auth, repo, { metadata: "read" });
-  const addressee = async (login: string) => {
-    const name = encodeURIComponent(login);
-    const collaborator = await github("GET", `/repos/${repo}/collaborators/${name}`, token);
-    if (collaborator.status === 204) return true;
-    if (collaborator.status !== 404) await ok(collaborator, `GET /repos/${repo}/collaborators/${name}`);
-    const user = await github("GET", `/users/${name}`, token);
-    if (user.status === 404) return false;
-    const { type } = (await (await ok(user, `GET /users/${name}`)).json()) as { type: string };
-    return type === "Bot";
-  };
-  const found = await Promise.all(logins.map(async (login) => ((await addressee(login)) ? [login] : [])));
-  return found.flat();
+  const logins = new Set<string>();
+  let path: string | undefined = `/repos/${repo}/collaborators?per_page=100`;
+  while (path) {
+    const response = await ok(await github("GET", path, token), `GET ${path}`);
+    for (const { login } of (await response.json()) as { login: string }[]) logins.add(login.toLowerCase());
+    const next = response.headers.get("link")?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
+    path = next ? next.replace(GITHUB_API, "") : undefined;
+  }
+  collaboratorCache.set(key, { logins, expires: Date.now() + COLLABORATORS_TTL_MS });
+  return logins;
 };
 
 /**

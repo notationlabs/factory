@@ -146,6 +146,21 @@ test("a delivery to another connection's path matches that connection's triggers
   assert.deepEqual(matched(body.matches), [{ trigger: "other-connection", author: { result: "allowed" }, run: "string" }]);
 });
 
+test("match gets the selectors of the outpost's triggers on any of the provider's connections for the delivery's scope", async () => {
+  const named = structuredClone(outpost);
+  for (const [id, trigger] of Object.entries(named.triggers!)) trigger.match = { pick: id === "picked", id };
+  const seen: unknown[][] = [];
+  const channel = accepted();
+  const match = channel.match;
+  channel.match = async (selector, delivery, selectors) => {
+    seen.push(selectors!);
+    return match(selector, delivery, selectors);
+  };
+  await call(store({ main: channel }, { "acme/api": named }));
+  const ids = (selectors: unknown[]) => selectors.map((s) => (s as { id: string }).id);
+  assert.deepEqual(ids(seen[0]!), ["picked", "skipped", "other-connection", "other-event"]);
+});
+
 test("a rejected delivery is a 401, and an ignored one a 200", async () => {
   assert.equal((await call(store({ main: fake({ status: "rejected", reason: "bad signature" }) }))).status, 401);
   assert.equal((await call(store({ main: fake({ status: "ignored", reason: "ping" }) }))).status, 200);

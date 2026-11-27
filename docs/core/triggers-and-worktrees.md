@@ -53,7 +53,7 @@ Mention matching follows GitHub handle boundaries, so `@claude` matches `@Claude
 
 When a mention starts a run, the router adds the trigger's `listen` label to the issue or pull request. While the label is there, each new comment matches the trigger without the mention. These don't match:
 
-- A comment that mentions another agent on the repo, a collaborator on the repo, or a bot, such as `@droid`, `@bob` or `@renovate`. It's addressed to them. Mentions of anyone else don't count, and neither do team handles or package names such as `@scope/pkg`.
+- A comment that mentions another agent in the repo's outpost or a collaborator on the repo, such as `@droid` or `@bob`. It's addressed to them. Mentions of anyone else don't count, and neither do team handles or package names such as `@scope/pkg`.
 - An edit, unless it adds the mention.
 
 Only a `gh.issueComment` trigger listens. On a `gh.issue` trigger, `listen` only names the label to add, so give the issue trigger and the comment trigger for an agent the same label. The default does this.

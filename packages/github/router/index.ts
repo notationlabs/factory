@@ -13,7 +13,7 @@ import { appJwt } from "./app-jwt.ts";
 import { signIn, signInUrl } from "./operators.ts";
 import {
   addLabels,
-  addressees,
+  collaborators,
   comment,
   installedRepos,
   type IssueComment,
@@ -72,8 +72,8 @@ export type GithubEvent = {
   labels: string[];
   /**
    * The lowercased logins that a new comment mentions and that are
-   * collaborators on the repo or bots. Missing if GitHub couldn't say, and
-   * then every mention counts.
+   * collaborators on the repo. Missing if GitHub couldn't say, and then
+   * every mention counts.
    */
   addressed?: string[];
 };
@@ -243,7 +243,7 @@ const isTeam = (handle: string) => handle.includes("/");
 
 /**
  * Whether the event's body is addressed to someone other than `mention`:
- * another agent on this connection, a collaborator on the repo, or a bot.
+ * another agent in the repo's outpost, or a collaborator on the repo.
  */
 const addressedToOther = (event: GithubEvent, mention: string, selectors: Selector[]) => {
   const own = mention.replace(/^@/, "").toLowerCase();
@@ -324,7 +324,8 @@ const resolveAddressed = async (auth: { appId: string; privateKey: string }, rep
     return;
   }
   try {
-    event.addressed = await addressees(auth, repo, logins);
+    const known = await collaborators(auth, repo);
+    event.addressed = logins.filter((l) => known.has(l));
   } catch (error) {
     console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
   }

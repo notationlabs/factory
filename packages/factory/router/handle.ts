@@ -176,7 +176,7 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
 
   const matches: TriggerMatch[] = [];
   const dispatches: TriggerDispatch[] = [];
-  const selectors = selectorsOf(outpost, entry.provider, name, delivery);
+  const selectors = selectorsOf(outpost, entry.provider, delivery);
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
     if (!listens(outpost, trigger, entry.provider, name, delivery)) continue;
     const author = await channel.match(trigger.match, delivery, selectors);
@@ -221,10 +221,13 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
   );
 };
 
-/** The selectors of the outpost's triggers that listen for the delivery. */
-const selectorsOf = (outpost: OutpostConfig, provider: string, name: string, delivery: Delivery<unknown>) =>
+/** The selectors of the outpost's triggers on any of the provider's connections with the delivery's scope, for any event. */
+const selectorsOf = (outpost: OutpostConfig, provider: string, delivery: Delivery<unknown>) =>
   Object.values(outpost.triggers ?? {})
-    .filter((t) => listens(outpost, t, provider, name, delivery))
+    .filter((t) => {
+      const target = outpost.channels?.[t.channel];
+      return target?.provider === provider && target.scope === delivery.scope;
+    })
     .map((t) => t.match);
 
 /**
@@ -454,7 +457,7 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undef
   if (!outpost || !trigger) throw new Error(`The outpost of ${repo} no longer has the trigger \`${triggerId}\`.`);
   if (
     !listens(outpost, trigger, d.provider, d.name, delivery) ||
-    (await d.channel.match(trigger.match, delivery, selectorsOf(outpost, d.provider, d.name, delivery)))?.result !== "allowed"
+    (await d.channel.match(trigger.match, delivery, selectorsOf(outpost, d.provider, delivery)))?.result !== "allowed"
   ) {
     throw new Error(`The trigger \`${triggerId}\` no longer matches the event.`);
   }

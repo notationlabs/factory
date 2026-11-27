@@ -7,7 +7,14 @@ export {
   type Selector,
 } from "./channel.ts";
 export type { Connection, ConnectionRef } from "./connection.ts";
-export type { Account, CodeHost, Deployer, OperatorAuth } from "./hub.ts";
+export {
+  type Account,
+  type CodeHost,
+  type Deployer,
+  type OperatorAuth,
+  SERVICE_HEADERS,
+  type Service,
+} from "./hub.ts";
 export type {
   Agent,
   AgentEntry,

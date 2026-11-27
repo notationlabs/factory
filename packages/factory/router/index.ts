@@ -1,4 +1,5 @@
 export type { OutpostConfig, RouterConfig } from "../contracts/index.ts";
+export { isServiceName, SERVICE_HEADERS } from "../contracts/hub.ts";
 export type {
   AuthorCheck,
   BuildCheck,

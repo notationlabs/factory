@@ -63,6 +63,7 @@ In priority order.
   - Check `github.team(...)` in a trigger's `from`.
   - Mint tokens for custom `Policy` types, not only `github.Policy`.
   - Implement the channel contract for Slack.
+- [ ] **Railway services:** run hub services on Railway. Each container reaches each service at `http://<name>.factory`, with `x-factory-repo` and `x-factory-container` set by the hub and any `x-factory-*` header from the container dropped. Today only `cloudflare.Service` does this. See [Services](docs/authoring/services.md).
 - [ ] **GitHub:** adopt an existing App by its slug, so a recreated hub keeps the App and its installations. GitHub returns a private key only when it creates an App, so adoption needs a key that you generate on the App's settings page.
 - [ ] **Tests:** fakes for GitHub, Cloudflare and Claude, and an end-to-end test that runs a hub and an outpost in one process, from a webhook to a reply.
 

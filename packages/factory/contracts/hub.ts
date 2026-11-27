@@ -27,6 +27,24 @@ export interface Account extends ResourceGroup {
   readonly secrets: Record<string, VaultSecret>;
 }
 
+/**
+ * Something the hub runs for its containers. Every container on the hub
+ * reaches a service at `http://<name>.factory`, with no credential. The
+ * service gets each request with `SERVICE_HEADERS`, which the hub sets and
+ * the container can't. The provider decides how the service runs.
+ */
+export interface Service extends ResourceGroup {
+  /** Containers reach the service at `<name>.factory`. */
+  readonly name: string;
+}
+
+/** The headers that name the repo and the container of a request to a service. The hub drops any `x-factory-*` header that the container sent. */
+export const SERVICE_HEADERS = { repo: "x-factory-repo", container: "x-factory-container" } as const;
+
+/** Whether `name` can be a service's name: a DNS label that isn't `state` or `runner`, which the outpost already serves. */
+export const isServiceName = (name: string) =>
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name) && name !== "state" && name !== "runner";
+
 /** Checks and builds outposts' containers, and gives them `accounts`' credentials. */
 export interface Deployer extends ResourceGroup {
   readonly router: Router;

@@ -46,6 +46,10 @@ The outpost Worker rejects payloads older than 5 minutes (`RUN_MAX_AGE_MS`) and 
 
 `BuildWatch` uses the same pattern for `POST /builds`, attaching a 5-minute `BuildReport` expiry signed with `router:builds`.
 
+## Service requests
+
+A request from a container to a hub service at `<name>.factory` carries no key or ticket. The outpost Worker's outbound handler drops every `x-factory-*` header that the container sent, and sets `x-factory-repo` and `x-factory-container` from its Worker's `REPO` and `CONTAINER` vars. Each outpost Worker runs one repo's container, and the deployer sets the vars when it builds the Worker. The handler forwards the request to the router's `ServiceGateway` entrypoint over a service binding. That entrypoint has no public URL, so the router trusts the headers, and forwards the request to the service's binding. A service's Worker must have `url: false`, so that only bindings reach it. `cloudflare.Service`'s type rejects a Worker with a URL. See [Services](../authoring/services.md).
+
 ## Operator sessions
 
 Operators authenticate through `/admin/sign-in` and `/admin/session` using GitHub OAuth. After resolving the user's login and numeric ID, the channel immediately revokes the OAuth access token.

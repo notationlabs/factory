@@ -80,6 +80,8 @@ Bind platform secrets and runner endpoints before starting each container, witho
 | `FACTORY_MODULES_URL` | Base URL serving `code-host.ts` and runtime modules |
 | `FACTORY_STATE_URL` | Persistent state endpoint scoped per container ID |
 
+If the provider has hub services, make `<name>.factory` reach each service from the container, as [Services](./services.md#services-on-other-providers) describes.
+
 Also inject every `Account` secret under its declared variable name, plus matching `OutpostSecret` entries filtered with `allowsRepo`. Start a run by posting its signed `Run` payload to the container.
 
 The router marks a run lost if it gets no heartbeat for 5 minutes, counting from the first heartbeat. If your deployer holds a run while its container starts, post a heartbeat to `run.reply.heartbeat` when you take the run, and then every minute until the runner has it. If you can't deliver the run, send the failure reply with `done: true`.

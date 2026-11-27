@@ -15,6 +15,8 @@ export const OutpostSettingsSchema = v.object({
   deployer: v.string(),
   /** The router's URL, which the deployer reports builds to. */
   router: v.string(),
+  /** The router Worker's name, which outpost Workers bind to reach the hub's services. */
+  routerWorker: v.string(),
   compatibilityDate: v.string(),
   sleepAfter: v.string(),
   /** How many containers each outpost Worker runs at once. Settings from before it existed get 5. */

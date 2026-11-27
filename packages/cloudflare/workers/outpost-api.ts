@@ -16,6 +16,9 @@ export type DeployerService = {
 /** The headers that the deployer signs a run with. */
 export const RUN_HEADERS = { timestamp: "x-factory-timestamp", signature: "x-factory-signature" } as const;
 
+/** The router Worker's entrypoint that outpost Workers bind to reach the hub's services. */
+export const SERVICE_GATEWAY = "ServiceGateway";
+
 /** The class of an outpost Worker's container, which its `wrangler.json` names. */
 export const CONTAINER_CLASS = "OutpostContainer";
 

@@ -12,6 +12,7 @@ import {
   scopedName,
   type VaultSecret,
 } from "@notation/factory";
+import { isServiceName } from "@notation/factory/router";
 import { kvJson, type KVJsonGroup } from "@notation/cloudflare/kv";
 import { kv, r2 } from "@notation/cloudflare/resources";
 import {
@@ -25,6 +26,8 @@ import {
   ROUTER_CONFIG_KEY,
   RouterConfigSchema,
 } from "../lib/router-config.ts";
+import { serviceBinding } from "../workers/services.ts";
+import type { PrivateWorker } from "./service.ts";
 import { KV_BINDING, R2_BINDING } from "./bindings.ts";
 import { COMPATIBILITY_DATE, workerBundle } from "./code.ts";
 import {
@@ -48,7 +51,8 @@ const workerId = (...parts: string[]) =>
  * bucket, and the KV entry its config is contributed to. It generates the
  * root key and the sync key, and keeps both in the vault's store. Each
  * connection's channel is a Worker of its own, which the router binds as a
- * service.
+ * service, and so is each hub service. The router's `ServiceGateway`
+ * entrypoint forwards outposts' requests to the hub's services.
  */
 export class Router extends ResourceGroup implements RouterContract {
   readonly vault: Vault;
@@ -177,6 +181,21 @@ export class Router extends ResourceGroup implements RouterContract {
     const name = `CHANNEL_${bindingName(connection)}`;
     addBindings(this.worker, { [name]: channel });
     this.store.contribute({ connections: { [connection]: { channel: name } } });
+  }
+
+  /**
+   * Binds a hub service's Worker as `SERVICE_<name>`, which the router's
+   * `ServiceGateway` forwards `<name>.factory` to. A second
+   * `cloudflare.Service` with the same name fails before it gets here, since
+   * Notation refuses a duplicate group id (`Duplicate cloudflare/Service id`).
+   */
+  service(name: string, worker: PrivateWorker) {
+    if (!isServiceName(name)) {
+      throw new Error(
+        `The service name ${JSON.stringify(name)} isn't a lowercase DNS label, or is one that Factory uses (state, runner).`,
+      );
+    }
+    addBindings(this.worker, { [serviceBinding(name)]: worker });
   }
 
   #channelBundle(provider: string, module: string) {

@@ -9,6 +9,7 @@ Declares Notation Factory hub wiring targeting Railway projects, services, volum
 - All underlying Railway API functions in `packages/railway/lib/railway.ts` throw `"not implemented"`.
 - `Router.channel(...)` throws because the Railway router service implementation does not exist yet.
 - `OutpostSecret` binding and `OperatorAuth` are not implemented for Railway.
+- Railway has no hub services, which `cloudflare.Service` provides on Cloudflare.
 
 Use [`@notation/factory-cloudflare`](./cloudflare.md) for live deployments.
 

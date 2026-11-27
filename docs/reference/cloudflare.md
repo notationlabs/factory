@@ -10,6 +10,7 @@ Runs a Notation Factory hub on Cloudflare Workers, Durable Objects, KV, R2, Secr
 | `CloudflareSecret` | Single `SecretsStoreSecret` declaration class inside a `Vault` |
 | `Router` | Hub router Worker, KV namespace, R2 bucket, and Durable Objects class |
 | `Deployer` | Outpost evaluator, Artifacts builder, and container host manager class |
+| `Service` | A hub service that a Worker runs, which containers reach at `http://<name>.factory` |
 | `OperatorAuth` | Cloudflare Access resource group class, currently unimplemented at runtime |
 
 ## `Vault`
@@ -40,6 +41,9 @@ Takes `{ vault: Vault }` and automatically attaches `RouterSync` on deploy.
 | `syncKey` | Vault secret holding the 32-byte deploy sync key |
 | `bind(secret, name?)` | Binds a `VaultSecret` onto the router Worker and returns its binding name |
 | `channel(options)` | Attaches a connection's channel Worker as a router service binding |
+| `service(name, worker)` | Binds a hub service's Worker as `SERVICE_<name>` |
+
+The router Worker exports a `ServiceGateway` entrypoint, which each outpost Worker binds as `SERVICES`. The entrypoint forwards each request to `<name>.factory` to the binding `SERVICE_<name>`.
 
 ## `Deployer`
 
@@ -66,6 +70,19 @@ new cloudflare.Deployer("deployer", {
 | `regions` | Optional array from `ENAM`, `WNAM`, `EEUR`, `WEUR`, `APAC`, `SAM`, `ME`, `OC`, `AFR` |
 | `sleepAfter` | Optional idle container duration matching `/^[1-9]\d*[smh]$/`, defaults to `"10m"` |
 | `maxInstances` | Optional whole number, at least 1, defaults to `5`. Sets `max_instances` on each outpost container |
+
+## `Service`
+
+```ts [factory.infra.ts]
+new cloudflare.Service("drafts", { router, worker: drafts });
+```
+
+| Option | Details |
+| :--- | :--- |
+| `router` | Required `cloudflare.Router` instance |
+| `worker` | Required Notation `worker()` whose default export handles the containers' requests. It must have `url: false`, and the type rejects a Worker with a URL |
+
+The id is the service's name, which must pass `isServiceName`. The constructor throws on an invalid name. A second `cloudflare.Service` with the same name fails, since Notation refuses a duplicate group id (`Duplicate cloudflare/Service id`). See [Services](../authoring/services.md).
 
 ## `OperatorAuth` status
 

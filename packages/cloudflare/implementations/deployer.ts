@@ -252,6 +252,7 @@ export class Deployer
           prefix,
           deployer: scriptNameRef(this.worker),
           router: router.url,
+          routerWorker: scriptNameRef(router.worker),
           compatibilityDate: COMPATIBILITY_DATE,
           sleepAfter,
           maxInstances,

@@ -13,6 +13,7 @@ import {
   STATE_INSTANCE,
   within,
 } from "./outpost-api.ts";
+import { type Fetcher, fromSender, SERVICE_SUFFIX } from "./services.ts";
 
 // Outbound interception calls the handlers through this entrypoint.
 export { ContainerProxy } from "@cloudflare/containers";
@@ -20,8 +21,14 @@ export { ContainerProxy } from "@cloudflare/containers";
 type Env = {
   OUTPOSTS: DurableObjectNamespace;
   DEPLOYER: DeployerService;
+  /** The router's `ServiceGateway` entrypoint, which forwards requests to the hub's services. */
+  SERVICES: Fetcher;
   /** This Worker's name, which the deployer signs runs for. */
   WORKER_NAME: string;
+  /** The repo whose container this Worker runs, which services get as the sender. */
+  REPO: string;
+  /** The container's id in the repo's outpost config. */
+  CONTAINER: string;
   /** How long the container stays up with no run in progress, such as `"10m"`. */
   SLEEP_AFTER: string;
   /** The Worker's `max_instances`, as a string. */
@@ -103,6 +110,9 @@ const stateStore = async (request: Request, env: Env) => {
   }
   return new Response("method not allowed", { status: 405 });
 };
+
+/** Forwards a container's request to `<name>.factory` to the router, with the repo and container that sent it. */
+const service = (request: Request, env: Env) => env.SERVICES.fetch(fromSender(request, env.REPO, env.CONTAINER));
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -286,8 +296,13 @@ export class OutpostContainer extends Container<Env> {
 }
 
 // The setter registers the handlers by class name. A static field would
-// define its own property instead, and the proxy wouldn't find them.
-OutpostContainer.outboundByHost = { [STATE_HOST]: stateStore, [RUNNER_HOST]: runnerSource };
+// define its own property instead, and the proxy wouldn't find them. The
+// proxy tries exact hosts before globs, so the glob leaves state and runner.
+OutpostContainer.outboundByHost = {
+  [STATE_HOST]: stateStore,
+  [RUNNER_HOST]: runnerSource,
+  [`*${SERVICE_SUFFIX}`]: service,
+};
 
 /**
  * Takes `POST /runs` from the hub's deployer, signed with a key derived

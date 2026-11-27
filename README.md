@@ -21,7 +21,7 @@ The router receives events from each connection. The deployer provisions contain
 
 | Contracts | Plugins today |
 | --- | --- |
-| `Vault`, `Router`, `Deployer` | `factory-cloudflare` |
+| `Vault`, `Router`, `Deployer`, `Service` | `factory-cloudflare` |
 | `Connection`, `Channel`, `CodeHost`, `Policy` | `factory-github` |
 | `OperatorAuth` | `factory-github` |
 | `Account`, `Agent`, `runtime` | `factory-claude`, `factory-cursor`, `factory-droid` |

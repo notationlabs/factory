@@ -246,10 +246,10 @@ const withGithub = async (
     deleted?: number[];
     collaborators?: string[];
   },
-  body: (posted: string[], writes: [string, string, unknown][], lists: string[]) => Promise<void>,
+  body: (posted: string[], writes: [string, string, unknown][], checks: string[]) => Promise<void>,
 ) => {
   const posted: string[] = [];
-  const lists: string[] = [];
+  const checks: string[] = [];
   const writes: [string, string, unknown][] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -263,7 +263,7 @@ const withGithub = async (
     }
     const collaborator = url.pathname.match(/\/collaborators\/([^/]+)$/);
     if (collaborator) {
-      lists.push(url.pathname);
+      checks.push(url.pathname);
       return new Response(null, { status: collaborators.includes(decodeURIComponent(collaborator[1]!)) ? 204 : 404 });
     }
     if (init?.method === "DELETE") {
@@ -285,7 +285,7 @@ const withGithub = async (
     return new Response("Not Found", { status: 404 });
   }) as typeof fetch;
   try {
-    await body(posted, writes, lists);
+    await body(posted, writes, checks);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -315,13 +315,13 @@ test("receive notes which mentions on a labelled issue are collaborators, and ke
     issue: { ...commentPayload.issue, labels },
     comment: { ...commentPayload.comment, body },
   });
-  await withGithub({ collaborators: ["bob"] }, async (_, __, lists) => {
+  await withGithub({ collaborators: ["bob"] }, async (_, __, checks) => {
     const first = await accepted("issue_comment", payload("@claude ask @bob, @renovate and @nobody about @acme/core"));
     assert.deepEqual(first.data.addressed, ["bob"]);
     const second = await accepted("issue_comment", payload("and @bob or @carol"));
     assert.deepEqual(second.data.addressed, ["bob"]);
     const expected = ["claude", "bob", "renovate", "nobody", "carol"].map((login) => `/repos/acme/web/collaborators/${login}`);
-    assert.deepEqual(lists, asked);
+    assert.deepEqual(checks, expected);
     const unlabelled = await accepted("issue_comment", payload("@bob", []));
     assert.equal(unlabelled.data.addressed, undefined);
   });

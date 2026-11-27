@@ -240,8 +240,8 @@ export const LOST_ERROR = `The run sent no heartbeat for ${LOST_AFTER_MS / 60_00
  */
 export const lostNotice = (restart: string) =>
   `This run sent no heartbeat for ${LOST_AFTER_MS / 60_000} minutes, so Factory marked it as lost. Its container may have stopped or run out of memory.\n\n` +
-  `[Restart the run](${restart}), or mention the agent again. The link works for ${KEEP_DELIVERY_MS / 86_400_000} days, for anyone who may trigger the agent. ` +
-  "A new run starts from the worktree and session as this run last saved them, up to a minute before it was lost.";
+  `You can now:\n\n1. Mention the agent again\n2. [Restart the run](${restart})\n3. Do nothing\n\n` +
+  "The next run will continue from the last saved snapshot.";
 
 /** The message that shows on the thread while a dispatch waits for its container's first image build. */
 export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

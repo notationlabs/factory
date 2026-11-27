@@ -112,7 +112,7 @@ interface ChannelBase<E> {
    * the provider's connections for the delivery's scope, including
    * `selector`.
    */
-  match(selector: unknown, delivery: Delivery<E>, selectors?: unknown[]): AuthorCheck | undefined;
+  match(selector: unknown, delivery: Delivery<E>, selectors: unknown[]): AuthorCheck | undefined;
   /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */
   sync(url: string): Promise<void>;
   /** For a code host's channel: the files under `dir` in `repo` at `ref`, or at the default branch's head. */

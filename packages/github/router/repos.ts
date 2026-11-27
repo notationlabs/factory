@@ -82,30 +82,32 @@ export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
   return new Map(await Promise.all(logins.map(async (login) => [login, await role(login)] as const)));
 };
 
-/** How long `collaborators` keeps a repo's list. A collaborator added in that time doesn't count yet. */
-const COLLABORATORS_TTL_MS = 10 * 60 * 1000;
+/** How long `collaborators` keeps each answer. A collaborator added or removed in that time isn't noticed yet. */
+const COLLABORATOR_TTL_MS = 10 * 60 * 1000;
 
-const collaboratorCache = new Map<string, { logins: Set<string>; expires: number }>();
+const collaboratorCache = new Map<string, { collaborator: boolean; expires: number }>();
 
 /**
- * The lowercased logins of `repo`'s collaborators, including org members
- * with access. Each App keeps a repo's list for `COLLABORATORS_TTL_MS`.
+ * The logins among `logins` that are collaborators on `repo`, including org
+ * members with access. Each App keeps each answer for `COLLABORATOR_TTL_MS`,
+ * so it asks GitHub only about logins it hasn't seen recently.
  */
-export const collaborators = async (auth: AppAuth, repo: string) => {
-  const key = `${auth.appId}:${repo.toLowerCase()}`;
-  const cached = collaboratorCache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.logins;
-  const token = await repoToken(auth, repo, { metadata: "read" });
-  const logins = new Set<string>();
-  let path: string | undefined = `/repos/${repo}/collaborators?per_page=100`;
-  while (path) {
-    const response = await ok(await github("GET", path, token), `GET ${path}`);
-    for (const { login } of (await response.json()) as { login: string }[]) logins.add(login.toLowerCase());
-    const next = response.headers.get("link")?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
-    path = next ? next.replace(GITHUB_API, "") : undefined;
+export const collaborators = async (auth: AppAuth, repo: string, logins: string[]) => {
+  const now = Date.now();
+  const key = (login: string) => `${auth.appId}:${repo}:${login}`.toLowerCase();
+  const unknown = logins.filter((login) => (collaboratorCache.get(key(login))?.expires ?? 0) <= now);
+  if (unknown.length) {
+    const token = await repoToken(auth, repo, { metadata: "read" });
+    await Promise.all(
+      unknown.map(async (login) => {
+        const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}`;
+        const response = await github("GET", path, token);
+        if (response.status !== 404) await ok(response, `GET ${path}`);
+        collaboratorCache.set(key(login), { collaborator: response.status === 204, expires: now + COLLABORATOR_TTL_MS });
+      }),
+    );
   }
-  collaboratorCache.set(key, { logins, expires: Date.now() + COLLABORATORS_TTL_MS });
-  return logins;
+  return logins.filter((login) => collaboratorCache.get(key(login))?.collaborator);
 };
 
 /**

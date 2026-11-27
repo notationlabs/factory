@@ -39,8 +39,8 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return channel(context(this.env)).receive(request);
   }
 
-  match(selector: unknown, delivery: Delivery<unknown>) {
-    return channel(context(this.env)).match(selector, delivery);
+  match(selector: unknown, delivery: Delivery<unknown>, selectors: unknown[]) {
+    return channel(context(this.env)).match(selector, delivery, selectors);
   }
 
   sync(url: string) {

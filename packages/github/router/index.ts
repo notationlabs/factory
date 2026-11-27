@@ -230,8 +230,7 @@ const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
 
-// A handle followed by `/` or `@` is a package path or version, such as `@scope/pkg/sub` or `@scope/pkg@2`, not a mention.
-const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?(?![\w/@-])/g;
+const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?/g;
 
 /** Code and quoted lines, where an `@` isn't a mention. */
 const NOT_MENTIONS = /```[\s\S]*?(?:```|(?![\s\S]))|`[^`\n]*`|^>.*$/gm;
@@ -241,15 +240,19 @@ const handles = (body: string) => (body.replace(NOT_MENTIONS, "").match(HANDLE) 
 
 const isTeam = (handle: string) => handle.includes("/");
 
+const handleOf = (mention: string) => mention.replace(/^@/, "").toLowerCase();
+
 /**
  * Whether the event's body is addressed to someone other than `mention`:
  * another agent in the repo's outpost, or a collaborator on the repo.
+ * Without `addressed`, any handle that isn't a team counts.
  */
 const addressedToOther = (event: GithubEvent, mention: string, selectors: Selector[]) => {
-  const own = mention.replace(/^@/, "").toLowerCase();
-  const agents = new Set(selectors.flatMap((s) => (s.mention ? [s.mention.replace(/^@/, "").toLowerCase()] : [])));
+  const own = handleOf(mention);
+  const agents = new Set(selectors.flatMap((s) => (s.mention && handleOf(s.mention) !== own ? [handleOf(s.mention)] : [])));
+  const { addressed } = event;
   return handles(event.body).some(
-    (h) => h !== own && (agents.has(h) || (event.addressed ? event.addressed.includes(h) : true)),
+    (h) => agents.has(h) || (h !== own && !isTeam(h) && (!addressed || addressed.includes(h))),
   );
 };
 
@@ -257,7 +260,7 @@ const addressedToOther = (event: GithubEvent, mention: string, selectors: Select
 const newlyMentions = (event: GithubEvent, mention: string) =>
   mentions(event.body, mention) && !(event.action === "edited" && mentions(event.before, mention));
 
-const selects = (selector: Selector, event: GithubEvent, selectors: Selector[] = []) => {
+const selects = (selector: Selector, event: GithubEvent, selectors: Selector[]) => {
   if (!selector.actions.includes(event.action)) return false;
   if (selector.labels?.some((l) => !hasLabel(event.labels, l))) return false;
   if (selector.mention && !newlyMentions(event, selector.mention)) {
@@ -319,13 +322,8 @@ const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: s
 const resolveAddressed = async (auth: { appId: string; privateKey: string }, repo: string, event: GithubEvent) => {
   if (event.action !== "created" || event.labels.length === 0) return;
   const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h)))];
-  if (logins.length === 0) {
-    event.addressed = [];
-    return;
-  }
   try {
-    const known = await collaborators(auth, repo);
-    event.addressed = logins.filter((l) => known.has(l));
+    event.addressed = await collaborators(auth, repo, logins);
   } catch (error) {
     console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
   }
@@ -357,10 +355,8 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      await Promise.all([
-        resolveRoles(await auth(), repo, [data.author, ...(data.actor ? [data.actor] : [])]),
-        resolveAddressed(await auth(), repo, data),
-      ]);
+      const a = await auth();
+      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data)]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
@@ -382,7 +378,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
 
     match(selector, delivery, selectors) {
       const s = selector as Selector;
-      return selects(s, delivery.data, (selectors ?? []) as Selector[])
+      return selects(s, delivery.data, selectors as Selector[])
         ? checkEvent(s.from, delivery.data)
         : undefined;
     },

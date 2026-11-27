@@ -1100,6 +1100,20 @@ test("a lost run's restart link signs the person in, checks them against the tri
   assert.match(again.text, /isn't lost any more/);
 });
 
+test("a restart sends the browser back to the delivery's post, if the delivery has a url", async () => {
+  const replies: string[] = [];
+  const channel = { ...accepted(), reply: async (_thread: unknown, text: string) => (replies.push(text), "n1") };
+  const { record, store, watches } = await savedRecord(runStore(channel, { run: async () => "queued" as const }));
+  record.delivery.url = "https://github.test/acme/api/issues/1#issuecomment-1";
+  await advance(record, store, 0);
+  watches.set(record.dispatches[0]!.run, { at: Date.now() - LOST_AFTER_MS });
+  await watch(record, watches, store);
+  const token = new URL(replies[0]!.match(/\[Restart the run\]\((.+?)\)/)![1]!).searchParams.get("run")!;
+  const restarted = await open(store, `https://router.test/restart/callback?code=code-alice-1&state=${encodeURIComponent(token)}`);
+  assert.equal(restarted.status, 303);
+  assert.equal(restarted.location, "https://github.test/acme/api/issues/1#issuecomment-1");
+});
+
 test("the record that an alarm saves keeps a restart that was saved while the alarm waited on a channel", async () => {
   const record: DeliveryRecord = {
     id: "d1",

@@ -909,7 +909,8 @@ const restartLink = async (request: Request, store: RouterStore) => {
  *    that the repo has now.
  * 4. Has the channel check that the trigger's `from` lets the person start a run.
  * 5. Has the inbox dispatch the run again, as a new run, and redirects the
- *    browser to the page that says so.
+ *    browser to the delivery's post, or to a page that says so if the
+ *    delivery has no `url`.
  */
 const restartCallback = async (request: Request, store: RouterStore) => {
   const url = new URL(request.url);
@@ -938,7 +939,8 @@ const restartCallback = async (request: Request, store: RouterStore) => {
   if (!allowed) return page(403, `${person.login} may not trigger this agent, so the run wasn't restarted.`);
   if (!(await store.inbox.restart(ticket.connection, ticket.delivery, ticket.run, url.origin))) return page(409, NOT_LOST);
   console.log(JSON.stringify({ run: ticket.run, delivery: ticket.delivery, state: "restarted", by: person.login, id: person.id }));
-  return new Response(null, { status: 303, headers: { location: `${url.origin}${RESTARTED_PATH}` } });
+  const location = record.delivery.url ?? `${url.origin}${RESTARTED_PATH}`;
+  return new Response(null, { status: 303, headers: { location } });
 };
 
 /** Reads a JSON object body, or answers 400. */

@@ -255,7 +255,10 @@ const withGithub = async (
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     if (url.pathname.endsWith("/installation")) return Response.json({ id: 1 });
-    if (url.pathname.endsWith("/access_tokens")) return Response.json({ token: "t" });
+    if (url.pathname.endsWith("/access_tokens")) {
+      checks.push("token");
+      return Response.json({ token: "t" });
+    }
     const role = url.pathname.match(/\/collaborators\/([^/]+)\/permission$/);
     if (role) {
       const name = roles[decodeURIComponent(role[1]!)];
@@ -320,18 +323,19 @@ test("receive notes which mentions on a labelled issue are collaborators, and ke
     assert.deepEqual(first.data.addressed, ["bob"]);
     const second = await accepted("issue_comment", payload("and @bob or @carol"));
     assert.deepEqual(second.data.addressed, ["bob"]);
+    const asked = () => checks.filter((c) => c !== "token");
     const expected = ["claude", "bob", "renovate", "nobody", "carol"].map((login) => `/repos/acme/web/collaborators/${login}`);
-    assert.deepEqual(checks, expected);
+    assert.deepEqual(asked(), expected);
     const unlabelled = await accepted("issue_comment", payload("@bob", []));
     assert.equal(unlabelled.data.addressed, undefined);
     const many = Array.from({ length: 21 }, (_, i) => `@user${i}`).join(" ");
     const log = await accepted("issue_comment", payload(many));
     assert.equal(log.data.addressed, undefined);
-    assert.equal(checks.length, expected.length);
+    assert.equal(asked().length, expected.length);
   });
 });
 
-test("receive counts the issue's author as addressed without asking GitHub", async () => {
+test("receive counts the issue's author as addressed without asking GitHub, and mints one token for both checks", async () => {
   const payload = {
     ...commentPayload,
     repository: { full_name: "acme/site", default_branch: "main" },
@@ -341,7 +345,7 @@ test("receive counts the issue's author as addressed without asking GitHub", asy
   await withGithub({}, async (_, __, checks) => {
     const { data } = await accepted("issue_comment", payload);
     assert.deepEqual(data.addressed, ["dana"]);
-    assert.deepEqual(checks, ["/repos/acme/site/collaborators/erin"]);
+    assert.deepEqual(checks, ["token", "/repos/acme/site/collaborators/erin"]);
   });
 });
 

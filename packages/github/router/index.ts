@@ -183,7 +183,7 @@ const threadMessages = async (
     { id: OPENING_POST, ...readPost(opening, auth.appId) },
     ...comments.map((c) => ({ id: String(c.id), ...readPost(c, auth.appId) })),
   ];
-  await resolveRoles(auth, repo, posts.map((p) => p.author));
+  await resolveRoles(metadataToken(auth, repo), repo, posts.map((p) => p.author));
   return posts.map(({ id, author, body, agent }) => {
     const message: ThreadMessage = { id, author: `@${author.login}`, body };
     if (agent) message.agent = agent;
@@ -296,15 +296,21 @@ const checkEvent = (from: Selector["from"], event: GithubEvent): AuthorCheck => 
   return checks.find((c) => c.result === "check") ?? { result: "allowed" };
 };
 
+/** A token for reading `repo`'s metadata, minted the first time it's called and shared after that. */
+const metadataToken = (auth: { appId: string; privateKey: string }, repo: string) => {
+  let token: Promise<string> | undefined;
+  return () => (token ??= repoToken(auth, repo, { metadata: "read" }));
+};
+
 /**
  * Sets `role` and `write` on the people among `authors`, by asking GitHub.
  * If GitHub can't answer, they stay without a role.
  */
-const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: string, authors: Author[]) => {
+const resolveRoles = async (token: () => Promise<string>, repo: string, authors: Author[]) => {
   const people = authors.filter((a) => !a.bot && a.login && a.role === undefined);
   if (people.length === 0) return;
   try {
-    const found = await roles(auth, repo, [...new Set(people.map((a) => a.login))]);
+    const found = await roles(await token(), repo, [...new Set(people.map((a) => a.login))]);
     for (const a of people) {
       a.role = found.get(a.login);
       a.write = PUSH_ROLES.has(a.role ?? "");
@@ -324,7 +330,7 @@ const MAX_ADDRESSED_CHECKS = 20;
  * author counts without a check.
  */
 const resolveAddressed = async (
-  auth: { appId: string; privateKey: string },
+  token: () => Promise<string>,
   repo: string,
   event: GithubEvent,
   issueAuthor: string | undefined,
@@ -334,7 +340,7 @@ const resolveAddressed = async (
   const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h) && h !== author))];
   if (logins.length > MAX_ADDRESSED_CHECKS) return;
   try {
-    const found = await collaborators(auth, repo, logins);
+    const found = await collaborators(token, repo, logins);
     event.addressed = author && handles(event.body).includes(author) ? [author, ...found] : found;
   } catch (error) {
     console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
@@ -372,8 +378,11 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
         return { status: "ignored", reason: "posted by this App" };
       }
-      const a = await auth();
-      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data, payload.issue?.user?.login)]);
+      const token = metadataToken(await auth(), repo);
+      await Promise.all([
+        resolveRoles(token, repo, [data.author, ...(data.actor ? [data.actor] : [])]),
+        resolveAddressed(token, repo, data, payload.issue?.user?.login),
+      ]);
       return {
         status: "accepted",
         delivery: {
@@ -481,7 +490,7 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
     // A team in `from` needs a call that the router doesn't make yet, so it doesn't let the person in.
     async canTrigger(selector, delivery, { login }) {
       const person: Author = { login, bot: false, write: false };
-      await resolveRoles(await auth(), delivery.repo, [person]);
+      await resolveRoles(metadataToken(await auth(), delivery.repo), delivery.repo, [person]);
       return checkAuthor((selector as Selector).from, person).result === "allowed";
     },
   };

@@ -67,8 +67,7 @@ export const PUSH_ROLES = new Set(["admin", "maintain", "write"]);
  * Each login's role on `repo`, asked of GitHub: `admin`, `maintain`,
  * `write`, `triage`, `read`, an org's custom role, or `none`.
  */
-export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
-  const token = await repoToken(auth, repo, { metadata: "read" });
+export const roles = async (token: string, repo: string, logins: string[]) => {
   const role = async (login: string) => {
     const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
     const response = await github("GET", path, token);
@@ -89,20 +88,21 @@ const collaboratorCache = new Map<string, { collaborator: boolean; expires: numb
 
 /**
  * The logins among `logins` that are collaborators on `repo`, including org
- * members with access. Each App keeps each answer for `COLLABORATOR_TTL_MS`,
- * so it asks GitHub only about logins it hasn't seen recently.
+ * members with access. It keeps each answer for `COLLABORATOR_TTL_MS`, so it
+ * asks GitHub only about logins it hasn't seen recently, and only then calls
+ * `token`.
  */
-export const collaborators = async (auth: AppAuth, repo: string, logins: string[]) => {
+export const collaborators = async (token: () => Promise<string>, repo: string, logins: string[]) => {
   const now = Date.now();
   for (const [key, { expires }] of collaboratorCache) if (expires <= now) collaboratorCache.delete(key);
-  const key = (login: string) => `${auth.appId}:${repo}:${login}`.toLowerCase();
+  const key = (login: string) => `${repo}:${login}`.toLowerCase();
   const unknown = logins.filter((login) => !collaboratorCache.has(key(login)));
   if (unknown.length) {
-    const token = await repoToken(auth, repo, { metadata: "read" });
+    const t = await token();
     await Promise.all(
       unknown.map(async (login) => {
         const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}`;
-        const response = await github("GET", path, token);
+        const response = await github("GET", path, t);
         if (response.status !== 404) await ok(response, `GET ${path}`);
         collaboratorCache.set(key(login), { collaborator: response.status === 204, expires: now + COLLABORATOR_TTL_MS });
       }),

@@ -39,7 +39,8 @@ export default class ChannelWorker extends WorkerEntrypoint<Env> {
     return channel(context(this.env)).receive(request);
   }
 
-  match(selector: unknown, delivery: Delivery<unknown>, selectors: unknown[]) {
+  // A router deployed before `selectors` existed passes none.
+  match(selector: unknown, delivery: Delivery<unknown>, selectors: unknown[] = []) {
     return channel(context(this.env)).match(selector, delivery, selectors);
   }
 

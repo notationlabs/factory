@@ -94,8 +94,9 @@ const collaboratorCache = new Map<string, { collaborator: boolean; expires: numb
  */
 export const collaborators = async (auth: AppAuth, repo: string, logins: string[]) => {
   const now = Date.now();
+  for (const [key, { expires }] of collaboratorCache) if (expires <= now) collaboratorCache.delete(key);
   const key = (login: string) => `${auth.appId}:${repo}:${login}`.toLowerCase();
-  const unknown = logins.filter((login) => (collaboratorCache.get(key(login))?.expires ?? 0) <= now);
+  const unknown = logins.filter((login) => !collaboratorCache.has(key(login)));
   if (unknown.length) {
     const token = await repoToken(auth, repo, { metadata: "read" });
     await Promise.all(

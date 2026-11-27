@@ -314,6 +314,9 @@ const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: s
   }
 };
 
+/** The most logins that `resolveAddressed` checks in one comment. A comment with more, such as a pasted log, gets no `addressed`. */
+const MAX_ADDRESSED_CHECKS = 20;
+
 /**
  * Sets `addressed` on a new comment on a labelled issue, since only such a
  * comment can match a listen label without its mention. Team handles are
@@ -322,6 +325,7 @@ const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: s
 const resolveAddressed = async (auth: { appId: string; privateKey: string }, repo: string, event: GithubEvent) => {
   if (event.action !== "created" || event.labels.length === 0) return;
   const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h)))];
+  if (logins.length > MAX_ADDRESSED_CHECKS) return;
   try {
     event.addressed = await collaborators(auth, repo, logins);
   } catch (error) {
@@ -355,13 +359,13 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      const a = await auth();
-      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data)]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
         return { status: "ignored", reason: "posted by this App" };
       }
+      const a = await auth();
+      await Promise.all([resolveRoles(a, repo, [data.author, ...(data.actor ? [data.actor] : [])]), resolveAddressed(a, repo, data)]);
       return {
         status: "accepted",
         delivery: {

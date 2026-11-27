@@ -324,6 +324,10 @@ test("receive notes which mentions on a labelled issue are collaborators, and ke
     assert.deepEqual(checks, expected);
     const unlabelled = await accepted("issue_comment", payload("@bob", []));
     assert.equal(unlabelled.data.addressed, undefined);
+    const many = Array.from({ length: 21 }, (_, i) => `@user${i}`).join(" ");
+    const log = await accepted("issue_comment", payload(many));
+    assert.equal(log.data.addressed, undefined);
+    assert.equal(checks.length, expected.length);
   });
 });
 

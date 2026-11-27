@@ -223,7 +223,8 @@ const listenLabel = (selector: Pick<Selector, "mention" | "listen">) => {
 
 const hasLabel = (labels: string[], label: string) => labels.some((l) => l.toLowerCase() === label.toLowerCase());
 
-const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?/g;
+// A handle followed by `/` or `@` is a package path or version, such as `@scope/pkg/sub` or `@scope/pkg@2`, not a mention.
+const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?(?![\w/@-])/g;
 
 /** Code and quoted lines, where an `@` isn't a mention. */
 const NOT_MENTIONS = /```[\s\S]*?(?:```|(?![\s\S]))|`[^`\n]*`|^>.*$/gm;

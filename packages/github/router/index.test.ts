@@ -177,6 +177,9 @@ test("on an issue with the listen label, a comment addressed to someone else doe
   assert.ok(channel.match(selector(), comment("mail me@example.com")));
   assert.ok(channel.match(selector(), comment("@Claude and @claude again")));
   assert.ok(channel.match(selector(), comment("fix the `@types/node` import")));
+  assert.ok(channel.match(selector(), comment("migrate to @djgrant/classy-core/react")));
+  assert.ok(channel.match(selector(), comment("pin @types/node@22")));
+  assert.equal(channel.match(selector(), comment("thanks @bob.")), undefined);
   assert.ok(channel.match(selector(), comment("```ts\n@Injectable()\n```\nlike this")));
   assert.ok(channel.match(selector(), comment("> @bob said x\n\nplease do it")));
 });

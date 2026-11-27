@@ -1133,7 +1133,7 @@ test("a lost run's restart link signs the person in, checks them against the tri
   const restarted = await callback("code-alice-1");
   assert.equal(restarted.status, 303);
   assert.equal(restarted.location, "https://router.test/restart/started");
-  assert.equal(replies.at(-1), restartingNotice("alice"));
+  assert.equal(replies.at(-1), restartingNotice);
   const started = await open(store, restarted.location!);
   assert.equal(started.status, 200);
   assert.match(started.text, /The run is starting again/);

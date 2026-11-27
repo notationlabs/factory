@@ -244,7 +244,7 @@ export const lostNotice = (restart: string) =>
   "The next run will continue from the last saved snapshot.";
 
 /** The message that replaces the lost notice once a person has restarted the run, until the new run's first reply replaces it. */
-export const restartingNotice = (login: string) => `> ${login} restarted the run. Starting it again...`;
+export const restartingNotice = "> Restarting...";
 
 /** The message that shows on the thread while a dispatch waits for its container's first image build. */
 export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

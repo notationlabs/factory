@@ -153,7 +153,7 @@ test("match gets the selectors of the outpost's triggers on any of the provider'
   const channel = accepted();
   const match = channel.match;
   channel.match = async (selector, delivery, selectors) => {
-    seen.push(selectors!);
+    seen.push(selectors);
     return match(selector, delivery, selectors);
   };
   await call(store({ main: channel }, { "acme/api": named }));

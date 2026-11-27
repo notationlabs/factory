@@ -96,7 +96,8 @@ A restart link is `<router>/restart?run=<token>`. The token is a signed ticket t
 1. `GET /restart` checks the token and that the run is still lost, then redirects to the channel's sign-in.
 2. `GET /restart/callback` checks the token again and signs the person in.
 3. The channel's `canTrigger` checks the person against the trigger's `from` in the current outpost config. GitHub uses the person's role on the repo. `team` entries don't match yet.
-4. The inbox's `restart` sets that dispatch back to `pending` with a new run ID.
-5. The router redirects to the issue or comment that started the run. If the delivery has no URL, it redirects to `GET /restart/started`. The redirect means a reload doesn't reuse the sign-in code.
+4. The router replaces the lost notice with a notice that says who restarted the run. The new run's first reply replaces that notice.
+5. The inbox's `restart` sets that dispatch back to `pending` with a new run ID.
+6. The router redirects to the issue or comment that started the run. If the delivery has no URL, it redirects to `GET /restart/started`. The redirect means a reload doesn't reuse the sign-in code.
 
 The channel handles sign-in because the router doesn't know which platform a delivery came from.

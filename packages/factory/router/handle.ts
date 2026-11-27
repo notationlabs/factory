@@ -38,6 +38,7 @@ import {
   LOST_ERROR,
   lostNotice,
   nextTry,
+  restartingNotice,
   type TriggerDispatch,
   waitingNotice,
   type Watch,
@@ -923,7 +924,9 @@ const restartLink = async (request: Request, store: RouterStore) => {
  * 3. Finds the lost run in the inbox, and its trigger in the outpost config
  *    that the repo has now.
  * 4. Has the channel check that the trigger's `from` lets the person start a run.
- * 5. Has the inbox dispatch the run again, as a new run, and redirects the
+ * 5. Replaces the lost notice with a notice that says the person restarted
+ *    the run, so the thread shows it when the browser gets there.
+ * 6. Has the inbox dispatch the run again, as a new run, and redirects the
  *    browser to the delivery's post, or to a page that says so if the
  *    delivery has no `url`.
  */
@@ -952,6 +955,12 @@ const restartCallback = async (request: Request, store: RouterStore) => {
     return page(502, `Factory couldn't check who may trigger the agent: ${message(error)}`);
   }
   if (!allowed) return page(403, `${person.login} may not trigger this agent, so the run wasn't restarted.`);
+  // Posted before the restart, so the new run's first reply can't be replaced by it.
+  if (dispatch.thread !== undefined) {
+    await channel.reply(dispatch.thread, restartingNotice(person.login), dispatch.waiting).catch((error) => {
+      console.error(JSON.stringify({ run: ticket.run, state: "restarting notice failed", error: message(error) }));
+    });
+  }
   if (!(await store.inbox.restart(ticket.connection, ticket.delivery, ticket.run, url.origin))) return page(409, NOT_LOST);
   console.log(JSON.stringify({ run: ticket.run, delivery: ticket.delivery, state: "restarted", by: person.login, id: person.id }));
   const location = record.delivery.url ?? `${url.origin}${RESTARTED_PATH}`;

@@ -243,5 +243,8 @@ export const lostNotice = (restart: string) =>
   `You can now:\n\n1. Mention the agent again\n2. [Restart the run](${restart})\n3. Do nothing\n\n` +
   "The next run will continue from the last saved snapshot.";
 
+/** The message that replaces the lost notice once a person has restarted the run, until the new run's first reply replaces it. */
+export const restartingNotice = (login: string) => `> ${login} restarted the run. Starting it again...`;
+
 /** The message that shows on the thread while a dispatch waits for its container's first image build. */
 export const waitingNotice = (container: string) => `> Booting container \`${container}\`...`;

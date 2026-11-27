@@ -112,7 +112,7 @@ const gh = github.Connection.get("gh").channel({ id: "issues" });
 
 On `"edited"` comment triggers with `mention`, only edits that newly add the mention match.
 
-A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `<mention without @>:listening`, such as `claude:listening` for `@claude`. While the issue has the label, a new comment matches without the mention, unless it mentions another user, team or agent. Mentions in code and quotes don't count, and neither does a handle followed by `/` or `@`, such as the package path `@scope/pkg/sub`. Only comment triggers listen. On an issue trigger, `listen` only names the label to add. Label names in `labels` and `listen` match in any case. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
+A run started by a mention adds the trigger's `listen` label to the issue. `listen` defaults to `<mention without @>:listening`, such as `claude:listening` for `@claude`. While the issue has the label, a new comment matches without the mention, unless it mentions another agent on the repo, a collaborator on the repo, or a bot. The router asks GitHub which mentioned logins are collaborators or bots when the comment arrives. If GitHub can't answer, every mention counts. Mentions in code and quotes don't count, and neither do team handles or package names such as `@scope/pkg`. Only comment triggers listen. On an issue trigger, `listen` only names the label to add. Label names in `labels` and `listen` match in any case. Set `listen: false` to need a mention every time. Remove the label from the issue to stop the agent listening.
 
 ### Author sets (`from`)
 

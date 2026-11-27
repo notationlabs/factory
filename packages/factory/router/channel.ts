@@ -106,8 +106,12 @@ export type Operator = { login: string; id: string };
 interface ChannelBase<E> {
   /** Checks the delivery's signature and parses it. */
   receive(request: Request): Promise<Received<E>>;
-  /** Whether `selector` selects the delivery, and if so, whether its author may start a run. */
-  match(selector: unknown, delivery: Delivery<E>): AuthorCheck | undefined;
+  /**
+   * Whether `selector` selects the delivery, and if so, whether its author
+   * may start a run. `selectors` are those of all the outpost's triggers on
+   * this connection, including `selector`.
+   */
+  match(selector: unknown, delivery: Delivery<E>, selectors?: unknown[]): AuthorCheck | undefined;
   /** Sets up the platform side of the connection, such as a webhook, to deliver to `url`. Throws if it fails. */
   sync(url: string): Promise<void>;
   /** For a code host's channel: the files under `dir` in `repo` at `ref`, or at the default branch's head. */

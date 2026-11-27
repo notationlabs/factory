@@ -176,9 +176,10 @@ const webhook = async (request: Request, key: string, store: RouterStore) => {
 
   const matches: TriggerMatch[] = [];
   const dispatches: TriggerDispatch[] = [];
+  const selectors = selectorsOf(outpost, entry.provider, name, delivery);
   for (const [id, trigger] of Object.entries(outpost.triggers ?? {})) {
     if (!listens(outpost, trigger, entry.provider, name, delivery)) continue;
-    const author = await channel.match(trigger.match, delivery);
+    const author = await channel.match(trigger.match, delivery, selectors);
     if (!author) continue;
     // Team checks need a call to the platform, which the router doesn't make yet.
     if (author.result !== "allowed") {
@@ -219,6 +220,12 @@ const listens = (outpost: OutpostConfig, trigger: TriggerEntry, provider: string
     target.scope === delivery.scope
   );
 };
+
+/** The selectors of the outpost's triggers that listen for the delivery. */
+const selectorsOf = (outpost: OutpostConfig, provider: string, name: string, delivery: Delivery<unknown>) =>
+  Object.values(outpost.triggers ?? {})
+    .filter((t) => listens(outpost, t, provider, name, delivery))
+    .map((t) => t.match);
 
 /**
  * Tries a saved delivery's dispatches that are due, and resolves to when
@@ -447,7 +454,7 @@ const dispatch = async (d: Dispatch, store: RouterStore): Promise<string | undef
   if (!outpost || !trigger) throw new Error(`The outpost of ${repo} no longer has the trigger \`${triggerId}\`.`);
   if (
     !listens(outpost, trigger, d.provider, d.name, delivery) ||
-    (await d.channel.match(trigger.match, delivery))?.result !== "allowed"
+    (await d.channel.match(trigger.match, delivery, selectorsOf(outpost, d.provider, d.name, delivery)))?.result !== "allowed"
   ) {
     throw new Error(`The trigger \`${triggerId}\` no longer matches the event.`);
   }

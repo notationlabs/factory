@@ -83,6 +83,26 @@ export const roles = async (auth: AppAuth, repo: string, logins: string[]) => {
 };
 
 /**
+ * The logins among `logins` that are collaborators on `repo`, or bot
+ * accounts. A login that doesn't exist is neither.
+ */
+export const addressees = async (auth: AppAuth, repo: string, logins: string[]) => {
+  const token = await repoToken(auth, repo, { metadata: "read" });
+  const addressee = async (login: string) => {
+    const name = encodeURIComponent(login);
+    const collaborator = await github("GET", `/repos/${repo}/collaborators/${name}`, token);
+    if (collaborator.status === 204) return true;
+    if (collaborator.status !== 404) await ok(collaborator, `GET /repos/${repo}/collaborators/${name}`);
+    const user = await github("GET", `/users/${name}`, token);
+    if (user.status === 404) return false;
+    const { type } = (await (await ok(user, `GET /users/${name}`)).json()) as { type: string };
+    return type === "Bot";
+  };
+  const found = await Promise.all(logins.map(async (login) => ((await addressee(login)) ? [login] : [])));
+  return found.flat();
+};
+
+/**
  * The files under `dir` in `repo` at `ref`, or at the default branch's head:
  * 1. Resolves the ref to a commit and its tree.
  * 2. Lists the tree, and keeps the files under `dir`.

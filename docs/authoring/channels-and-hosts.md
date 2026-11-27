@@ -34,7 +34,7 @@ Export `channel(ctx: ChannelContext): Channel<E>` from a dedicated module path r
 | Method | Behavior |
 | :--- | :--- |
 | `receive` | Required; verifies signatures and returns `accepted`, `source`, `ignored`, or `rejected` |
-| `match` | Required; evaluates `selector.match` and returns an `AuthorCheck` or `undefined` |
+| `match` | Required; evaluates `selector.match` and returns an `AuthorCheck` or `undefined`; also gets the selectors of all the outpost's triggers on the connection, which GitHub uses to tell when a comment is addressed to another agent |
 | `sync` | Required; updates the platform webhook URL and secret to point at `url` |
 | `conversation` | Required for runs; returns `Conversation` context and thread reference |
 | `messages` | Required for runs; fetches ordered `ThreadMessage` entries for a thread |

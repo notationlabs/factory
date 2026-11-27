@@ -13,6 +13,7 @@ import { appJwt } from "./app-jwt.ts";
 import { signIn, signInUrl } from "./operators.ts";
 import {
   addLabels,
+  addressees,
   comment,
   installedRepos,
   type IssueComment,
@@ -69,6 +70,12 @@ export type GithubEvent = {
   /** The body before an edit. The same as `body` when an edit didn't change it. */
   before: string;
   labels: string[];
+  /**
+   * The lowercased logins that a new comment mentions and that are
+   * collaborators on the repo or bots. Missing if GitHub couldn't say, and
+   * then every mention counts.
+   */
+  addressed?: string[];
 };
 
 type Post = {
@@ -229,24 +236,35 @@ const HANDLE = /(?<![\w@.-])@[\w-]+(?:\/[\w-]+)?(?![\w/@-])/g;
 /** Code and quoted lines, where an `@` isn't a mention. */
 const NOT_MENTIONS = /```[\s\S]*?(?:```|(?![\s\S]))|`[^`\n]*`|^>.*$/gm;
 
-/** Whether `body` mentions a user or team other than `mention`, outside code and quotes. */
-const mentionsOther = (body: string, mention: string) => {
+/** The lowercased handles that `body` mentions, without the `@`, outside code and quotes. */
+const handles = (body: string) => (body.replace(NOT_MENTIONS, "").match(HANDLE) ?? []).map((h) => h.slice(1).toLowerCase());
+
+const isTeam = (handle: string) => handle.includes("/");
+
+/**
+ * Whether the event's body is addressed to someone other than `mention`:
+ * another agent on this connection, a collaborator on the repo, or a bot.
+ */
+const addressedToOther = (event: GithubEvent, mention: string, selectors: Selector[]) => {
   const own = mention.replace(/^@/, "").toLowerCase();
-  return (body.replace(NOT_MENTIONS, "").match(HANDLE) ?? []).some((h) => h.slice(1).toLowerCase() !== own);
+  const agents = new Set(selectors.flatMap((s) => (s.mention ? [s.mention.replace(/^@/, "").toLowerCase()] : [])));
+  return handles(event.body).some(
+    (h) => h !== own && (agents.has(h) || (event.addressed ? event.addressed.includes(h) : true)),
+  );
 };
 
 /** Whether the event's body mentions `mention`. An edit counts only if it newly adds the mention. */
 const newlyMentions = (event: GithubEvent, mention: string) =>
   mentions(event.body, mention) && !(event.action === "edited" && mentions(event.before, mention));
 
-const selects = (selector: Selector, event: GithubEvent) => {
+const selects = (selector: Selector, event: GithubEvent, selectors: Selector[] = []) => {
   if (!selector.actions.includes(event.action)) return false;
   if (selector.labels?.some((l) => !hasLabel(event.labels, l))) return false;
   if (selector.mention && !newlyMentions(event, selector.mention)) {
     // On an issue with the listen label, a new comment matches without the mention, unless it's addressed to someone else. Edits don't.
     const label = listenLabel(selector);
     const listening =
-      event.action === "created" && label !== undefined && hasLabel(event.labels, label) && !mentionsOther(event.body, selector.mention);
+      event.action === "created" && label !== undefined && hasLabel(event.labels, label) && !addressedToOther(event, selector.mention, selectors);
     if (!listening) return false;
   }
   return true;
@@ -293,6 +311,25 @@ const resolveRoles = async (auth: { appId: string; privateKey: string }, repo: s
   }
 };
 
+/**
+ * Sets `addressed` on a new comment on a labelled issue, since only such a
+ * comment can match a listen label without its mention. Team handles are
+ * left out, so a package such as `@scope/pkg` doesn't count.
+ */
+const resolveAddressed = async (auth: { appId: string; privateKey: string }, repo: string, event: GithubEvent) => {
+  if (event.action !== "created" || event.labels.length === 0) return;
+  const logins = [...new Set(handles(event.body).filter((h) => !isTeam(h)))];
+  if (logins.length === 0) {
+    event.addressed = [];
+    return;
+  }
+  try {
+    event.addressed = await addressees(auth, repo, logins);
+  } catch (error) {
+    console.log(JSON.stringify({ state: "mention check failed", repo, error: error instanceof Error ? error.message : String(error) }));
+  }
+};
+
 /** One GitHub App's webhook. A delivery's scope is its repo. */
 export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
   const appId = ctx.value(CHANNEL_VALUES.appId);
@@ -319,7 +356,10 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       const repo: string | undefined = payload.repository?.full_name;
       const data = parse(event, payload);
       if (!repo || !data) return { status: "ignored", reason: event };
-      await resolveRoles(await auth(), repo, [data.author, ...(data.actor ? [data.actor] : [])]);
+      await Promise.all([
+        resolveRoles(await auth(), repo, [data.author, ...(data.actor ? [data.actor] : [])]),
+        resolveAddressed(await auth(), repo, data),
+      ]);
       // The App's own replies would otherwise start runs.
       const post = event === "issue_comment" ? payload.comment : payload.issue;
       if (String(post?.performed_via_github_app?.id ?? "") === appId) {
@@ -339,9 +379,9 @@ export const channel = (ctx: ChannelContext): Channel<GithubEvent> => {
       };
     },
 
-    match(selector, delivery) {
+    match(selector, delivery, selectors) {
       const s = selector as Selector;
-      return selects(s, delivery.data)
+      return selects(s, delivery.data, (selectors ?? []) as Selector[])
         ? checkEvent(s.from, delivery.data)
         : undefined;
     },
